@@ -1,7 +1,7 @@
 # v2rayM macOS 原生客户端架构评估
 
 v2rayM 使用 SwiftUI 构建原生 macOS 界面，继续从 v2rayN 同步共享业务代码。
-推荐先将现有 `v2rayN.WebAPI` 作为普通用户权限的本地后端，SwiftUI 通过 HTTP 与 SSE 访问它。
+当前将 `v2rayN.WebAPI` 作为普通用户权限的本地后端。SwiftUI 首版通过 HTTP 访问并每两秒刷新，后续可接入已有 SSE。
 SwiftUI 不直接调用 C# ViewModel，也不直接读写上游 SQLite 数据库。
 
 本评估对应初始上游基线 `66dd7da6`，共享构建版本为 `7.25.6`、目标框架为 .NET 10。
@@ -90,13 +90,14 @@ v2rayM 应将 GUI 与随包后端作为一个应用版本更新，代理内核�
 
 ## SwiftUI 与后端的接口约定
 
-建议采用以下目录，本次评估阶段不创建空应用或占位实现：
+当前实现采用以下目录，客户端功能和开发打包步骤见 [README](../README.md#swiftui-原生客户端)：
 
 ```text
 macos/
-  V2rayM/              SwiftUI 界面及展示状态
-  BackendClient/      HTTP、DTO、会话及 SSE
-  PlatformServices/   系统代理、登录启动和后端生命周期
+  Native/Sources/V2rayM/       SwiftUI 界面及展示状态
+  Native/Sources/V2rayMKit/    HTTP、DTO、会话、系统代理与后端生命周期
+  Native/Sources/V2rayMCheck/  临时数据和本机测试节点的集成检查
+  TunHelper/                  独立的特权 helper
 v2rayN/
   ServiceLib/         尽量跟随上游
   v2rayN.WebAPI/      复用上游 API，新增接口集中维护
@@ -129,7 +130,7 @@ SSE 按现有协议申请短期单次 ticket；重连时重新申请，不复用
 
 macOS 分发需要分别处理 `osx-arm64` 和 `osx-x64` 后端与代理内核，签名嵌套可执行文件、打包 SwiftUI 应用并验证公证。
 现有上游 `publish-native.sh` 只接受 Linux RID，旧 macOS DMG 脚本打包的是 Avalonia 应用。
-本 fork 移除旧桌面打包，使用独立的 macOS 后端构建验证；正式 SwiftUI 签名和发布流程待应用实现后建立。
+本 fork 移除旧桌面打包，使用独立的 macOS 后端与 SwiftUI 构建验证。当前可生成 ad-hoc 原生应用包；Developer ID 签名、公证与正式发布仍待验证。
 
 ## 本次删除与保留范围
 
@@ -175,3 +176,9 @@ Intel 构建尚未在 Intel 实机运行；本次未提供真实节点或内核�
 首轮额外失败的 `NativeWebUpdateHelperTests.PermanentFileOperationFailuresSurfaceTheOperationAndCauseAfterRetries`
 使用 120ms 重试窗口，复查通过；计时敏感性仍需留意，不能据此认定 macOS 自更新已可使用。
 清理提交 `23d3624a` 保留了共享 C# 实现；后续 helper 接入集中修改可选启动适配、macOS 路径、实例锁和独立 API，未绕过失败测试。
+
+
+2026 年 10 月 20 日原生首版补充验证：SwiftUI Release 构建、应用包深层签名校验和 6 项原生测试通过。
+使用独立数据目录与真实 Xray，经本机 HTTP/SOCKS 服务验证订阅增改删更新、节点导入/选择/删除、两个节点的真实代理流量、内核停止、认证恢复与后端退出。
+图形界面实际打开并连接后端，导入/订阅表单及设置中的内核、路由数据已检查。
+自动测试未修改系统代理；首次管理员授权和真实系统代理切换仍需人工验收。TUN 状态不因普通代理验证通过而改变。

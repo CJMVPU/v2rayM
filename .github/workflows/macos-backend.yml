@@ -7,16 +7,14 @@ on:
     paths:
       - 'v2rayN/**'
       - 'macos/**'
-      - 'scripts/package-macos-helper.sh'
-      - 'scripts/smoke-macos-backend.py'
+      - 'scripts/*macos*'
       - '.github/workflows/macos-backend.yml'
       - 'global.json'
   pull_request:
     paths:
       - 'v2rayN/**'
       - 'macos/**'
-      - 'scripts/package-macos-helper.sh'
-      - 'scripts/smoke-macos-backend.py'
+      - 'scripts/*macos*'
       - '.github/workflows/macos-backend.yml'
       - 'global.json'
 
@@ -91,6 +89,28 @@ jobs:
         with:
           name: macos-helper-development
           path: ${{ runner.temp }}/V2rayM-Helper-Development.zip
+
+      - name: Test native SwiftUI client and proxy recovery
+        run: swift test --package-path macos/Native --scratch-path "$RUNNER_TEMP/v2raym-native-tests" --configuration release
+
+      - name: Package and exercise native client with real cores and local fixtures
+        shell: bash
+        run: |
+          case "$(uname -m)" in
+            arm64) rid=osx-arm64 ;;
+            x86_64) rid=osx-x64 ;;
+          esac
+          bash scripts/fetch-macos-cores.sh "$rid" "$RUNNER_TEMP/native-cores"
+          CORE_BIN_DIR="$RUNNER_TEMP/native-cores" NATIVE_SCRATCH_PATH="$RUNNER_TEMP/v2raym-native-tests" \
+            bash scripts/package-macos-app.sh "$RUNNER_TEMP/v2raym-backend/$rid" "$RUNNER_TEMP/V2rayM.app"
+          native_bin="$(swift build --package-path macos/Native --scratch-path "$RUNNER_TEMP/v2raym-native-tests" --configuration release --show-bin-path)"
+          python3 scripts/smoke-macos-app.py "$RUNNER_TEMP/V2rayM.app" "$native_bin/V2rayMCheck"
+          ditto -c -k --keepParent "$RUNNER_TEMP/V2rayM.app" "$RUNNER_TEMP/V2rayM-Native-Development.zip"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: macos-native-development
+          path: ${{ runner.temp }}/V2rayM-Native-Development.zip
 
       - name: Test ServiceLib
         run: dotnet test --project v2rayN/ServiceLib.Tests --configuration Release --no-restore
