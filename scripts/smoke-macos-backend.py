@@ -22,10 +22,10 @@ def free_port():
         return sock.getsockname()[1]
 
 
-def check(publish_directory):
+def check(publish_directory, app_bundle=None):
     if platform.system() != "Darwin":
         raise RuntimeError("Run this check on macOS with a matching backend architecture.")
-    source = publish_directory.resolve()
+    source = (app_bundle / "Contents/Resources/Backend" if app_bundle else publish_directory).resolve()
     if not (source / "v2rayN.WebAPI").is_file():
         raise RuntimeError("The publish directory must contain v2rayN.WebAPI.")
 
@@ -33,12 +33,18 @@ def check(publish_directory):
         root = Path(temporary)
         app = root / "app"
         # Copy only publish files. Do not import .env or real application data.
-        shutil.copytree(source, app, ignore=shutil.ignore_patterns(
+        excluded = shutil.ignore_patterns(
             ".env", "guiConfigs", "guiBackups", "guiTemps", "guiLogs",
-            "binConfigs", "WebAPIData", "*.instance.lock"))
+            "binConfigs", "WebAPIData", "*.instance.lock")
+        if app_bundle:
+            bundle_copy = root / "Probe.app"
+            shutil.copytree(app_bundle, bundle_copy, ignore=excluded)
+            app = bundle_copy / "Contents/Resources/Backend"
+        else:
+            shutil.copytree(source, app, ignore=excluded)
         environment = {
             key: value for key, value in os.environ.items()
-            if not key.startswith(("V2RAYN_", "ASPNETCORE_", "Kestrel__", "KESTREL__"))
+            if not key.startswith(("V2RAYN_", "V2RAYM_", "ASPNETCORE_", "Kestrel__", "KESTREL__"))
             and key not in {"INVOCATION_ID", "JOURNAL_STREAM", "NOTIFY_SOCKET",
                             "DOTNET_RUNNING_IN_CONTAINER", "container", "URLS",
                             "HTTP_PORTS", "HTTPS_PORTS"}
@@ -50,6 +56,7 @@ def check(publish_directory):
         while abs(api_port - proxy_port) < 20:
             proxy_port = free_port()
         environment.update({
+            "V2RAYM_DATA_HOME": str(root / "data"),
             "V2RAYN_WEB_API_KEY": management_key,
             "V2RAYN_WEB_AUTOSTART": "false",
             "V2RAYN_WEB_PROXY_PORT": str(proxy_port),
@@ -113,6 +120,19 @@ def check(publish_directory):
                     if result.get("success") is not True:
                         raise RuntimeError(f"Read-only API failed: {path}")
 
+                tun, _ = request("/api/macos/tun", token=token)
+                if app_bundle and tun["data"]["helperCode"] == "signed_app_bundle_required":
+                    raise RuntimeError("The backend did not discover the native client in its bundle.")
+                if tun["data"]["enabled"]:
+                    raise RuntimeError("Fresh isolated data must not enable TUN.")
+                if not tun["data"]["helperAvailable"]:
+                    rejected, _ = request("/api/macos/tun", "PUT", {"enabled": True}, token=token, expected=400)
+                    if rejected.get("code") != "mac_tun_helper_unavailable":
+                        raise RuntimeError("TUN must fail closed without an authorized helper.")
+                tun, _ = request("/api/macos/tun", token=token)
+                if tun["data"]["enabled"] or not (root / "data" / "guiConfigs").is_dir():
+                    raise RuntimeError("TUN state or dedicated macOS data scope is incorrect.")
+
                 ticket_result, _ = request("/api/auth/sse-ticket", "POST", token=token)
                 ticket = ticket_result["data"]["ticket"]
                 tokens.append(ticket)
@@ -149,5 +169,9 @@ def check(publish_directory):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("publish_directory", type=Path)
-    check(parser.parse_args().publish_directory)
+    parser.add_argument("publish_directory", type=Path, nargs="?")
+    parser.add_argument("--app-bundle", type=Path, help="Check an integration bundle using an isolated copy.")
+    arguments = parser.parse_args()
+    if arguments.publish_directory is None and arguments.app_bundle is None:
+        parser.error("Specify a publish directory or --app-bundle.")
+    check(arguments.publish_directory, arguments.app_bundle)

@@ -6,6 +6,7 @@ SwiftUI 不直接调用 C# ViewModel，也不直接读写上游 SQLite 数据库
 
 本评估对应初始上游基线 `66dd7da6`，共享构建版本为 `7.25.6`、目标框架为 .NET 10。
 真实联网代理、系统代理、TUN、签名和公证均需要单独验证。
+当前 helper 接入的实现与验证边界见 [macOS TUN helper 接入](macos-tun-helper.md)。
 
 ## ServiceLib 的复用边界
 
@@ -57,10 +58,10 @@ ServiceLib 的 [`ProxySettingOSX`](../v2rayN/ServiceLib/Handler/SysProxy/ProxySe
 
 ### TUN
 
-[`CoreLaunchPreflight`](../v2rayN/v2rayN.WebAPI/Services/CoreLaunchPreflight.cs) 明确拒绝启用 TUN 的生成配置。
-直接绕过检查不能得到完整的 macOS TUN 实现，还缺少授权、路由与 DNS 清理、进程归属和故障恢复。
+[`CoreLaunchPreflight`](../v2rayN/v2rayN.WebAPI/Services/CoreLaunchPreflight.cs) 保留无头默认 TUN 拒绝策略；macOS 主机通过独立策略检查 helper 可用性、生成配置及内核类型后才放行。
+已实现 helper 的授权接入入口、进程归属和停止逻辑；真实路由与 DNS 清理仍需签名后的系统验证。
 
-先验证普通用户后端和本地 SOCKS/HTTP 代理，再为 TUN 评估独立特权 helper 与上游内核的组合，或 Network Extension 路线。
+当前选用特权 helper 配合上游 Xray/sing-box 内核，SwiftUI 经普通用户后端控制。Network Extension 是保留的替代路线。
 [`SMAppService`](https://developer.apple.com/documentation/servicemanagement) 可用于管理额外的服务程序；
 [`NEPacketTunnelProvider`](https://developer.apple.com/documentation/networkextension/nepackettunnelprovider) 需要对应 Network Extension entitlement。
 Network Extension 是单独的实现路线，不能直接将现有 CLI 内核放入扩展就当作已经完成。
@@ -119,10 +120,8 @@ SSE 按现有协议申请短期单次 ticket；重连时重新申请，不复用
 
 上游 [`Utils.StartupPath`](../v2rayN/ServiceLib/Common/Utils.cs) 默认使用程序目录，启用 `V2RAYN_LOCAL_APPLICATION_DATA_V2` 后使用
 `.NET LocalApplicationData/v2rayN`。
-[`Program.PrepareDataScope`](../v2rayN/v2rayN.WebAPI/Program.cs) 的 `V2RAYN_DATA_HOME` 通过 `XDG_DATA_HOME` 间接设置目录。
-本机使用 .NET 10.0.402 验证：指定临时 `XDG_DATA_HOME` 后，`LocalApplicationData` 仍返回 `~/Library/Application Support`。
-按当前代码组合，macOS 上仍会选择其中的 `v2rayN` 目录，不能用该变量实现 v2rayM 数据隔离。
-正式集成前应补充明确的 macOS 数据路径，并验证数据库、日志、临时文件、内核及锁文件全部位于预期位置。
+原上游通过 `XDG_DATA_HOME` 间接设置目录，在 macOS 上不能实现预期隔离。
+当前 [`Program.PrepareDataScope`](../v2rayN/v2rayN.WebAPI/Program.cs) 和 ServiceLib 路径入口已适配 `V2RAYM_DATA_HOME`，默认使用 `~/Library/Application Support/v2rayM/`，并兼容 `V2RAYN_DATA_HOME`。
 
 正式数据建议放在 `~/Library/Application Support/v2rayM/`，UI 偏好放入本应用 UserDefaults，密钥放入 Keychain。
 首次迁移旧 v2rayN 数据应复制并保留回退来源，两个运行实例不能共用同一套 SQLite 文件。
@@ -171,8 +170,8 @@ Intel 构建尚未在 Intel 实机运行；本次未提供真实节点或内核�
 
 稳定失败的是 `WebLauncherTests.InstanceLockOwnerCanBeReadWhileAnotherProcessHoldsTheLock`。
 [`WebInstanceLock`](../v2rayN/v2rayN.WebAPI/Launcher/WebInstanceLock.cs) 在 macOS 上使用 `FileShare.None`，持锁时通过另一文件句柄读取 PID 返回空。
-需要在后续 macOS 适配中修正锁与所有者读取的兼容性，同时验证互斥、锁释放和跨进程行为。
+当前已将 macOS 纳入 Unix flock 实现，该测试已通过。
 
 首轮额外失败的 `NativeWebUpdateHelperTests.PermanentFileOperationFailuresSurfaceTheOperationAndCauseAfterRetries`
 使用 120ms 重试窗口，复查通过；计时敏感性仍需留意，不能据此认定 macOS 自更新已可使用。
-本次保留上游共享业务与 WebAPI C# 实现，仅清理 GUI 并增加验证入口，没有绕过失败测试。
+清理提交 `23d3624a` 保留了共享 C# 实现；后续 helper 接入集中修改可选启动适配、macOS 路径、实例锁和独立 API，未绕过失败测试。

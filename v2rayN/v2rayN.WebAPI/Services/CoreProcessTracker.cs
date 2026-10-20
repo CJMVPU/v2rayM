@@ -12,6 +12,23 @@ internal sealed record CoreProcessIdentity(int ProcessId, string ProcessName, lo
 /// </summary>
 internal static class CoreProcessTracker
 {
+    public static CoreProcessIdentity[] CaptureOwnedProcesses(IEnumerable<int> processIds)
+    {
+        var owned = new List<CoreProcessIdentity>();
+        foreach (var pid in processIds.Distinct())
+        {
+            try
+            {
+                using var process = Process.GetProcessById(pid);
+                if (process.HasExited) continue;
+                var path = GetProcessExecutablePath(process);
+                if (path is null) continue;
+                owned.Add(new(pid, NormalizeProcessName(process.ProcessName), GetStartTimeUtcTicks(process) ?? 0, path));
+            }
+            catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or Win32Exception or NotSupportedException) { }
+        }
+        return owned.ToArray();
+    }
     public static HashSet<int> CaptureExistingProcessIds()
     {
         var ids = new HashSet<int>();
@@ -93,7 +110,7 @@ internal static class CoreProcessTracker
                 }
 
                 var startTimeTicks = GetStartTimeUtcTicks(process);
-                if (startTimeTicks is long observedStartTime && observedStartTime != identity.StartTimeUtcTicks) continue;
+                if (startTimeTicks is long observedStartTime && identity.StartTimeUtcTicks != 0 && observedStartTime != identity.StartTimeUtcTicks) continue;
                 var executablePath = GetProcessExecutablePath(process);
                 if (executablePath is not null && !PathComparer.Equals(executablePath, identity.ExecutablePath)) continue;
 

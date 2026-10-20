@@ -6,12 +6,16 @@ on:
     branches: [master, main, 'codex/**']
     paths:
       - 'v2rayN/**'
+      - 'macos/**'
+      - 'scripts/package-macos-helper.sh'
       - 'scripts/smoke-macos-backend.py'
       - '.github/workflows/macos-backend.yml'
       - 'global.json'
   pull_request:
     paths:
       - 'v2rayN/**'
+      - 'macos/**'
+      - 'scripts/package-macos-helper.sh'
       - 'scripts/smoke-macos-backend.py'
       - '.github/workflows/macos-backend.yml'
       - 'global.json'
@@ -36,6 +40,9 @@ jobs:
 
       - name: Build backend solution
         run: dotnet build v2rayN/v2rayN.slnx --configuration Release
+
+      - name: Test native helper without installing a system service
+        run: swift test --package-path macos/TunHelper --scratch-path "$RUNNER_TEMP/v2raym-swift-tests"
 
       - name: Publish both macOS architectures
         shell: bash
@@ -64,6 +71,26 @@ jobs:
           name: macos-backend
           path: ${{ runner.temp }}/v2raym-backend
           if-no-files-found: error
+
+      - name: Package ad-hoc helper integration artifact
+        shell: bash
+        run: |
+          case "$(uname -m)" in
+            arm64) rid=osx-arm64 ;;
+            x86_64) rid=osx-x64 ;;
+          esac
+          bash scripts/package-macos-helper.sh "$RUNNER_TEMP/v2raym-backend/$rid" "$RUNNER_TEMP/V2rayM-Helper-Development.app"
+
+      - name: Archive helper development artifact
+        run: ditto -c -k --keepParent "$RUNNER_TEMP/V2rayM-Helper-Development.app" "$RUNNER_TEMP/V2rayM-Helper-Development.zip"
+
+      - name: Smoke test bundle discovery without authorizing a helper
+        run: python3 scripts/smoke-macos-backend.py --app-bundle "$RUNNER_TEMP/V2rayM-Helper-Development.app"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: macos-helper-development
+          path: ${{ runner.temp }}/V2rayM-Helper-Development.zip
 
       - name: Test ServiceLib
         run: dotnet test --project v2rayN/ServiceLib.Tests --configuration Release --no-restore

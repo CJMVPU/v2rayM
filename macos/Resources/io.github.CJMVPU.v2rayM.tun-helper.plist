@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>io.github.CJMVPU.v2rayM.tun-helper</string>
+    <key>BundleProgram</key><string>Contents/MacOS/V2rayMHelper</string>
+    <key>MachServices</key>
+    <dict><key>io.github.CJMVPU.v2rayM.tun-helper</key><true/></dict>
+    <key>AssociatedBundleIdentifiers</key>
+    <array><string>io.github.CJMVPU.v2rayM</string></array>
+    <key>UserName</key><string>root</string>
+    <key>ProcessType</key><string>Interactive</string>
+    <key>AbandonProcessGroup</key><false/>
+    <key>ExitTimeOut</key><integer>30</integer>
+</dict>
+</plist>

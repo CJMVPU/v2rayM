@@ -1176,6 +1176,11 @@ public class Utils
 
     public static string StartupPath()
     {
+        if (OperatingSystem.IsMacOS()
+            && Environment.GetEnvironmentVariable("V2RAYM_DATA_HOME") is { Length: > 0 } macDataHome)
+        {
+            return Path.GetFullPath(macDataHome);
+        }
         if (Environment.GetEnvironmentVariable(Global.LocalAppData) == "1")
         {
             return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "v2rayN");

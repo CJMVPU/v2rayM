@@ -44,10 +44,13 @@ copy the complete architecture-matched official `2dust/v2rayN-core-bin` payload.
 
 ## Unsupported desktop capabilities
 
-TUN settings/control, desktop system proxy, Clash Proxies/Connections, tray icons, global
-hotkeys, window placement, desktop startup integration and native dialogs/scanners are outside
-the headless API boundary. Core start/restart/autostart rejects generated TUN configurations
-without changing saved settings. These exclusions are not claims of full desktop parity.
+Desktop system proxy, Clash Proxies/Connections, tray icons, global hotkeys, window placement,
+desktop startup integration and native dialogs/scanners remain outside the headless API boundary.
+Standalone/non-macOS Core start/restart/autostart rejects generated TUN configurations.
+This fork adds the authenticated `/api/macos/tun` settings/status extension for a signed macOS
+application bundle. Generated Xray/sing-box TUN configurations require its approved XPC helper;
+custom configurations and unsupported cores remain rejected. See the
+[macOS helper integration](../../docs/macos-tun-helper.md) for the signature boundary and unverified system tests.
 
 ## Response contract
 

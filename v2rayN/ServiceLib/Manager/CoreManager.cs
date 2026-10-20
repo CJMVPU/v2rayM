@@ -18,6 +18,11 @@ public class CoreManager
     private Func<bool, string, Task>? _updateFunc;
     private const string _tag = "CoreHandler";
 
+    public IPrivilegedCoreLauncher? PrivilegedCoreLauncher { get; set; }
+
+    public int[] GetOwnedCoreProcessIds() => new[] { _processService, _processPreService }
+        .Where(process => process is { HasExited: false }).Select(process => process!.Id).ToArray();
+
     public async Task Init(Config config, Func<bool, string, Task> updateFunc)
     {
         _config = config;
@@ -316,6 +321,10 @@ public class CoreManager
             if (mayNeedSudo
                 && ShouldRunAsSudo(isTunLaunch, coreInfo.CoreType, Utils.IsNonWindows()))
             {
+                if (Utils.IsMacOS() && PrivilegedCoreLauncher is { } launcher)
+                {
+                    return await launcher.StartAsync(coreInfo, Utils.GetBinConfigPath(configPath), _updateFunc);
+                }
                 _linuxSudo = true;
                 await CoreAdminManager.Instance.Init(_config, _updateFunc);
                 return await CoreAdminManager.Instance.RunProcessAsLinuxSudo(fileName, coreInfo, configPath);

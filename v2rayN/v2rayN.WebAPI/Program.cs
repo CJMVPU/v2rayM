@@ -368,6 +368,17 @@ internal static class Program
 
     private static void PrepareDataScope()
     {
+        if (OperatingSystem.IsMacOS())
+        {
+            var macDataHome = Environment.GetEnvironmentVariable("V2RAYM_DATA_HOME")
+                ?? Environment.GetEnvironmentVariable("V2RAYN_DATA_HOME")
+                ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "v2rayM");
+            var fullPath = Path.GetFullPath(macDataHome);
+            Directory.CreateDirectory(fullPath);
+            Environment.SetEnvironmentVariable("V2RAYM_DATA_HOME", fullPath);
+            Environment.SetEnvironmentVariable(Global.LocalAppData, "1");
+            return;
+        }
         var dataHome = Environment.GetEnvironmentVariable("V2RAYN_DATA_HOME");
         if (!string.IsNullOrWhiteSpace(dataHome))
         {

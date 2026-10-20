@@ -3,7 +3,7 @@
 v2rayM 是基于 [v2rayN](https://github.com/2dust/v2rayN) 的 macOS 客户端项目。
 原生界面采用 SwiftUI，节点、订阅、配置生成和代理内核管理优先复用上游功能，保留 GitHub fork 关联和提交历史。
 
-当前处于架构准备阶段：已移除 WPF 和 Avalonia 桌面 GUI，保留 `ServiceLib`、`v2rayN.WebAPI` 和后端测试；SwiftUI 应用尚未实现。
+已移除 WPF 和 Avalonia 桌面 GUI，保留 `ServiceLib`、`v2rayN.WebAPI` 和后端测试。已实现 macOS TUN helper 的代码接线；SwiftUI 应用尚未实现，特权服务与真实 TUN 仍待签名和系统授权验证。
 
 ## 架构与功能边界
 
@@ -20,7 +20,8 @@ ServiceLib → Xray / sing-box 等代理内核
 ```
 
 现有 API 可以复用节点、订阅、路由、DNS、测速、日志、流量统计和非 TUN 内核运行管理。
-系统代理、TUN、Clash 策略组和连接管理、菜单栏、全局快捷键及登录启动需要额外适配。
+系统代理、Clash 策略组和连接管理、菜单栏、全局快捷键及登录启动需要额外适配。
+TUN 已通过可选的 macOS XPC helper 接入，详见 [TUN helper 接入](docs/macos-tun-helper.md)，当前不能视为已完成实际联网验证。
 
 完整评估、代码依据和实施顺序见 [macOS 原生客户端架构评估](docs/macos-architecture.md)。
 上游 API 的接口边界见 [功能映射](v2rayN/v2rayN.WebAPI/FEATURE-MAP.md) 和 [运行说明](v2rayN/v2rayN.WebAPI/README.md)。
@@ -50,8 +51,8 @@ Intel 构建使用 `osx-x64`。冒烟验证必须在与可执行文件架构匹�
 GitHub Actions 的 `macos-backend.yml` 构建两种架构，并在运行机器的原生架构上执行冒烟验证。
 这不等于完整客户端或 TUN 已可使用。
 
-目前 macOS WebAPI 测试仍有实例锁所有者读取失败，完整测试尚未通过；该问题会使新验证流程报告失败。
-详细复查结果见架构评估中的验证记录。
+原 macOS 实例锁读取失败已修复。验证流程还包括 Swift helper 测试和 ad-hoc 开发集成包校验；不会在 CI 注册特权服务。
+macOS 后端默认数据目录为 `~/Library/Application Support/v2rayM/`，测试可用 `V2RAYM_DATA_HOME` 隔离。
 
 ## 上游同步
 

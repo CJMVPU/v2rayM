@@ -1414,6 +1414,7 @@ public sealed partial class V2rayRuntime
             Config.CoreBasicItem.EnableFinalFragment,
             Config.CoreBasicItem.EnableCacheFile4Sbox,
         },
+        TunMode = Config.TunModeItem,
         Mux4Ray = new
         {
             Config.Mux4RayItem.Concurrency,

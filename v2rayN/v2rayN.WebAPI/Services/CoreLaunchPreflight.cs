@@ -19,18 +19,20 @@ internal static class CoreLaunchPreflight
     public static async Task<CoreLaunchPreflightResult> BuildAndValidateAsync(
         Config config,
         ProfileItem profile,
-        Func<ECoreType, OperationView?> validateCoreBinary)
+        Func<ECoreType, OperationView?> validateCoreBinary,
+        Func<CoreConfigContextBuilderAllResult, OperationView?>? validateTun = null)
     {
         var built = await CoreConfigContextBuilder.BuildAll(config, profile);
-        return Validate(profile, built, validateCoreBinary);
+        return Validate(profile, built, validateCoreBinary, validateTun);
     }
 
     internal static CoreLaunchPreflightResult Validate(
         ProfileItem profile,
         CoreConfigContextBuilderAllResult built,
-        Func<ECoreType, OperationView?> validateCoreBinary)
+        Func<ECoreType, OperationView?> validateCoreBinary,
+        Func<CoreConfigContextBuilderAllResult, OperationView?>? validateTun = null)
     {
-        var tunRejection = GetTunLaunchRejection(built);
+        var tunRejection = validateTun is null ? GetTunLaunchRejection(built) : validateTun(built);
         if (tunRejection is not null)
         {
             return new CoreLaunchPreflightResult(profile, built, tunRejection);

@@ -17,6 +17,7 @@ using NLog.Config;
 using NLog.Targets;
 using v2rayN.WebAPI.Adapters;
 using v2rayN.WebAPI.Contracts;
+using v2rayN.WebAPI.MacOS;
 
 namespace v2rayN.WebAPI.Services;
 
@@ -49,6 +50,7 @@ public sealed partial class V2rayRuntime(
     private string? _xrayPath;
     private ServerSpeedItem? _latestTraffic;
     private bool _initialized;
+    private readonly MacTunCoreLauncher _macTunLauncher = MacTunCoreLauncher.ForCurrentApp();
     private bool _restoring;
     private int _restoreAndRestartRequested;
 
@@ -132,6 +134,7 @@ public sealed partial class V2rayRuntime(
     private async Task StopCoreAndConfirmAsync(CancellationToken cancellationToken)
     {
         await CoreManager.Instance.CoreStop();
+        _macTunLauncher.ConfirmCleanup();
 
         var deadline = DateTimeOffset.UtcNow.AddSeconds(5);
         while (true)
@@ -275,7 +278,8 @@ public sealed partial class V2rayRuntime(
         await _mutations.RunAsync(() => EnsureConfigSaveSucceededAsync(() => ConfigHandler.SaveConfig(Config)));
         await ProfileExManager.Instance.Init();
         await CertPemManager.Instance.Init(Config);
-        // The Web frontend owns its runtime and rejects generated launch contexts that enable TUN.
+        // The native macOS host routes TUN launches through its signed XPC helper.
+        if (OperatingSystem.IsMacOS()) CoreManager.Instance.PrivilegedCoreLauncher = _macTunLauncher;
         await CoreManager.Instance.Init(Config, OnCoreMessageAsync);
         if (Config.GuiItem.EnableStatistics || Config.GuiItem.DisplayRealTimeSpeed)
         {
@@ -802,6 +806,7 @@ public sealed partial class V2rayRuntime(
 
     private async Task<CoreLaunchPreflightResult> BuildAndValidateCoreLaunchAsync(ProfileItem profile)
     {
+        var helper = Config.TunModeItem.EnableTun ? await _macTunLauncher.ProbeAsync() : null;
         var preflight = await CoreLaunchPreflight.BuildAndValidateAsync(Config, profile, coreType =>
         {
             var coreInfo = CoreInfoManager.Instance.GetCoreInfo(coreType);
@@ -814,7 +819,7 @@ public sealed partial class V2rayRuntime(
             AddLog("core", missingCoreMessage);
             return OperationView.Fail("core_binary_missing", ApiMessageKeys.CoreBinaryMissing,
                 new { coreType = coreType.ToString() });
-        });
+        }, built => MacTunLaunchPolicy.Validate(built, OperatingSystem.IsMacOS(), helper?.Success == true));
 
         if (preflight.Failure?.Code == "profile_validation_failed")
         {
@@ -907,10 +912,10 @@ public sealed partial class V2rayRuntime(
             }
             finally
             {
-                SetTrackedCoreProcesses(CoreProcessTracker.CaptureStartedProcesses(
-                    existingProcessIds,
-                    expectedExecutablePaths,
-                    expectedConfigPaths));
+                var tracked = OperatingSystem.IsMacOS()
+                    ? CoreProcessTracker.CaptureOwnedProcesses(CoreManager.Instance.GetOwnedCoreProcessIds())
+                    : CoreProcessTracker.CaptureStartedProcesses(existingProcessIds, expectedExecutablePaths, expectedConfigPaths);
+                SetTrackedCoreProcesses(tracked.Concat(_macTunLauncher.CaptureIdentities()));
             }
             var started = await WaitForListenerAsync(port, cancellationToken);
             var processIds = GetActiveCoreProcessIds();

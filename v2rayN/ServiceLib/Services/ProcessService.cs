@@ -6,9 +6,11 @@ public class ProcessService : IDisposable
     private readonly Func<bool, string, Task>? _updateFunc;
     private bool _isDisposed;
 
-    public int Id => _process.Id;
-    public IntPtr Handle => _process.Handle;
-    public bool HasExited => _process.HasExited;
+    public virtual int Id => _process.Id;
+    public virtual IntPtr Handle => _process.Handle;
+    public virtual bool HasExited => _process.HasExited;
+
+    protected ProcessService() => _process = null!;
 
     public ProcessService(
         string fileName,
@@ -70,7 +72,7 @@ public class ProcessService : IDisposable
         }
     }
 
-    public async Task StopAsync()
+    public virtual async Task StopAsync()
     {
         if (_process.HasExited)
         {
@@ -142,7 +144,7 @@ public class ProcessService : IDisposable
         };
     }
 
-    public void Dispose()
+    public virtual void Dispose()
     {
         if (_isDisposed)
         {

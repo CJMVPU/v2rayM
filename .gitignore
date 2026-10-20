@@ -402,3 +402,8 @@ FodyWeavers.xsd
 # JetBrains Rider
 .idea/
 *.sln.iml
+
+# Native macOS helper build and per-user Xcode state
+macos/TunHelper/.build/
+macos/TunHelper/.swiftpm/
+**/xcuserdata/

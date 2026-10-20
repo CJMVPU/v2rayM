@@ -16,5 +16,6 @@ public static class WebApiCapabilities
         "core.runtime",
         "core.updates",
         "WebAPI.self-update",
+        ..(OperatingSystem.IsMacOS() ? new[] { "macos.tun.helper" } : []),
     ];
 }
