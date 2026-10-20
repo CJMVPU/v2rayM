@@ -26,7 +26,6 @@ on:
       - 'global.json'
       - '.github/workflows/build-WebAPI.yml'
       - '.github/workflows/release-WebAPI.yml'
-      - '.github/workflows/build-all.yml'
       - '.github/workflows/upload-sign.yml'
   push:
     branches: [master]
@@ -40,7 +39,6 @@ on:
       - 'global.json'
       - '.github/workflows/build-WebAPI.yml'
       - '.github/workflows/release-WebAPI.yml'
-      - '.github/workflows/build-all.yml'
       - '.github/workflows/upload-sign.yml'
 permissions:
   contents: read

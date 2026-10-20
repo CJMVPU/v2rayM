@@ -202,9 +202,9 @@ executable assumptions.
 
 ## Releases and containers
 
-`build-all.yml` ("release all platforms") dispatches the desktop platform workflows and calls
-`release-WebAPI.yml`; the WebAPI packages ride the same `upload-sign.yml` path and land in the same
-release as the desktop assets. `release-WebAPI.yml` can also be dispatched directly with a
+This fork removes the upstream desktop GUI release workflows. Its macOS backend validation
+is described in the [repository README](../../README.md); SwiftUI application packaging is separate.
+The retained `release-WebAPI.yml` can be dispatched directly with a
 `release_tag` (`x.y.z`) to call `build-WebAPI.yml`, assemble and validate the Linux and Windows
 WebAPI assets, then sign and upload them through the existing `upload-sign.yml` workflow. Signing
 uses the repository GPG key, so a fork that runs this flow publishes with its own

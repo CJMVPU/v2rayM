@@ -1,0 +1,73 @@
+name: macOS backend validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master, main, 'codex/**']
+    paths:
+      - 'v2rayN/**'
+      - 'scripts/smoke-macos-backend.py'
+      - '.github/workflows/macos-backend.yml'
+      - 'global.json'
+  pull_request:
+    paths:
+      - 'v2rayN/**'
+      - 'scripts/smoke-macos-backend.py'
+      - '.github/workflows/macos-backend.yml'
+      - 'global.json'
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: macos-latest
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_GENERATE_ASPNET_CERTIFICATE: 'false'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.x'
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+
+      - name: Build backend solution
+        run: dotnet build v2rayN/v2rayN.slnx --configuration Release
+
+      - name: Publish both macOS architectures
+        shell: bash
+        run: |
+          for rid in osx-arm64 osx-x64; do
+            dotnet publish v2rayN/v2rayN.WebAPI/v2rayN.WebAPI.csproj \
+              --configuration Release --runtime "$rid" --self-contained true \
+              -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true \
+              -p:WebRepository="$GITHUB_REPOSITORY" -p:WebCommit="$GITHUB_SHA" \
+              --output "$RUNNER_TEMP/v2raym-backend/$rid"
+          done
+
+      - name: Smoke test native host architecture
+        shell: bash
+        run: |
+          case "$(uname -m)" in
+            arm64) rid=osx-arm64 ;;
+            x86_64) rid=osx-x64 ;;
+            *) echo 'Unsupported macOS runner architecture' >&2; exit 1 ;;
+          esac
+          python3 scripts/smoke-macos-backend.py "$RUNNER_TEMP/v2raym-backend/$rid"
+
+      - name: Upload backend validation artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-backend
+          path: ${{ runner.temp }}/v2raym-backend
+          if-no-files-found: error
+
+      - name: Test ServiceLib
+        run: dotnet test --project v2rayN/ServiceLib.Tests --configuration Release --no-restore
+
+      # Keep platform compatibility failures visible; do not skip the macOS lock test.
+      - name: Test WebAPI
+        run: dotnet test --project v2rayN/v2rayN.WebAPI/Tests --configuration Release --no-restore
