@@ -36,12 +36,45 @@ public class LogBufferTests
     {
         var logs = new LogBuffer();
         var message = new string('x', 10_000);
-        for (var index = 0; index < 300; index++) logs.Add("core", message);
+        for (var index = 0; index < 1000; index++) logs.Add("core", message);
 
         var retained = logs.Recent(2000);
         await retained.Count.Should().BeLessThan(2000);
         await retained.Sum(item => item.Message.Length + item.Source.Length)
-            .Should().BeLessThanOrEqualTo(1_000_000);
+            .Should().BeLessThanOrEqualTo(LogBuffer.MaximumRetainedCharacters);
+    }
+
+    [Test]
+    public async Task TenThousandRowsAreRetainedInOrderAndOnlyOldestRowsAreEvicted()
+    {
+        var logs = new LogBuffer();
+        for (var index = 0; index < 10_005; index++) logs.Add("core", $"line {index}");
+        var retained = logs.Recent(10_000);
+        await retained.Count.Should().BeEqualTo(10_000);
+        await retained[0].Message.Should().BeEqualTo("line 5");
+        await retained[^1].Message.Should().BeEqualTo("line 10004");
+    }
+
+    [Test]
+    public async Task IncrementalPollingDoesNotReplaceOrDuplicateOldRows()
+    {
+        var logs = new LogBuffer();
+        var first = logs.Add("core", "before stop");
+        var initial = logs.Tail(0, 10_000);
+        await initial.Items.Single().Sequence.Should().BeEqualTo(first.Sequence);
+        await logs.Tail(initial.LatestSequence, 10_000).Items.Count.Should().BeEqualTo(0);
+        var second = logs.Add("core", "after restart");
+        var next = logs.Tail(initial.LatestSequence, 10_000);
+        await next.Items.Single().Sequence.Should().BeEqualTo(second.Sequence);
+        await logs.Recent(10_000).Count.Should().BeEqualTo(2);
+    }
+
+    [Test]
+    public async Task CursorFromAnEarlierBackendSessionReturnsAvailableHistory()
+    {
+        var logs = new LogBuffer();
+        logs.Add("core", "new backend");
+        await logs.Tail(1000, 10_000).Items.Single().Message.Should().BeEqualTo("new backend");
     }
 
     [Test]

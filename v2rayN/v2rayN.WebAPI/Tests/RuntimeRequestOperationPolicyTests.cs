@@ -9,6 +9,9 @@ public class RuntimeRequestOperationPolicyTests
     [Arguments("GET", "/api/operations")]
     [Arguments("GET", "/api/logs")]
     [Arguments("GET", "/api/logs/page")]
+    [Arguments("GET", "/api/logs/tail")]
+    [Arguments("GET", "/api/core-updates/progress")]
+    [Arguments("GET", "/api/web-updates/progress")]
     public async Task ReadOnlyRuntimeEndpointsUseObservationLeases(string method, string path)
     {
         await RuntimeRequestOperationPolicy.Classify(method, path)

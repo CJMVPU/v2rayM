@@ -648,9 +648,7 @@
   <data name="TbPreSocksPort" xml:space="preserve">
     <value>Port Socks</value>
   </data>
-  <data name="TipPreSocksPort" xml:space="preserve">
-    <value>*Valeur du port Socks (config perso, optionnelle). Si défini, Xray/sing-box (Tun) démarre un service Socks en amont supplémentaire pour fournir le routage sélectif et l’affichage de la vitesse.</value>
-  </data>
+
   <data name="TbBrowse" xml:space="preserve">
     <value>Parcourir</value>
   </data>
@@ -1002,21 +1000,13 @@
   <data name="menuDNSSetting" xml:space="preserve">
     <value>Paramètres DNS</value>
   </data>
-  <data name="TbCustomDnsSingbox" xml:space="preserve">
-    <value>DNS personnalisé sing-box</value>
-  </data>
-  <data name="TbDnsSingboxObjectDoc" xml:space="preserve">
-    <value>Saisissez la structure JSON DNS ; cliquez pour voir la doc.</value>
-  </data>
+
+
   <data name="TbSettingDnsImportDefConfig" xml:space="preserve">
     <value>Cliquez pour importer la config DNS par défaut</value>
   </data>
-  <data name="TbdomainStrategy4Singbox" xml:space="preserve">
-    <value>Stratégie résolution domaine (sing-box)</value>
-  </data>
-  <data name="TbSettingsMux4SboxProtocol" xml:space="preserve">
-    <value>Protocole de multiplexage Mux (sing-box)</value>
-  </data>
+
+
   <data name="TbRoutingRuleProcess" xml:space="preserve">
     <value>Process (Linux/Windows)</value>
   </data>
@@ -1128,18 +1118,12 @@
   <data name="TbSettingsFragmentFallbackDelay" xml:space="preserve">
     <value>Délai fallback</value>
   </data>
-  <data name="TbSettingsFragmentFallbackDelayTip" xml:space="preserve">
-    <value>Délai fallback pour fragment TLS. sing-box seulement. Vide = défaut.</value>
-  </data>
+
   <data name="FillFragmentParameterError" xml:space="preserve">
     <value>Format de plage invalide. Utilisez 'from-to' (ex: 50-100).</value>
   </data>
-  <data name="TbSettingsEnableCacheFile4Sbox" xml:space="preserve">
-    <value>Activer le fichier de cache de sing-box (fichiers règles)</value>
-  </data>
-  <data name="LvCustomRulesetPath4Singbox" xml:space="preserve">
-    <value>Set de règles sing-box perso</value>
-  </data>
+
+
   <data name="NeedRebootTips" xml:space="preserve">
     <value>Opération réussie. Veuillez redémarrer l’app via le menu Paramètres.</value>
   </data>
@@ -1296,9 +1280,7 @@
   <data name="TbSettingsGeoFilesSource" xml:space="preserve">
     <value>Source des fichiers Geo (optionnel)</value>
   </data>
-  <data name="TbSettingsSrsFilesSource" xml:space="preserve">
-    <value>Source des fichiers de jeux de règles sing-box (optionnel)</value>
-  </data>
+
   <data name="UpgradeAppNotExistTip" xml:space="preserve">
     <value>L’application d’outil de mise à niveau est introuvable</value>
   </data>
@@ -1476,9 +1458,7 @@
   <data name="TbSetUpstreamProxyDetour" xml:space="preserve">
     <value>Définir le tag de proxy amont</value>
   </data>
-  <data name="TbSBFullConfigTemplate" xml:space="preserve">
-    <value>Modèle de configuration complet sing-box</value>
-  </data>
+
   <data name="TbSBFullConfigTemplateDesc" xml:space="preserve">
     <value>Ajoute uniquement la configuration des sortants et des endpoints ; cliquer pour voir la documentation</value>
   </data>
@@ -1491,9 +1471,7 @@
   <data name="TbSelectProfile" xml:space="preserve">
     <value>Choisir une config.</value>
   </data>
-  <data name="TbFakeIPTips" xml:space="preserve">
-    <value>Applies globally by default, and built-in FakeIP filtering is only built into sing-box.</value>
-  </data>
+
   <data name="PleaseAddAtLeastOneServer" xml:space="preserve">
     <value>Veuillez ajouter au moins une configuration</value>
   </data>

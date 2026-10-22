@@ -109,9 +109,6 @@ public sealed record CoreSettingsView(
     int? Mux4RayConcurrency,
     int? Mux4RayXudpConcurrency,
     string? Mux4RayXudpProxyUDP443,
-    string? Mux4SboxProtocol,
-    bool? Mux4SboxPadding,
-    bool EnableCacheFile4Sbox,
     int Hy2UpMbps,
     int Hy2DownMbps,
     bool EnableFragment,
@@ -128,7 +125,6 @@ public sealed record AppSettingsView(
     int GeoAutoUpdateInterval,
     string? RootCertProvider,
     string? GeoSourceUrl,
-    string? SrsSourceUrl,
     string? RouteRulesTemplateSourceUrl,
     string? SubConvertUrl);
 
@@ -145,14 +141,11 @@ public sealed record WebSettingsOptionsView(
     string[] RootCertProviders,
     string[] Fingerprints,
     string[] UserAgents,
-    string[] Mux4SboxProtocols,
     string[] Mux4RayXudpProxyUDP443Options,
     string[] FragmentPacketsOptions,
     string[] DestOverrideProtocols,
     string[] RoutingBasicDomainStrategies,
-    string[] RoutingBasicDomainStrategies4Singbox,
     string[] RoutingProfileDomainStrategies,
-    string[] RoutingProfileDomainStrategies4Singbox,
     int[] MixedConcurrencyCounts,
     int[] SpeedTestTimeouts,
     string[] SpeedTestUrls,
@@ -161,7 +154,6 @@ public sealed record WebSettingsOptionsView(
     string[] IPAPIUrls,
     string[] SubConvertUrls,
     string[] GeoFilesSources,
-    string[] SingboxRulesetSources,
     string[] RoutingRulesSources);
 
 public sealed record CoreTypeMapping(EConfigType ConfigType, ECoreType CoreType);
@@ -172,7 +164,6 @@ public sealed record WebSettingsView(
     AppSettingsView App,
     SpeedTestSettingsView SpeedTest,
     string? DomainStrategy,
-    string? DomainStrategy4Singbox,
     IReadOnlyList<CoreTypeMapping> CoreTypes,
     WebSettingsOptionsView Options,
     bool ShowIpInfoColumn);
@@ -199,9 +190,6 @@ public sealed record CoreSettingsInput(
     int? Mux4RayConcurrency,
     int? Mux4RayXudpConcurrency,
     string? Mux4RayXudpProxyUDP443,
-    string? Mux4SboxProtocol,
-    bool? Mux4SboxPadding,
-    bool EnableCacheFile4Sbox,
     int Hy2UpMbps,
     int Hy2DownMbps,
     bool EnableFragment,
@@ -218,7 +206,6 @@ public sealed record AppSettingsInput(
     int GeoAutoUpdateInterval,
     string? RootCertProvider,
     string? GeoSourceUrl,
-    string? SrsSourceUrl,
     string? RouteRulesTemplateSourceUrl,
     string? SubConvertUrl);
 
@@ -230,7 +217,7 @@ public sealed record SpeedTestSettingsInput(
     string IPAPIUrl,
     string UdpTestTarget);
 
-public sealed record RoutingSettingsInput(string? DomainStrategy, string? DomainStrategy4Singbox);
+public sealed record RoutingSettingsInput(string? DomainStrategy);
 
 public sealed record CoreConfigTemplateView(
     string Id,
@@ -275,7 +262,6 @@ public sealed record DnsDefaultProfileView(ECoreType CoreType, string NormalDNS,
 public sealed record DnsEditorOptionsView(
     string[] CoreTypes,
     string[] DomainStrategies4Freedom,
-    string[] DomainStrategies4Singbox,
     string[] DomainDnsAddresses,
     string[] DirectDnsAddresses,
     string[] RemoteDnsAddresses,
@@ -288,7 +274,6 @@ public sealed record SubscriptionEditorOptionsView(string[] ConvertTargets, stri
 public sealed record ProfileEditorOptionsView(
     string[] CoreTypes,
     string[] ConfigTypes,
-    string[] SingboxOnlyConfigTypes,
     string[] Networks,
     string DefaultNetwork,
     string DefaultStreamSecurity,
@@ -322,7 +307,8 @@ public sealed record RouteRulesUrlImportInput(bool Append = false);
 
 public sealed record ProfileExportItem(string IndexId, string Remarks, string Format, string Content);
 
-public sealed record TrafficView(long ProxyUp, long ProxyDown, long DirectUp, long DirectDown);
+public sealed record TrafficView(long ProxyUp, long ProxyDown, long DirectUp, long DirectDown,
+    double SampleSeconds = 1, DateTimeOffset? SampledAt = null);
 
 public sealed record CoreUpdateCheckView(bool UpdateAvailable, string? Version, bool IsUpToDate = false, string? Detail = null);
 
@@ -359,7 +345,11 @@ public sealed record CoreUpdateProgressView(
     string? Version,
     string? Detail,
     bool Batch = false,
-    bool? RollbackSucceeded = null);
+    bool? RollbackSucceeded = null,
+    long? DownloadedBytes = null,
+    long? TotalBytes = null,
+    int? CompletedFiles = null,
+    int? TotalFiles = null);
 
 public sealed record WebUpdateTargetView(
     string Name,
@@ -401,7 +391,7 @@ public sealed record SettingsApplyInput(
     SpeedTestSettingsInput SpeedTest,
     IReadOnlyList<CoreTypeMapping> CoreTypes,
     string? DomainStrategy,
-    string? DomainStrategy4Singbox);
+    v2rayN.WebAPI.Services.MacNativeTunSettings? NativeTun = null);
 
 public sealed record ApiEnvelope<T>(bool Success, string Code, string MessageKey, T? Data)
 {
@@ -563,9 +553,12 @@ public sealed record StatusView(
     string? WebBuildDate = null,
     bool SniffingEnabled = false,
     string[]? DestOverride = null,
-    string[]? Capabilities = null);
+    string[]? Capabilities = null,
+    bool TrafficEnabled = false,
+    string? InstalledXrayVersion = null);
 
-public sealed record LogView(DateTimeOffset Timestamp, string Source, string Message, long Generation = 0);
+public sealed record LogView(DateTimeOffset Timestamp, string Source, string Message, long Generation = 0, long Sequence = 0);
+public sealed record LogTailView(IReadOnlyList<LogView> Items, long LatestSequence, long Generation);
 
 public sealed record LogPageView(IReadOnlyList<LogView> Items, int Page, int PageSize, int Total, int TotalPages);
 

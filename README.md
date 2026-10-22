@@ -1,116 +1,136 @@
 # v2rayM
 
-v2rayM 是基于 [v2rayN](https://github.com/2dust/v2rayN) 的 macOS 客户端项目。
-原生界面采用 SwiftUI，节点、订阅、配置生成和代理内核管理优先复用上游功能，保留 GitHub fork 关联和提交历史。
+基于 [v2rayN](https://github.com/2dust/v2rayN) 的原生 macOS 代理客户端，使用 **SwiftUI + Xray**，保留上游 fork 关联与提交历史。共享业务继续复用 `ServiceLib` 和 `v2rayN.WebAPI`，已移除 WPF/Avalonia 桌面界面，以及 sing-box、Mihomo 等其他内核的运行、配置生成和更新入口。
 
-已移除 WPF 和 Avalonia 桌面 GUI，保留 `ServiceLib`、`v2rayN.WebAPI` 和后端测试。SwiftUI 首版已接通节点导入与切换、订阅管理、内核连接开关、系统代理、路由选择与日志。TUN helper 已实现代码接线，特权服务与真实 TUN 仍待签名和系统授权验证。
+当前本机开发版本为 **0.1.17**（build `0.1.17.1`）。本项目尚未提供经过 Developer ID 签名和 Apple 公证的正式发行包；本地开发 DMG 的使用范围见[签名与分发](#签名与分发)。
 
-## 架构与功能边界
+## 功能
 
-推荐路径是 SwiftUI 通过仅监听本机的 HTTP API 和 SSE 事件流调用独立的 .NET 后端：
+- **原生主页**：运行状态、流量路径、代理/直连上下行速率、累计流量、节点信息、实际安装的 Xray 版本及 TUN 服务状态。没有有效采样时显示 `—`，不伪造流量数据。
+- **节点管理**：导入、编辑、选择当前节点、删除与延迟测试。表格固定显示节点、协议、传输、TLS、服务器和延迟；“配置节点”固定显示，未选中时禁用。编辑保留未暴露的字段。
+- **互斥代理模式**：标题栏和菜单栏均可快捷开启系统代理或 TUN；开启一个会关闭另一个并连接当前节点，关闭当前模式即停止代理。模式切换失败时尝试恢复原模式。
+- **Xray 原生 TUN**：直接由 Xray 接入虚拟网卡，不使用 sing-box 或 SOCKS 转 TUN 前置进程。签名 helper 负责特权启动及路由、DNS 的配置与恢复。
+- **参数、路由与 DNS 设置**：适配 Xray 和原生 TUN；MTU 支持预设及自定义值，范围为 1280–65535。已有规则和未展示的参数在编辑时保留。
+- **内核与规则更新**：仅更新 Xray 和 GeoIP/GeoSite DAT 数据，支持分别更新及全部更新。Xray 默认优先选择最新可用预发布版，进度和结果留在设置页面。
+- **连续日志**：最多保留 10,000 行并限制总字符容量，超限淘汰最旧记录；模式切换和空刷新不会清空。支持横向、纵向滚动，隐藏滚动条。
+- **菜单栏 V 图标**：未启用时采用系统模板色，系统代理为蓝色，TUN 为绿色，切换或异常为橙色。可显示主窗口、切换模式及安全退出；关闭窗口后继续在后台运行。
+- **紧凑固定窗口**：860 × 600，默认进入主页，使用随包附带的 LXGWWenKaiMono Medium 字体。提示悬浮显示，不挤压页面布局；无侧栏、订阅页面或单独连接按钮。
+
+仅支持 Xray 能处理的节点。对不支持的节点明确报错，不自动切换其他内核，也不删除用户已有记录。共享后端保留部分上游订阅数据/API 能力，不代表原生客户端提供订阅管理界面。
+
+## 架构
+
+控制链路：
 
 ```text
-SwiftUI 应用
-    │ 本机 HTTP 与 SSE
+SwiftUI / macOS 菜单栏
+    │ 本机认证 HTTP API
     ▼
-v2rayN.WebAPI
-    │ C# 项目引用
+v2rayN.WebAPI → ServiceLib → Xray 配置与生命周期管理
+    │ TUN 特权请求
     ▼
-ServiceLib → Xray / sing-box 等代理内核
+签名 XPC helper → 受限启动、路由/DNS、可信更新与恢复
 ```
 
-现有 API 可以复用节点、订阅、路由、DNS、测速、日志、流量统计和非 TUN 内核运行管理。
-系统代理由原生 SystemConfiguration 适配负责保存和恢复。Clash 策略组和连接管理、菜单栏、全局快捷键及登录启动仍待实现。
-TUN 已通过可选的 macOS XPC helper 接入，详见 [TUN helper 接入](docs/macos-tun-helper.md)，当前不能视为已完成实际联网验证。
+TUN 数据链路：
 
-完整评估、代码依据和实施顺序见 [macOS 原生客户端架构评估](docs/macos-architecture.md)。
-上游 API 的接口边界见 [功能映射](v2rayN/v2rayN.WebAPI/FEATURE-MAP.md) 和 [运行说明](v2rayN/v2rayN.WebAPI/README.md)。
+```text
+Mac 应用 → Xray 原生 TUN → 节点服务器
+```
 
-## SwiftUI 原生客户端
+系统代理模式由遵循 macOS 代理设置的应用访问 Xray 本地代理端口。TUN 模式由一个受 helper 管理的特权 Xray 进程接管流量；helper 是控制服务，不是额外的代理转发层。
 
-最低 macOS 15，需要 Xcode 命令行工具、.NET 10 SDK 和 Python 3。SwiftUI 与平台集成位于 `macos/Native/`，共享后端路径不变。
+应用管理自己的后端，默认仅监听 `127.0.0.1:19888`。健康检查核对后端子进程 PID 后才交换会话令牌；启动密钥随机生成，仅保存在内存和子进程环境中。本地 API 请求绕过系统代理且拒绝重定向。界面每两秒刷新状态，共享后端仍保留 SSE 接口。
 
-首版支持：
+默认数据目录为 `~/Library/Application Support/v2rayM/`。v2rayM 不读写 v2rayN 的运行配置，不与其共用数据目录。
 
-- 节点列表、搜索、订阅分组、分享链接/配置导入、选择并连接、删除、延迟测试入口。
-- 订阅新增、编辑、删除、单个与全部更新；编辑基本字段时保留已有高级选项。
-- 代理内核连接/断开，原生系统代理开关，选择上游路由配置，查看日志与后台任务状态。
-- 应用自己启动并管理后端，仅绑定 `127.0.0.1:19888`；健康检查匹配子进程 PID 后才交换会话令牌。
+## 使用
 
-本地构建 Apple Silicon 开发包（Intel 将 `osx-arm64` 改为 `osx-x64`）：
+1. 将应用放入 Applications，启动后导入节点，选择“设为当前节点”。
+2. 在标题栏或菜单栏 V 菜单中开启“系统代理”或“TUN 模式”。无需再点击连接按钮。
+3. 首次使用 TUN，在设置页安装并授权后台服务；按 macOS 提示完成授权。应用不读取或保存管理员密码。
+4. 关闭当前模式即可停止代理。正常退出前会确认 TUN 内核停止并恢复属于本应用的网络设置。
+
+TUN 测试前先手动关闭其他软件的 TUN/VPN；检测到测试路由仍由其他隧道接管时，应用拒绝接管。关闭 TUN 不会自动启用系统代理。
+
+系统代理恢复按 HTTP、HTTPS、SOCKS 等配置组核对所有权，尽量保留其他应用的后续修改。恢复失败时保留恢复文件并阻止正常退出；异常强制退出后的信息保存在数据目录的 `native-proxy-recovery.plist`，下次启动可恢复。当前没有独立崩溃守护进程，不能保证强制终止后立即自动恢复。休眠唤醒、网络切换等场景需要单独验收。
+
+## 本地构建
+
+需要 macOS 15 或以上、Xcode 命令行工具、.NET 10 SDK、Python 3。后端无需 Node.js、Avalonia 或 WPF。以下构建 Apple Silicon 版本；Intel 后端目标为 `osx-x64`，原生包应在相应架构的 Mac 上构建和验证。
+
+先检查产品边界并发布后端：
 
 ```sh
+python3 scripts/check-macos-product-boundaries.py
+
 dotnet publish v2rayN/v2rayN.WebAPI/v2rayN.WebAPI.csproj \
   --configuration Release --runtime osx-arm64 --self-contained true \
   -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true \
   --output /tmp/v2raym-native-backend
+
 bash scripts/fetch-macos-cores.sh osx-arm64 /tmp/v2raym-native-cores
-CORE_BIN_DIR=/tmp/v2raym-native-cores \
-  bash scripts/package-macos-app.sh /tmp/v2raym-native-backend /tmp/V2rayM.app
-open /tmp/V2rayM.app
 ```
 
-目标 `.app` 与内核下载目录必须尚不存在。内核下载来自上游官方 `2dust/v2rayN-core-bin`，可用 `CORE_BUNDLE_REF` 固定其 Git 提交。
-默认使用 ad-hoc 本地签名，普通代理无需付费证书；该产物未公证。TUN 不会自动注册，也不提供未签名绕过。
-未嵌入内核的包可在设置里安装 Xray；完整开发包同时包含 Xray、sing-box 和 Geo 数据。
+下载脚本从官方 `2dust/v2rayN-core-bin` 提取 **Xray、许可证和 Geo 数据**，不打包其他内核。可通过 `CORE_BUNDLE_REF` 固定上游提交。目标下载目录和 `.app` 路径必须尚不存在。
 
-导入节点后选择“使用此节点”或双击节点，再按需要开启“系统代理”。路由规则在设置里选择，沿用上游当前配置，不自动覆盖已有规则。
-系统代理只影响遵循 macOS 代理设置的应用，不等同于 TUN。启用代理时 macOS 可能请求管理员授权，应用不读取或保存管理员密码。
-
-关闭系统代理、断开连接和正常退出会先恢复原来的代理配置；恢复失败时保留恢复文件并阻止退出。
-如果其他应用更改了代理，则按 HTTP、HTTPS、SOCKS 等配置组恢复仍属于本应用的设置，并保留外部修改。
-异常强制退出后的恢复信息位于数据目录的 `native-proxy-recovery.plist`，下次启动显示“恢复系统代理”；目前尚无独立的崩溃守护进程，不能承诺强制退出后立即自动恢复。
-
-界面每两秒通过已有 REST API 刷新状态，不修改上游 SSE 协议。密钥每次后端启动随机生成，仅保留在内存和子进程环境，令牌使用现有登录接口获取；本地请求绕过系统代理且拒绝重定向。
-默认数据目录为 `~/Library/Application Support/v2rayM/`。开发隔离启动可直接运行应用内可执行文件，传入 `--data-directory /tmp/v2raym-ui-data --api-port 19889`。
+使用本机有效签名身份构建可供 TUN 开发测试的包；将示例身份替换为自己的代码签名身份：
 
 ```sh
-swift test --package-path macos/Native
-native_bin="$(swift build --package-path macos/Native --show-bin-path)"
-python3 scripts/smoke-macos-app.py /tmp/V2rayM.app "$native_bin/V2rayMCheck"
+CORE_BIN_DIR=/tmp/v2raym-native-cores \
+SIGN_IDENTITY='Apple Development: YOUR_SIGNING_IDENTITY' \
+APP_VERSION=0.1.17 APP_BUILD=0.1.17.1 \
+  bash scripts/package-macos-app.sh \
+  /tmp/v2raym-native-backend /tmp/v2rayM.app
+
+bash scripts/package-macos-dmg.sh \
+  /tmp/v2rayM.app /tmp/v2rayM-macos-arm64-local.dmg
 ```
 
-集成检查使用临时数据库、本机 HTTP/SOCKS 测试服务和真实 Xray，验证订阅增改删更新、节点导入/切换、真实代理转发、端口冲突拒绝、认证与正常退出。
-系统代理的恢复/失败重试/外部修改保护使用内存配置测试，不在自动测试中更改本机系统代理。首次管理员授权与真实系统代理切换仍需人工验收。
+不设置 `SIGN_IDENTITY` 时使用 ad-hoc 签名，可用于普通代理和隔离回环开发检查；**不能以此代替 TUN helper 所需的 Apple 团队签名**。TUN 授权不提供未签名绕过。DMG 包含应用、Applications 入口和中文安装说明。
 
-## 后端开发与验证
+内核更新先下载和校验，再替换正在使用的版本并重启，成功后清理旧版本。特权 TUN 内核由 helper 独立核对官方 GitHub 发布资产摘要，保存在 root 专用目录；失败或中断时保留恢复路径。具体边界见 [TUN helper 接入](docs/macos-tun-helper.md)。
 
-需要 .NET 10 SDK 和 Python 3。后端构建无需 Avalonia、WPF、Node.js 或 GUI 热键子模块。
+## 验证
 
 ```sh
 dotnet build v2rayN/v2rayN.slnx --configuration Release
 dotnet test --project v2rayN/ServiceLib.Tests --configuration Release
 dotnet test --project v2rayN/v2rayN.WebAPI/Tests --configuration Release
+swift test --package-path macos/Native
+swift test --package-path macos/TunHelper
+python3 scripts/check-macos-product-boundaries.py
+
+native_bin="$(swift build --package-path macos/Native --show-bin-path)"
+python3 scripts/smoke-macos-app.py /tmp/v2rayM.app "$native_bin/V2rayMCheck"
 ```
 
-在 macOS 上发布独立运行的后端，例如 Apple Silicon：
+隔离集成检查使用临时数据库、本机 HTTP/SOCKS 测试服务和真实 Xray，验证认证、节点、代理转发、日志、流量、版本读取和正常退出。系统代理恢复的故障/重试测试使用内存配置，不改本机系统代理。helper 单元测试不注册系统服务。
 
-```sh
-dotnet publish v2rayN/v2rayN.WebAPI/v2rayN.WebAPI.csproj \
-  --configuration Release --runtime osx-arm64 --self-contained true \
-  -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true \
-  --output /tmp/v2raym-backend/osx-arm64
-python3 scripts/smoke-macos-backend.py /tmp/v2raym-backend/osx-arm64
-```
+GitHub Actions 的 [macOS 验证流程](.github/workflows/macos-backend.yml) 构建两种后端架构，并在 runner 原生架构上执行冒烟检查；CI 产物是开发验证包，不是公证发行包。
 
-Intel 构建使用 `osx-x64`。冒烟验证必须在与可执行文件架构匹配的 Mac 上运行。
-该检查使用隔离副本和临时凭据，验证启动、认证、只读 API、SSE 和退出；不会配置系统代理或启动代理内核。
-GitHub Actions 的 `macos-backend.yml` 构建两种架构，并在运行机器的原生架构上执行冒烟验证。
-原生客户端另外通过上述集成检查；TUN 仍需单独进行系统验证。
+本机验证记录分开保存：
 
-原 macOS 实例锁读取失败已修复。验证流程还包括 Swift helper 测试和 ad-hoc 开发集成包校验；不会在 CI 注册特权服务。
-macOS 后端默认数据目录为 `~/Library/Application Support/v2rayM/`，测试可用 `V2RAYM_DATA_HOME` 隔离。
+- 后端、Swift 测试及签名包回环检查：[设置与主页审查](docs/audits/2026-10-22-settings-and-dashboard.md)、[流量与菜单栏记录](docs/audits/2026-10-22-dashboard-traffic-and-menu.md)。
+- 原生 TUN 的联网与恢复验证范围：[TUN 接入文档](docs/macos-tun-helper.md)。
+- **2026-10-22 用户反馈“代理测试正常”，此次为手动操作，没有运行测试脚本。** 这属于用户现场验收，不等同于新一轮自动 TUN 测试报告，也不扩展为休眠、切网或所有异常恢复场景均通过。
+
+本地 `artifacts/` 中的安装包、日志与验证报告不纳入源码提交。开发时可用 `V2RAYM_DATA_HOME`，或应用可执行文件的 `--data-directory` / `--api-port` 参数隔离测试数据和端口。
+
+## 签名与分发
+
+当前本机安装包使用 **Apple Development** 开发签名，未完成 Apple 公证；本机 Gatekeeper 评估结果为拒绝，已在当前开发环境中安装使用。
+
+这不等于应用硬性绑定这台 Mac，但不能保证将 DMG 发给别人就能正常安装、启动和授权 helper。当前包应视为本机开发测试包。正常向其他用户分发，需要使用 Apple Developer Program 提供的 **Developer ID Application** 签名、完成 Apple 公证并附加公证票据，再在干净的 Mac 上验证安装及 TUN 授权。收件用户无需购买开发者账号。
+
+参考 Apple 官方的 [Developer ID 说明](https://developer.apple.com/developer-id/) 与 [macOS 软件公证流程](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution)。不要随安装包分发开发证书私钥、P12 或账号凭据。
 
 ## 上游同步
 
-共享后端尽量沿用上游路径和实现，SwiftUI 应用及 macOS 集成放入独立的 `macos/` 目录。
-同步时合并上游提交，在临时分支处理 API 和配置兼容性；保留本 fork 对旧 GUI 及其发布流程的删除决定。
-上游修改已删除文件时可能产生 modify/delete 冲突，需要逐项检查。
+合并上游前必须阅读 [合并规则](docs/upstream-merge-policy.md) 和 [AGENTS.md](AGENTS.md)。保留有价值的 Xray、安全及共享业务修复，不能整批恢复其他内核、兼容生成器、旧桌面 GUI 或其发布流程。遇到修改/删除冲突逐项审查，合并后执行产品边界检查及相关回归验证。
 
-Linux 和 Windows 的共享业务实现、WebAPI 后端构建与测试继续保留，以减少同步差异。
-它们不包含本项目已移除的桌面 GUI。
+共享后端继续保留跨平台构建能力；它不代表本项目提供 Windows/Linux 桌面应用。架构演进背景见 [原生客户端架构评估](docs/macos-architecture.md)，其中历史多内核方案不构成当前产品要求。
 
-## 许可证与上游
+## 许可证
 
-保留上游的 [GPL-3.0 许可证](LICENSE) 和源文件声明。
-原项目：[2dust/v2rayN](https://github.com/2dust/v2rayN)。
+保留上游 [GPL-3.0 许可证](LICENSE) 和源文件声明；上游项目为 [2dust/v2rayN](https://github.com/2dust/v2rayN)。随包字体采用 SIL Open Font License，许可文件位于 [字体资源目录](macos/Native/Sources/V2rayM/Resources/Fonts/)。

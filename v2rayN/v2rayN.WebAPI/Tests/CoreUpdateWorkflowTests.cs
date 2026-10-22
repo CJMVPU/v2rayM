@@ -12,6 +12,23 @@ namespace v2rayN.WebAPI.Tests;
 public class CoreUpdateWorkflowTests
 {
     [Test]
+    public async Task OldExecutableAliasesCannotShadowTheNewXrayVersion()
+    {
+        using var directory = new TemporaryDirectory();
+        var candidate = Path.Combine(directory.Path, "candidate");
+        var package = Path.Combine(directory.Path, "package");
+        Directory.CreateDirectory(candidate); Directory.CreateDirectory(package);
+        File.WriteAllText(Path.Combine(candidate, "xray-old"), "old binary");
+        File.WriteAllText(Path.Combine(candidate, "xray"), "new binary");
+        File.WriteAllText(Path.Combine(candidate, "rules.dat"), "retained resource");
+        File.WriteAllText(Path.Combine(package, "xray"), "new binary");
+        V2rayRuntime.RemoveSupersededCoreExecutables(new ServiceLib.Models.CoreConfigs.CoreInfo { CoreType = ECoreType.Xray, CoreExes = ["xray-old", "xray"] }, candidate, package);
+        await File.Exists(Path.Combine(candidate, "xray-old")).Should().BeFalse();
+        await File.Exists(Path.Combine(candidate, "xray")).Should().BeTrue();
+        await File.Exists(Path.Combine(candidate, "rules.dat")).Should().BeTrue();
+    }
+
+    [Test]
     public async Task CoreVersionCheckAcceptsVPrefixedMihomoVersion()
     {
         var output = "Mihomo Meta v1.19.31 linux amd64 with go1.26.8";
@@ -27,7 +44,7 @@ public class CoreUpdateWorkflowTests
     }
 
     [Test]
-    public async Task XraySingBoxAndMihomoPackagesAreStagedUsingTheirNativeArchiveFormats()
+    public async Task OnlyXrayPackagesAreStaged()
     {
         using var directory = new TemporaryDirectory();
 
@@ -42,18 +59,9 @@ public class CoreUpdateWorkflowTests
         await File.Exists(Path.Combine(xrayStage, "xray")).Should().BeTrue();
         await File.Exists(Path.Combine(xrayStage, "geoip.dat")).Should().BeFalse();
 
-        var mihomoArchive = Path.Combine(directory.Path, "mihomo.gz");
-        await WriteGzipAsync(mihomoArchive, "mihomo binary");
-        var mihomoStage = Path.Combine(directory.Path, "mihomo-stage");
-        await CoreUpdatePackageStager.ExtractAsync(ECoreType.mihomo, mihomoArchive, mihomoStage, CancellationToken.None);
-        var mihomoExecutable = Utils.GetExeName(CoreInfoManager.Instance.GetCoreInfo(ECoreType.mihomo)!.CoreExes!.First());
-        await File.Exists(Path.Combine(mihomoStage, mihomoExecutable)).Should().BeTrue();
+        await CoreUpdatePackageStager.IsSupported(ECoreType.mihomo, "mihomo.gz").Should().BeFalse();
+        await CoreUpdatePackageStager.IsSupported((ECoreType)24, "retired.tar.gz").Should().BeFalse();
 
-        var singBoxArchive = Path.Combine(directory.Path, "sing-box.tar.gz");
-        await WriteTarGzipAsync(singBoxArchive, "sing-box-release/sing-box", "sing-box binary");
-        var singBoxStage = Path.Combine(directory.Path, "sing-box-stage");
-        await CoreUpdatePackageStager.ExtractAsync(ECoreType.sing_box, singBoxArchive, singBoxStage, CancellationToken.None);
-        await File.Exists(Path.Combine(singBoxStage, "sing-box")).Should().BeTrue();
     }
 
     [Test]
@@ -109,7 +117,7 @@ public class CoreUpdateWorkflowTests
     {
         var sequence = new List<string>();
         var results = await CoreUpdateWorkflow.StageAllThenApplyAsync(
-            new[] { "Xray", "sing-box", "Mihomo" },
+            new[] { "Xray", "xray", "Mihomo" },
             target =>
             {
                 sequence.Add($"stage:{target}");
@@ -130,8 +138,8 @@ public class CoreUpdateWorkflowTests
         await results.Should().BeEqualTo(3);
         await sequence.SequenceEqual(new[]
         {
-            "stage:Xray", "stage:sing-box", "stage:Mihomo", "prepare:GeoFiles", "CoreStop",
-            "apply:verified:Xray", "apply:verified:sing-box", "apply:verified:Mihomo",
+            "stage:Xray", "stage:xray", "stage:Mihomo", "prepare:GeoFiles", "CoreStop",
+            "apply:verified:Xray", "apply:verified:xray", "apply:verified:Mihomo",
         }).Should().BeTrue();
     }
 
@@ -169,8 +177,8 @@ public class CoreUpdateWorkflowTests
         try
         {
             await CoreUpdateWorkflow.StageAllThenApplyAsync(
-                new[] { "Xray", "sing-box" },
-                target => target == "sing-box"
+                new[] { "Xray", "xray" },
+                target => target == "xray"
                     ? throw new InvalidDataException("package verification failed")
                     : Task.FromResult($"verified:{target}"),
                 stages =>
@@ -193,7 +201,7 @@ public class CoreUpdateWorkflowTests
     {
         var sequence = new List<string>();
         await CoreUpdateWorkflow.StageAllThenApplyAsync(
-            new[] { "Xray", "sing-box" },
+            new[] { "Xray", "xray" },
             target =>
             {
                 sequence.Add($"stage:{target}");
@@ -215,8 +223,8 @@ public class CoreUpdateWorkflowTests
 
         await sequence.SequenceEqual(new[]
         {
-            "stage:Xray", "stage:sing-box", "prepare:GeoFiles", "stage:v2rayN.WebAPI",
-            "apply:Xray", "apply:sing-box", "apply:GeoFiles", "apply:v2rayN.WebAPI",
+            "stage:Xray", "stage:xray", "prepare:GeoFiles", "stage:v2rayN.WebAPI",
+            "apply:Xray", "apply:xray", "apply:GeoFiles", "apply:v2rayN.WebAPI",
         }).Should().BeTrue();
     }
 
@@ -278,15 +286,15 @@ public class CoreUpdateWorkflowTests
     public async Task OnlyTheExactUpdatedCoreIsStoppedAndRestarted()
     {
         var now = DateTimeOffset.UtcNow;
-        foreach (var core in new[] { ECoreType.Xray, ECoreType.sing_box, ECoreType.mihomo })
+        foreach (var core in new[] { ECoreType.Xray, (ECoreType)24, ECoreType.mihomo })
         {
             await CoreUpdateRuntimePolicy.IsTargetRunning(core, core, now).Should().BeTrue();
             await CoreUpdateRuntimePolicy.IsTargetRunning(core, ECoreType.v2fly, now).Should().BeFalse();
             await CoreUpdateRuntimePolicy.IsTargetRunning(core, core, null).Should().BeFalse();
         }
         await CoreUpdatePackageStager.SupportsCore(ECoreType.Xray).Should().BeTrue();
-        await CoreUpdatePackageStager.SupportsCore(ECoreType.sing_box).Should().BeTrue();
-        await CoreUpdatePackageStager.SupportsCore(ECoreType.mihomo).Should().BeTrue();
+        await CoreUpdatePackageStager.SupportsCore((ECoreType)24).Should().BeFalse();
+        await CoreUpdatePackageStager.SupportsCore(ECoreType.mihomo).Should().BeFalse();
         await CoreUpdatePackageStager.SupportsCore(ECoreType.v2rayN).Should().BeFalse();
     }
 
@@ -297,7 +305,16 @@ public class CoreUpdateWorkflowTests
         await manager.GetCheckPreRelease(ECoreType.Xray, true).Should().BeTrue();
         await manager.GetCheckPreRelease(ECoreType.v2rayN, true).Should().BeTrue();
         await manager.GetCheckPreRelease(ECoreType.mihomo, true).Should().BeFalse();
-        await manager.GetCheckPreRelease(ECoreType.sing_box, true).Should().BeFalse();
+        await manager.GetCheckPreRelease((ECoreType)24, true).Should().BeFalse();
+        await manager.GetCheckPreRelease((ECoreType)24, false).Should().BeFalse();
+    }
+
+    [Test]
+    public async Task RollingMihomoAlphaRequiresAnActualRevisionInTheVersionOutput()
+    {
+        await CoreExecutableVersionCheck.IsValid("Mihomo Meta alpha-94b13ae darwin arm64 with go1.26.8", "Mihomo").Should().BeTrue();
+        await CoreExecutableVersionCheck.IsValid("Mihomo Meta alpha-development build", "Mihomo").Should().BeFalse();
+        await CoreExecutableVersionCheck.IsValid("Mihomo Meta alpha-94b13ae", "Xray").Should().BeFalse();
     }
 
     [Test]

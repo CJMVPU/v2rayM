@@ -2,6 +2,7 @@ namespace ServiceLib.Services;
 
 public partial class UpdateService(Config config, Func<bool, string, Task> updateFunc)
 {
+    public Action<FileTransferProgress>? DownloadProgress { get; init; }
     private readonly Config? _config = config;
     private readonly Func<bool, string, Task>? _updateFunc = updateFunc;
     private static readonly string _tag = "UpdateService";
@@ -99,7 +100,7 @@ public partial class UpdateService(Config config, Func<bool, string, Task> updat
         }
     }
 
-    public async Task<UpdateResult> CheckHasUpdateOnly(ECoreType type, bool preRelease, bool blProxy = true, CancellationToken cancellationToken = default)
+    public async Task<UpdateResult> CheckHasUpdateOnly(ECoreType type, bool preRelease, bool blProxy = true, CancellationToken cancellationToken = default, bool synchronizeInstalled = false)
     {
         if (!CoreInfoManager.Instance.IsCheckUpdateSupported(type))
         {
@@ -108,7 +109,7 @@ public partial class UpdateService(Config config, Func<bool, string, Task> updat
 
         var downloadHandle = new DownloadService();
         var checkPreRelease = CoreInfoManager.Instance.GetCheckPreRelease(type, preRelease);
-        return await CheckUpdateAsync(downloadHandle, type, checkPreRelease, blProxy, cancellationToken);
+        return await CheckUpdateAsync(downloadHandle, type, checkPreRelease, blProxy, cancellationToken, synchronizeInstalled);
     }
 
     public async Task<List<string>> CheckHasUpdateOnlyAll(bool blProxy = true, CancellationToken cancellationToken = default)
@@ -137,13 +138,13 @@ public partial class UpdateService(Config config, Func<bool, string, Task> updat
         return msgs;
     }
 
-    public async Task UpdateGeoFileAll(bool blProxy = true, CancellationToken cancellationToken = default)
+    public async Task UpdateGeoFileAll(bool blProxy = true, CancellationToken cancellationToken = default, string scope = "all")
     {
+        if (scope is not ("all" or "geo" or "rules")) throw new ArgumentException("Invalid Geo update scope.", nameof(scope));
         var requests = new List<FileDownloadRequest>();
-        requests.AddRange(GetGeoFilesRequest());
-        requests.AddRange(GetOtherFilesRequest());
-        requests.AddRange(await GetSrsFileAllRequest());
-        // NOTE: srs files are more small, so we reverse the order to ensure a good download experience for the user.
+        if (scope is "all" or "geo" or "rules") {
+            requests.AddRange(GetGeoFilesRequest());
+        }
         requests.Reverse();
         await DownloadGeoFiles(requests, blProxy, cancellationToken);
         await UpdateFunc(true, string.Format(ResUI.MsgDownloadGeoFileSuccessfully, "geo"));
@@ -151,7 +152,7 @@ public partial class UpdateService(Config config, Func<bool, string, Task> updat
 
     #region CheckUpdate private
 
-    private async Task<UpdateResult> CheckUpdateAsync(DownloadService downloadHandle, ECoreType type, bool preRelease, bool blProxy, CancellationToken cancellationToken = default)
+    private async Task<UpdateResult> CheckUpdateAsync(DownloadService downloadHandle, ECoreType type, bool preRelease, bool blProxy, CancellationToken cancellationToken = default, bool synchronizeInstalled = false)
     {
         try
         {
@@ -160,7 +161,7 @@ public partial class UpdateService(Config config, Func<bool, string, Task> updat
             {
                 return result;
             }
-            return await ParseDownloadUrl(type, result, cancellationToken);
+            return await ParseDownloadUrl(type, result, cancellationToken, synchronizeInstalled);
         }
         catch (Exception ex)
         {
@@ -184,8 +185,14 @@ public partial class UpdateService(Config config, Func<bool, string, Task> updat
             }
 
             var gitHubReleases = JsonUtils.Deserialize<List<GitHubRelease>>(result);
-            var gitHubRelease = preRelease ? gitHubReleases?.First() : gitHubReleases?.First(r => r.Prerelease == false);
+            var published = gitHubReleases?.Where(r => !r.Draft && r.Assets is { Count: > 0 }).ToList();
+            // Keep GitHub's
+            // release order and prefer the newest available prerelease over stable.
+            var gitHubRelease = preRelease
+                ? published?.FirstOrDefault(r => r.Prerelease) ?? published?.FirstOrDefault()
+                : published?.FirstOrDefault(r => !r.Prerelease);
             tagName = gitHubRelease?.TagName;
+            if (string.IsNullOrWhiteSpace(tagName)) return new UpdateResult(false, "No published release with assets is available.");
             //var body = gitHubRelease?.Body;
 
             if (coreInfo?.LockedMaxVersion != null)
@@ -259,7 +266,7 @@ public partial class UpdateService(Config config, Func<bool, string, Task> updat
         }
     }
 
-    private async Task<UpdateResult> ParseDownloadUrl(ECoreType type, UpdateResult result, CancellationToken cancellationToken = default)
+    private async Task<UpdateResult> ParseDownloadUrl(ECoreType type, UpdateResult result, CancellationToken cancellationToken = default, bool synchronizeInstalled = false)
     {
         try
         {
@@ -274,7 +281,6 @@ public partial class UpdateService(Config config, Func<bool, string, Task> updat
                 case ECoreType.v2fly:
                 case ECoreType.Xray:
                 case ECoreType.v2fly_v5:
-                case ECoreType.mihomo:
                     {
                         curVersion = await GetCoreVersion(type, cancellationToken);
                         message = string.Format(ResUI.IsLatestCore, type, curVersion.ToStandardVersionString("v"));
@@ -282,13 +288,6 @@ public partial class UpdateService(Config config, Func<bool, string, Task> updat
                         break;
                     }
 
-                case ECoreType.sing_box:
-                    {
-                        curVersion = await GetCoreVersion(type, cancellationToken);
-                        message = string.Format(ResUI.IsLatestCore, type, curVersion.ToStandardVersionString("v"));
-                        url = string.Format(coreUrl, version, version.ToString().RemovePrefix("v"));
-                        break;
-                    }
                 case ECoreType.v2rayN:
                     {
                         curVersion = new SemanticVersion(Utils.GetVersionInfo());
@@ -302,7 +301,13 @@ public partial class UpdateService(Config config, Func<bool, string, Task> updat
 
             if (curVersion >= version && !version.Equals(new SemanticVersion(0, 0, 0)))
             {
-                return new UpdateResult(false, message);
+                if (!synchronizeInstalled) return new UpdateResult(false, message);
+                // The privileged store may still hold a bundled older executable. Fetch the
+                // installed version's official package without downgrading a newer install.
+                var installedTag = curVersion.ToStandardVersionString("v");
+                result.Version = new SemanticVersion(installedTag);
+                result.Url = string.Format(coreUrl, installedTag);
+                return result;
             }
 
             result.Url = url;
@@ -413,123 +418,10 @@ public partial class UpdateService(Config config, Func<bool, string, Task> updat
         ];
     }
 
-    private async Task<List<FileDownloadRequest>> GetSrsFileAllRequest()
-    {
-        var geoipFiles = new List<string>();
-        var geoSiteFiles = new List<string>();
 
-        // Collect from routing rules
-        var routingItems = await AppManager.Instance.RoutingItems();
-        foreach (var routing in routingItems)
-        {
-            var rules = JsonUtils.Deserialize<List<RulesItem>>(routing.RuleSet);
-            foreach (var item in rules ?? [])
-            {
-                AddPrefixedItems(item.Ip, Global.GeoIPPrefix, geoipFiles);
-                AddPrefixedItems(item.Domain, Global.GeoSitePrefix, geoSiteFiles);
-            }
-        }
 
-        // Collect from DNS configuration
-        var dnsItem = await AppManager.Instance.GetDNSItem(ECoreType.sing_box);
-        if (dnsItem != null)
-        {
-            ExtractDnsRuleSets(dnsItem.NormalDNS, geoipFiles, geoSiteFiles);
-            ExtractDnsRuleSets(dnsItem.TunDNS, geoipFiles, geoSiteFiles);
-        }
 
-        // Append default items
-        geoSiteFiles.AddRange(["google", "cn", "geolocation-cn", "category-ads-all"]);
 
-        // Download files
-        var path = Utils.GetBinPath("srss");
-        if (!Directory.Exists(path))
-        {
-            Directory.CreateDirectory(path);
-        }
-
-        return
-        [
-            .. geoipFiles.Distinct().Select(f => (type: "geoip", file: f))
-                .Concat(geoSiteFiles.Distinct().Select(f => (type: "geosite", file: f)))
-                .Select(item => GetSrsFileRequest(item.type, item.file)),
-        ];
-    }
-
-    private void AddPrefixedItems(List<string>? items, string prefix, List<string> output)
-    {
-        if (items == null)
-        {
-            return;
-        }
-
-        foreach (var item in items)
-        {
-            if (item.StartsWith(prefix))
-            {
-                output.Add(item.Substring(prefix.Length));
-            }
-        }
-    }
-
-    private void ExtractDnsRuleSets(string? dnsJson, List<string> geoipFiles, List<string> geoSiteFiles)
-    {
-        if (string.IsNullOrEmpty(dnsJson))
-        {
-            return;
-        }
-
-        try
-        {
-            var dns = JsonUtils.Deserialize<Dns4Sbox>(dnsJson);
-            if (dns?.rules != null)
-            {
-                foreach (var rule in dns.rules)
-                {
-                    ExtractSrsRuleSets(rule, geoipFiles, geoSiteFiles);
-                }
-            }
-        }
-        catch { }
-    }
-
-    private void ExtractSrsRuleSets(Rule4Sbox? rule, List<string> geoipFiles, List<string> geoSiteFiles)
-    {
-        if (rule == null)
-        {
-            return;
-        }
-
-        AddPrefixedItems(rule.rule_set, "geosite-", geoSiteFiles);
-        AddPrefixedItems(rule.rule_set, "geoip-", geoipFiles);
-
-        // Handle nested rules recursively
-        if (rule.rules != null)
-        {
-            foreach (var nestedRule in rule.rules)
-            {
-                ExtractSrsRuleSets(nestedRule, geoipFiles, geoSiteFiles);
-            }
-        }
-    }
-
-    private FileDownloadRequest GetSrsFileRequest(string type, string srsName)
-    {
-        var srsUrl = string.IsNullOrEmpty(_config.ConstItem.SrsSourceUrl)
-                        ? Global.SingboxRulesetUrl
-                        : _config.ConstItem.SrsSourceUrl;
-
-        var fileName = $"{type}-{srsName}.srs";
-        var targetPath = Path.Combine(Utils.GetBinPath("srss"), fileName);
-        var url = string.Format(srsUrl, type, $"{type}-{srsName}", srsName);
-
-        return new FileDownloadRequest()
-        {
-            FileUrl = url,
-            FilePath = targetPath,
-            DisplayFileName = fileName,
-        };
-    }
 
     private async Task DownloadGeoFiles(List<FileDownloadRequest> requests, bool blProxy, CancellationToken cancellationToken = default)
     {
@@ -546,6 +438,7 @@ public partial class UpdateService(Config config, Func<bool, string, Task> updat
         }
 
         DownloadService downloadHandle = new();
+        downloadHandle.ProgressChanged += (_, progress) => DownloadProgress?.Invoke(progress);
         downloadHandle.UpdateCompleted += (sender2, args) =>
         {
             if (args.Success)

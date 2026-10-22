@@ -19,7 +19,6 @@ public class CoreBasicItem
 
     public bool EnableFinalFragment { get; set; }
 
-    public bool EnableCacheFile4Sbox { get; set; } = true;
 }
 
 [Serializable]
@@ -111,7 +110,6 @@ public class ConstItem
 {
     public string? SubConvertUrl { get; set; }
     public string? GeoSourceUrl { get; set; }
-    public string? SrsSourceUrl { get; set; }
     public string? RouteRulesTemplateSourceUrl { get; set; }
 }
 
@@ -147,7 +145,6 @@ public class TunModeItem
     public int Mtu { get; set; }
     public bool EnableIPv6Address { get; set; }
     public string IcmpRouting { get; set; }
-    public bool EnableLegacyProtect { get; set; } = true;
     public List<string>? RouteExcludeAddress { get; set; }
     public string IPv4Address { get; set; }
     public string IPv6Address { get; set; }
@@ -170,7 +167,6 @@ public class SpeedTestItem
 public class RoutingBasicItem
 {
     public string DomainStrategy { get; set; }
-    public string DomainStrategy4Singbox { get; set; }
     public string RoutingIndexId { get; set; }
 }
 
@@ -188,14 +184,6 @@ public class Mux4RayItem
     public int? Concurrency { get; set; }
     public int? XudpConcurrency { get; set; }
     public string? XudpProxyUDP443 { get; set; }
-}
-
-[Serializable]
-public class Mux4SboxItem
-{
-    public string Protocol { get; set; }
-    public int MaxConnections { get; set; }
-    public bool? Padding { get; set; }
 }
 
 [Serializable]

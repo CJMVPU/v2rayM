@@ -23,7 +23,6 @@ public class Config
     public ConstItem ConstItem { get; set; }
     public SpeedTestItem SpeedTestItem { get; set; }
     public Mux4RayItem Mux4RayItem { get; set; }
-    public Mux4SboxItem Mux4SboxItem { get; set; }
     public HysteriaItem HysteriaItem { get; set; }
     public ClashUIItem ClashUIItem { get; set; }
     public SystemProxyItem SystemProxyItem { get; set; }

@@ -12,7 +12,7 @@ internal static class CoreUpdatePackageStager
     private const long MaxExpandedBytes = 512L * 1024 * 1024;
     private const long MaxArchiveBytes = 512L * 1024 * 1024;
 
-    public static bool SupportsCore(ECoreType coreType) => coreType is ECoreType.Xray or ECoreType.mihomo or ECoreType.sing_box;
+    public static bool SupportsCore(ECoreType coreType) => coreType is ECoreType.Xray;
 
     public static bool IsSupported(ECoreType coreType, string archivePath)
     {
@@ -22,10 +22,6 @@ internal static class CoreUpdatePackageStager
         return coreType switch
         {
             ECoreType.Xray => name.Equals(".zip", StringComparison.OrdinalIgnoreCase),
-            ECoreType.mihomo => name.Equals(".gz", StringComparison.OrdinalIgnoreCase)
-                || name.Equals(".zip", StringComparison.OrdinalIgnoreCase),
-            ECoreType.sing_box => name.Equals(".tar.gz", StringComparison.OrdinalIgnoreCase)
-                || name.Equals(".zip", StringComparison.OrdinalIgnoreCase),
             _ => false,
         };
     }

@@ -92,7 +92,6 @@ public static class ConfigHandler
             EnableTun = false,
             Mtu = 9000,
             IcmpRouting = Global.TunIcmpRoutingPolicies.First(),
-            EnableLegacyProtect = true,
         };
         config.GuiItem ??= new();
         if (!Global.RootCertProviders.Contains(config.GuiItem.RootCertProvider))
@@ -149,11 +148,6 @@ public static class ConfigHandler
             XudpProxyUDP443 = "reject"
         };
 
-        config.Mux4SboxItem ??= new()
-        {
-            Protocol = Global.SingboxMuxs.First(),
-            MaxConnections = 8
-        };
 
         config.HysteriaItem ??= new()
         {
@@ -242,6 +236,7 @@ public static class ConfigHandler
     /// <returns>Result of the operation (0 if successful, -1 if failed)</returns>
     public static async Task<int> AddServer(Config config, ProfileItem profileItem)
     {
+        if (!XrayOnlyPolicy.Supports(profileItem)) return -1;
         var item = await AppManager.Instance.GetProfileItem(profileItem.IndexId);
         if (item is null)
         {
@@ -288,10 +283,7 @@ public static class ConfigHandler
             EConfigType.Trojan => await AddTrojanServer(config, item),
             EConfigType.VLESS => await AddVlessServer(config, item),
             EConfigType.Hysteria2 => await AddHysteria2Server(config, item),
-            EConfigType.TUIC => await AddTuicServer(config, item),
             EConfigType.WireGuard => await AddWireguardServer(config, item),
-            EConfigType.Anytls => await AddAnytlsServer(config, item),
-            EConfigType.Naive => await AddNaiveServer(config, item),
             EConfigType.MASQUE => await AddMasqueServer(config, item),
             _ => -1,
         };
@@ -308,6 +300,7 @@ public static class ConfigHandler
     /// <returns>0 if successful, -1 if failed</returns>
     public static async Task<int> AddVMessServer(Config config, ProfileItem profileItem, bool toFile = true)
     {
+        if (!XrayOnlyPolicy.Supports(profileItem)) return -1;
         profileItem.ConfigType = EConfigType.VMess;
 
         profileItem.Address = profileItem.Address.TrimEx();
@@ -550,6 +543,7 @@ public static class ConfigHandler
     /// <returns>0 if successful, -1 if failed</returns>
     public static async Task<int> AddCustomServer(Config config, ProfileItem profileItem, bool blDelete)
     {
+        if (!XrayOnlyPolicy.Supports(profileItem)) return -1;
         var fileName = profileItem.Address;
         if (!File.Exists(fileName))
         {
@@ -587,6 +581,7 @@ public static class ConfigHandler
 
     public static async Task<int> AddCustomOutboundServer(Config config, ProfileItem profileItem, bool blDelete, bool toFile = true)
     {
+        if (!XrayOnlyPolicy.Supports(profileItem)) return -1;
         var fileName = profileItem.Address;
         if (!File.Exists(fileName))
         {
@@ -631,6 +626,7 @@ public static class ConfigHandler
     /// <returns>0 if successful, -1 if failed</returns>
     public static async Task<int> EditCustomServer(Config config, ProfileItem profileItem)
     {
+        if (!XrayOnlyPolicy.Supports(profileItem)) return -1;
         var item = await AppManager.Instance.GetProfileItem(profileItem.IndexId);
         if (item is null)
         {
@@ -669,6 +665,7 @@ public static class ConfigHandler
     /// <returns>0 if successful, -1 if failed</returns>
     public static async Task<int> AddShadowsocksServer(Config config, ProfileItem profileItem, bool toFile = true)
     {
+        if (!XrayOnlyPolicy.Supports(profileItem)) return -1;
         profileItem.ConfigType = EConfigType.Shadowsocks;
 
         profileItem.Address = profileItem.Address.TrimEx();
@@ -702,6 +699,7 @@ public static class ConfigHandler
     /// <returns>0 if successful, -1 if failed</returns>
     public static async Task<int> AddSocksServer(Config config, ProfileItem profileItem, bool toFile = true)
     {
+        if (!XrayOnlyPolicy.Supports(profileItem)) return -1;
         profileItem.ConfigType = EConfigType.SOCKS;
 
         profileItem.Address = profileItem.Address.TrimEx();
@@ -721,6 +719,7 @@ public static class ConfigHandler
     /// <returns>0 if successful, -1 if failed</returns>
     public static async Task<int> AddHttpServer(Config config, ProfileItem profileItem, bool toFile = true)
     {
+        if (!XrayOnlyPolicy.Supports(profileItem)) return -1;
         profileItem.ConfigType = EConfigType.HTTP;
 
         profileItem.Address = profileItem.Address.TrimEx();
@@ -740,6 +739,7 @@ public static class ConfigHandler
     /// <returns>0 if successful, -1 if failed</returns>
     public static async Task<int> AddTrojanServer(Config config, ProfileItem profileItem, bool toFile = true)
     {
+        if (!XrayOnlyPolicy.Supports(profileItem)) return -1;
         profileItem.ConfigType = EConfigType.Trojan;
 
         profileItem.Address = profileItem.Address.TrimEx();
@@ -761,7 +761,6 @@ public static class ConfigHandler
     /// <summary>
     /// Add or edit a Hysteria2 server
     /// Validates and processes Hysteria2-specific settings
-    /// Sets the core type to sing_box as required by Hysteria2
     /// </summary>
     /// <param name="config">Current configuration</param>
     /// <param name="profileItem">Hysteria2 profile to add</param>
@@ -769,6 +768,7 @@ public static class ConfigHandler
     /// <returns>0 if successful, -1 if failed</returns>
     public static async Task<int> AddHysteria2Server(Config config, ProfileItem profileItem, bool toFile = true)
     {
+        if (!XrayOnlyPolicy.Supports(profileItem)) return -1;
         profileItem.ConfigType = EConfigType.Hysteria2;
 
         profileItem.Address = profileItem.Address.TrimEx();
@@ -839,47 +839,11 @@ public static class ConfigHandler
     /// <summary>
     /// Add or edit a TUIC server
     /// Validates and processes TUIC-specific settings
-    /// Sets the core type to sing_box as required by TUIC
     /// </summary>
     /// <param name="config">Current configuration</param>
     /// <param name="profileItem">TUIC profile to add</param>
     /// <param name="toFile">Whether to save to file</param>
     /// <returns>0 if successful, -1 if failed</returns>
-    public static async Task<int> AddTuicServer(Config config, ProfileItem profileItem, bool toFile = true)
-    {
-        profileItem.ConfigType = EConfigType.TUIC;
-        profileItem.CoreType = ECoreType.sing_box;
-
-        profileItem.Address = profileItem.Address.TrimEx();
-        profileItem.Username = profileItem.Username.TrimEx();
-        profileItem.Password = profileItem.Password.TrimEx();
-        profileItem.Network = string.Empty;
-        profileItem.Fingerprint = string.Empty;
-
-        var congestionControl = profileItem.GetProtocolExtra().CongestionControl;
-        if (!Global.TuicCongestionControls.Contains(congestionControl))
-        {
-            congestionControl = Global.TuicCongestionControls.FirstOrDefault()!;
-        }
-        profileItem.SetProtocolExtra(profileItem.GetProtocolExtra() with { CongestionControl = congestionControl });
-
-        if (profileItem.StreamSecurity.IsNullOrEmpty())
-        {
-            profileItem.StreamSecurity = Global.StreamSecurity;
-        }
-        if (profileItem.Alpn.IsNullOrEmpty())
-        {
-            profileItem.Alpn = "h3";
-        }
-        if (profileItem.Password.IsNullOrEmpty())
-        {
-            return -1;
-        }
-
-        await AddServerCommon(config, profileItem, toFile);
-
-        return 0;
-    }
 
     /// <summary>
     /// Add or edit a WireGuard server
@@ -891,6 +855,7 @@ public static class ConfigHandler
     /// <returns>0 if successful, -1 if failed</returns>
     public static async Task<int> AddWireguardServer(Config config, ProfileItem profileItem, bool toFile = true)
     {
+        if (!XrayOnlyPolicy.Supports(profileItem)) return -1;
         profileItem.ConfigType = EConfigType.WireGuard;
 
         profileItem.Address = profileItem.Address.TrimEx();
@@ -941,25 +906,6 @@ public static class ConfigHandler
     /// <param name="profileItem">Anytls profile to add</param>
     /// <param name="toFile">Whether to save to file</param>
     /// <returns>0 if successful, -1 if failed</returns>
-    public static async Task<int> AddAnytlsServer(Config config, ProfileItem profileItem, bool toFile = true)
-    {
-        profileItem.ConfigType = EConfigType.Anytls;
-        profileItem.CoreType = ECoreType.sing_box;
-
-        profileItem.Address = profileItem.Address.TrimEx();
-        profileItem.Password = profileItem.Password.TrimEx();
-        profileItem.Network = string.Empty;
-        if (profileItem.StreamSecurity.IsNullOrEmpty())
-        {
-            profileItem.StreamSecurity = Global.StreamSecurity;
-        }
-        if (profileItem.Password.IsNullOrEmpty())
-        {
-            return -1;
-        }
-        await AddServerCommon(config, profileItem, toFile);
-        return 0;
-    }
 
     /// <summary>
     /// Add or edit a Naive server
@@ -969,32 +915,10 @@ public static class ConfigHandler
     /// <param name="profileItem">Naive profile to add</param>
     /// <param name="toFile">Whether to save to file</param>
     /// <returns>0 if successful, -1 if failed</returns>
-    public static async Task<int> AddNaiveServer(Config config, ProfileItem profileItem, bool toFile = true)
-    {
-        profileItem.ConfigType = EConfigType.Naive;
-        profileItem.CoreType = ECoreType.sing_box;
-
-        profileItem.Address = profileItem.Address.TrimEx();
-        profileItem.Username = profileItem.Username.TrimEx();
-        profileItem.Password = profileItem.Password.TrimEx();
-        profileItem.Fingerprint = string.Empty;
-        profileItem.Alpn = string.Empty;
-        profileItem.Network = string.Empty;
-        profileItem.AllowInsecure = string.Empty;
-        if (profileItem.StreamSecurity.IsNullOrEmpty())
-        {
-            profileItem.StreamSecurity = Global.StreamSecurity;
-        }
-        if (profileItem.Password.IsNullOrEmpty())
-        {
-            return -1;
-        }
-        await AddServerCommon(config, profileItem, toFile);
-        return 0;
-    }
 
     public static async Task<int> AddMasqueServer(Config config, ProfileItem profileItem, bool toFile = true)
     {
+        if (!XrayOnlyPolicy.Supports(profileItem)) return -1;
         profileItem.ConfigType = EConfigType.MASQUE;
 
         profileItem.Address = profileItem.Address.TrimEx();
@@ -1145,6 +1069,7 @@ public static class ConfigHandler
     /// <returns>0 if successful, -1 if failed</returns>
     public static async Task<int> AddVlessServer(Config config, ProfileItem profileItem, bool toFile = true)
     {
+        if (!XrayOnlyPolicy.Supports(profileItem)) return -1;
         profileItem.ConfigType = EConfigType.VLESS;
 
         profileItem.Address = profileItem.Address.TrimEx();
@@ -1224,6 +1149,7 @@ public static class ConfigHandler
     /// <returns>0 if successful</returns>
     public static async Task<int> AddServerCommon(Config config, ProfileItem profileItem, bool toFile = true)
     {
+        if (!XrayOnlyPolicy.Supports(profileItem)) return -1;
         profileItem.ConfigVersion = 4;
 
         if (profileItem.StreamSecurity.IsNotEmpty())
@@ -1579,25 +1505,11 @@ public static class ConfigHandler
     public static ProfileItem? GetPreSocksItem(Config config, ProfileItem node, ECoreType coreType)
     {
         ProfileItem? itemSocks = null;
-        var enableLegacyProtect = config.TunModeItem.EnableLegacyProtect;
-        if (node.ConfigType != EConfigType.Custom
-            && coreType != ECoreType.sing_box
-            && config.TunModeItem.EnableTun
-            && enableLegacyProtect)
-        {
-            itemSocks = new ProfileItem()
-            {
-                CoreType = ECoreType.sing_box,
-                ConfigType = EConfigType.SOCKS,
-                Address = Global.Loopback,
-                Port = AppManager.Instance.GetLocalPort(EInboundProtocol.socks)
-            };
-        }
-        else if (node.ConfigType == EConfigType.Custom
+        if (node.ConfigType == EConfigType.Custom
             && node.PreSocksPort is > 0 and <= 65535)
         {
             var customPreCoreType = AppManager.Instance.GetCoreType(null, EConfigType.Custom);
-            var preCoreType = (enableLegacyProtect && config.TunModeItem.EnableTun) ? ECoreType.sing_box : customPreCoreType;
+            var preCoreType = ECoreType.Xray;
             itemSocks = new ProfileItem()
             {
                 CoreType = preCoreType,
@@ -1704,10 +1616,7 @@ public static class ConfigHandler
                 EConfigType.Trojan => await AddTrojanServer(config, profileItem, false),
                 EConfigType.VLESS => await AddVlessServer(config, profileItem, false),
                 EConfigType.Hysteria2 => await AddHysteria2Server(config, profileItem, false),
-                EConfigType.TUIC => await AddTuicServer(config, profileItem, false),
                 EConfigType.WireGuard => await AddWireguardServer(config, profileItem, false),
-                EConfigType.Anytls => await AddAnytlsServer(config, profileItem, false),
-                EConfigType.Naive => await AddNaiveServer(config, profileItem, false),
                 EConfigType.MASQUE => await AddMasqueServer(config, profileItem, false),
                 _ => -1,
             };
@@ -1729,7 +1638,6 @@ public static class ConfigHandler
     }
 
     /// <summary>
-    /// Add servers from custom configuration formats (sing-box, v2ray, etc.)
     /// Handles various configuration formats and imports them as custom configs
     /// </summary>
     /// <param name="config">Current configuration</param>
@@ -1766,15 +1674,7 @@ public static class ConfigHandler
         var lstProfiles = V2rayFmt.ResolveToCustom(strData, subRemarks);
         if (lstProfiles.Count == 0)
         {
-            lstProfiles = SingboxFmt.ResolveToCustom(strData, subRemarks);
-        }
-        if (lstProfiles.Count == 0)
-        {
             lstProfiles = V2rayFmt.ResolveToCustomOutbound(strData, subRemarks);
-        }
-        if (lstProfiles.Count == 0)
-        {
-            lstProfiles = SingboxFmt.ResolveToCustomOutbound(strData, subRemarks);
         }
         if (lstProfiles.Count > 0)
         {
@@ -1790,8 +1690,7 @@ public static class ConfigHandler
             return -1;
         }
 
-        var profileItem = ClashFmt.ResolveFull(strData, subRemarks)
-            ?? Hysteria2Fmt.ResolveFull2(strData, subRemarks);
+        ProfileItem? profileItem = null; // Only Xray full configurations are accepted above.
 
         if (profileItem == null)
         {
@@ -1814,11 +1713,11 @@ public static class ConfigHandler
     {
         var subRemarks = subItem.Remarks;
         var customCoreType = subItem.CustomCoreType!.Value;
+        if (customCoreType != ECoreType.Xray) return -1;
 
         var lstProfiles = customCoreType switch
         {
             ECoreType.Xray => V2rayFmt.ResolveToCustom(strData, subRemarks),
-            ECoreType.sing_box => SingboxFmt.ResolveToCustom(strData, subRemarks),
             _ => null,
         };
 
@@ -2027,10 +1926,7 @@ public static class ConfigHandler
                     EConfigType.Trojan => await AddTrojanServer(config, profileItem, false),
                     EConfigType.VLESS => await AddVlessServer(config, profileItem, false),
                     EConfigType.Hysteria2 => await AddHysteria2Server(config, profileItem, false),
-                    EConfigType.TUIC => await AddTuicServer(config, profileItem, false),
                     EConfigType.WireGuard => await AddWireguardServer(config, profileItem, false),
-                    EConfigType.Anytls => await AddAnytlsServer(config, profileItem, false),
-                    EConfigType.Naive => await AddNaiveServer(config, profileItem, false),
                     EConfigType.PolicyGroup or EConfigType.ProxyChain => await AddServerCommon(config, profileItem, false),
                     EConfigType.Outbound => await AddCustomOutboundServer(config, profileItem, true, false),
                     _ => -1,
@@ -2703,7 +2599,6 @@ public static class ConfigHandler
 
     /// <summary>
     /// Initialize built-in DNS configurations
-    /// Creates default DNS items for V2Ray and sing-box
     /// Also checks existing DNS items and disables those with empty NormalDNS
     /// </summary>
     /// <param name="config">Current configuration</param>
@@ -2739,13 +2634,6 @@ public static class ConfigHandler
             };
             await SaveDNSItems(config, item);
 
-            var item2 = new DNSItem()
-            {
-                Remarks = "sing-box",
-                CoreType = ECoreType.sing_box,
-                Enabled = false,
-            };
-            await SaveDNSItems(config, item2);
         }
 
         return 0;
@@ -2783,7 +2671,6 @@ public static class ConfigHandler
     /// Get an external DNS configuration from URL
     /// Downloads and processes DNS templates
     /// </summary>
-    /// <param name="type">Core type (Xray or sing-box)</param>
     /// <param name="url">URL of the DNS template</param>
     /// <returns>DNS item with configuration from the URL</returns>
     public static async Task<DNSItem> GetExternalDNSItem(ECoreType type, string url)
@@ -2874,12 +2761,6 @@ public static class ConfigHandler
             };
             await SaveFullConfigTemplate(config, item);
 
-            var item2 = new FullConfigTemplateItem()
-            {
-                Remarks = "sing-box",
-                CoreType = ECoreType.sing_box,
-            };
-            await SaveFullConfigTemplate(config, item2);
         }
 
         return 0;
@@ -2924,7 +2805,6 @@ public static class ConfigHandler
         {
             case EPresetType.Default:
                 config.ConstItem.GeoSourceUrl = "";
-                config.ConstItem.SrsSourceUrl = "";
                 config.ConstItem.RouteRulesTemplateSourceUrl = "";
 
                 await SQLiteHelper.Instance.DeleteAllAsync<DNSItem>();
@@ -2935,17 +2815,14 @@ public static class ConfigHandler
 
             case EPresetType.Russia:
                 config.ConstItem.GeoSourceUrl = Global.GeoFilesSources[1];
-                config.ConstItem.SrsSourceUrl = Global.SingboxRulesetSources[1];
                 config.ConstItem.RouteRulesTemplateSourceUrl = Global.RoutingRulesSources[1];
 
                 var xrayDnsRussia = await GetExternalDNSItem(ECoreType.Xray, Global.DNSTemplateSources[1] + "v2ray.json");
-                var singboxDnsRussia = await GetExternalDNSItem(ECoreType.sing_box, Global.DNSTemplateSources[1] + "sing_box.json");
                 var simpleDnsRussia = await GetExternalSimpleDNSItem(Global.DNSTemplateSources[1] + "simple_dns.json");
 
                 if (simpleDnsRussia == null)
                 {
                     xrayDnsRussia.Enabled = true;
-                    singboxDnsRussia.Enabled = true;
                     config.SimpleDNSItem = InitBuiltinSimpleDNS();
                 }
                 else
@@ -2953,22 +2830,18 @@ public static class ConfigHandler
                     config.SimpleDNSItem = simpleDnsRussia;
                 }
                 await SaveDNSItems(config, xrayDnsRussia);
-                await SaveDNSItems(config, singboxDnsRussia);
                 break;
 
             case EPresetType.Iran:
                 config.ConstItem.GeoSourceUrl = Global.GeoFilesSources[2];
-                config.ConstItem.SrsSourceUrl = Global.SingboxRulesetSources[2];
                 config.ConstItem.RouteRulesTemplateSourceUrl = Global.RoutingRulesSources[2];
 
                 var xrayDnsIran = await GetExternalDNSItem(ECoreType.Xray, Global.DNSTemplateSources[2] + "v2ray.json");
-                var singboxDnsIran = await GetExternalDNSItem(ECoreType.sing_box, Global.DNSTemplateSources[2] + "sing_box.json");
                 var simpleDnsIran = await GetExternalSimpleDNSItem(Global.DNSTemplateSources[2] + "simple_dns.json");
 
                 if (simpleDnsIran == null)
                 {
                     xrayDnsIran.Enabled = true;
-                    singboxDnsIran.Enabled = true;
                     config.SimpleDNSItem = InitBuiltinSimpleDNS();
                 }
                 else
@@ -2976,7 +2849,6 @@ public static class ConfigHandler
                     config.SimpleDNSItem = simpleDnsIran;
                 }
                 await SaveDNSItems(config, xrayDnsIran);
-                await SaveDNSItems(config, singboxDnsIran);
                 break;
         }
 

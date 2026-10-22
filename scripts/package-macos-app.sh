@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+python3 "$repo_root/scripts/check-macos-product-boundaries.py"
 backend="${1:?Usage: package-macos-app.sh <backend-publish-directory> <new-output.app>}"
 app="${2:?Specify a new output .app directory}"
 architecture="$(lipo -archs "$backend/v2rayN.WebAPI")"
@@ -10,16 +11,21 @@ swift build --package-path "$repo_root/macos/Native" --scratch-path "$build_dir"
 native_bin="$(swift build --package-path "$repo_root/macos/Native" --scratch-path "$build_dir" --configuration release --arch "$architecture" --show-bin-path)"
 bash "$repo_root/scripts/package-macos-helper.sh" "$backend" "$app"
 cp "$native_bin/V2rayM" "$app/Contents/MacOS/"
+ditto "$native_bin/V2rayMNative_V2rayM.bundle" "$app/Contents/Resources/V2rayMNative_V2rayM.bundle"
+cp "$repo_root/macos/Native/Assets/AppIcon.icns" "$app/Contents/Resources/"
 python3 - "$app/Contents/Info.plist" "${CORE_BIN_DIR:-}" "$app/Contents/Resources/Backend/bin" <<'PY'
 from pathlib import Path
+import os
 import plistlib
 import shutil
 import sys
 path = Path(sys.argv[1])
 with path.open('rb') as source:
     info = plistlib.load(source)
-info.update(CFBundleName='v2rayM', CFBundleDisplayName='v2rayM', CFBundleExecutable='V2rayM',
+info.update(CFBundleName='v2rayM', CFBundleDisplayName='v2rayM', CFBundleExecutable='V2rayM', CFBundleIconFile='AppIcon.icns',
             LSUIElement=False, NSHighResolutionCapable=True, NSPrincipalClass='NSApplication',
+            CFBundleShortVersionString=os.environ.get('APP_VERSION', info['CFBundleShortVersionString']),
+            CFBundleVersion=os.environ.get('APP_BUILD', os.environ.get('APP_VERSION', info['CFBundleVersion'])),
             NSHumanReadableCopyright='Based on v2rayN. Licensed under GPL-3.0.')
 with path.open('wb') as output:
     plistlib.dump(info, output)
@@ -27,10 +33,8 @@ with path.open('wb') as output:
 if sys.argv[2]:
     source, destination = Path(sys.argv[2]), Path(sys.argv[3])
     for item in source.iterdir():
-        if item.is_file() and item.suffix in {'.dat', '.mmdb', '.metadb'}:
+        if item.is_file() and item.name in {'geoip.dat', 'geosite.dat'}:
             shutil.copyfile(item, destination / item.name)
-    if (source / 'srss').is_dir():
-        shutil.copytree(source / 'srss', destination / 'srss', dirs_exist_ok=True)
 PY
 codesign --force --sign "$signing_identity" --options runtime --identifier io.github.CJMVPU.v2rayM.bridge "$app/Contents/MacOS/V2rayMHelperClient"
 codesign --force --sign "$signing_identity" --options runtime --identifier io.github.CJMVPU.v2rayM "$app/Contents/MacOS/V2rayM"

@@ -648,9 +648,7 @@
   <data name="TbPreSocksPort" xml:space="preserve">
     <value>txtPreSocksPort</value>
   </data>
-  <data name="TipPreSocksPort" xml:space="preserve">
-    <value>* پس از تنظیم این مقدار، یک سرویس جوراب با استفاده از Xray/sing-box (Tun) برای ارائه عملکردهایی مانند نمایش سرعت شروع می شود.</value>
-  </data>
+
   <data name="TbBrowse" xml:space="preserve">
     <value>مرور کردن</value>
   </data>
@@ -1008,21 +1006,13 @@
   <data name="menuDNSSetting" xml:space="preserve">
     <value>تنظیمات DNS</value>
   </data>
-  <data name="TbCustomDnsSingbox" xml:space="preserve">
-    <value>sing-box Custom DNS</value>
-  </data>
-  <data name="TbDnsSingboxObjectDoc" xml:space="preserve">
-    <value>لطفا ساختار DNS را پر کنید، برای مشاهده سند کلیک کنید</value>
-  </data>
+
+
   <data name="TbSettingDnsImportDefConfig" xml:space="preserve">
     <value>برای وارد کردن تنظیمات پیش‌فرض DNS کلیک کنید</value>
   </data>
-  <data name="TbdomainStrategy4Singbox" xml:space="preserve">
-    <value>استراتژی دامنه sing-box</value>
-  </data>
-  <data name="TbSettingsMux4SboxProtocol" xml:space="preserve">
-    <value>پروتکل sing-box Mux</value>
-  </data>
+
+
   <data name="TbRoutingRuleProcess" xml:space="preserve">
     <value>Process (Linux/Windows)</value>
   </data>
@@ -1134,18 +1124,12 @@
   <data name="TbSettingsFragmentFallbackDelay" xml:space="preserve">
     <value>تأخیر فول‌بک</value>
   </data>
-  <data name="TbSettingsFragmentFallbackDelayTip" xml:space="preserve">
-    <value>تأخیر فول‌بک فرگمنت TLS. فقط sing-box. خالی = پیش‌فرض.</value>
-  </data>
+
   <data name="FillFragmentParameterError" xml:space="preserve">
     <value>فرمت محدوده نامعتبر. از 'from-to' استفاده کنید (مثلا 50-100).</value>
   </data>
-  <data name="TbSettingsEnableCacheFile4Sbox" xml:space="preserve">
-    <value>فعال کردن کش فایل مجموعه قوانین برای sing-box</value>
-  </data>
-  <data name="LvCustomRulesetPath4Singbox" xml:space="preserve">
-    <value>سفارش سازی مجموعه قوانین sing box</value>
-  </data>
+
+
   <data name="NeedRebootTips" xml:space="preserve">
     <value>عملکرد موفقیت آمیز بود، روی منوی تنظیمات کلیک کنید تا برنامه راه اندازی مجدد شود.</value>
   </data>
@@ -1302,9 +1286,7 @@
   <data name="TbSettingsGeoFilesSource" xml:space="preserve">
     <value>منبع فایل های جغرافیایی (اختیاری)</value>
   </data>
-  <data name="TbSettingsSrsFilesSource" xml:space="preserve">
-    <value>منبع فایل های مجموعه قوانین sing-box (اختیاری)</value>
-  </data>
+
   <data name="UpgradeAppNotExistTip" xml:space="preserve">
     <value>برنامه ارتقا وجود ندارد</value>
   </data>
@@ -1482,9 +1464,7 @@
   <data name="TbSetUpstreamProxyDetour" xml:space="preserve">
     <value>Set Upstream Proxy Tag</value>
   </data>
-  <data name="TbSBFullConfigTemplate" xml:space="preserve">
-    <value>sing-box Full Config Template</value>
-  </data>
+
   <data name="TbSBFullConfigTemplateDesc" xml:space="preserve">
     <value>Add Outbound and Endpoint Config Only, Click to view the document</value>
   </data>
@@ -1497,9 +1477,7 @@
   <data name="TbSelectProfile" xml:space="preserve">
     <value>Select Profile</value>
   </data>
-  <data name="TbFakeIPTips" xml:space="preserve">
-    <value>Applies globally by default, and built-in FakeIP filtering is only built into sing-box.</value>
-  </data>
+
   <data name="PleaseAddAtLeastOneServer" xml:space="preserve">
     <value>Please Add At Least One Configuration</value>
   </data>

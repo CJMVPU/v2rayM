@@ -65,7 +65,7 @@ internal sealed class MacTunProcess : ProcessService
                 if (line.Length > 8 * 1024 * 1024) throw new IOException("helper_response_too_large");
                 var response = JsonSerializer.Deserialize<MacHelperResponse>(line, MacTunCoreLauncher.JsonOptions)
                     ?? throw new IOException("helper_protocol_invalid");
-                if (response.ProtocolVersion != 1) throw new IOException("helper_protocol_mismatch");
+                if (response.ProtocolVersion != 2) throw new IOException("helper_protocol_mismatch");
                 if (response.State == "running" && response.Success && response.Pid is > 1 && Path.IsPathRooted(response.ExecutablePath))
                     _started.TrySetResult(response);
                 else if (!response.Success) _started.TrySetException(new IOException(response.Code));

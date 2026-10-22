@@ -61,10 +61,11 @@ public final class NativeCore: ManagedCore {
         guard result == 0 else { running = false; throw HelperFailure("core_spawn_failed_\(result)") }
         try? stdout.fileHandleForWriting.close(); try? stderr.fileHandleForWriting.close()
         for pipe in [stdout, stderr] {
+            let lines = CoreLogLines()
             pipe.fileHandleForReading.readabilityHandler = { handle in
                 let data = handle.availableData
-                if data.isEmpty { handle.readabilityHandler = nil; return }
-                log(String(decoding: data.prefix(8192), as: UTF8.self))
+                for line in lines.append(data, end: data.isEmpty) { log(line) }
+                if data.isEmpty { handle.readabilityHandler = nil }
             }
         }
     }
@@ -108,17 +109,22 @@ public final class TunSession {
     private let limiter: SlotLimiter
     private let prepare: (HelperRequest) throws -> PreparedLaunch
     private let launch: (PreparedLaunch, @escaping (String) -> Void) throws -> ManagedCore
+    private let network: any ManagedTunNetwork
+    private var cleanupFailure: String?
     private var core: ManagedCore?
     private var prepared: PreparedLaunch?
     private var state = "idle"
     private var forced = false
     private var logs: [String] = []
+    private var logBytes = 0
     private let graceSeconds: TimeInterval
 
     public init(limiter: SlotLimiter, graceSeconds: TimeInterval = 8,
+                network: any ManagedTunNetwork = TemporaryTunDNS(),
                 prepare: @escaping (HelperRequest) throws -> PreparedLaunch,
                 launch: @escaping (PreparedLaunch, @escaping (String) -> Void) throws -> ManagedCore = { try NativeCore($0, log: $1) }) {
         self.limiter = limiter; self.prepare = prepare; self.launch = launch; self.graceSeconds = graceSeconds
+        self.network = network
     }
 
     public func handle(_ data: Data) -> HelperResponse {
@@ -136,9 +142,11 @@ public final class TunSession {
                     let prepared = try prepare(request)
                     self.prepared = prepared
                     core = try launch(prepared, { [weak self] in self?.appendLog($0) })
-                    state = "running"; forced = false
+                    try network.install(prepared.tunDNS)
+                    guard core?.isRunning == true else { throw HelperFailure("core_exited_during_start") }
+                    state = "running"; forced = false; cleanupFailure = nil
                 } catch {
-                    cleanup(); throw error
+                    stopLocked(); throw error
                 }
             case "stop": stopLocked()
             default: throw HelperFailure("action_not_allowed")
@@ -156,7 +164,10 @@ public final class TunSession {
     }
 
     private func stopLocked() {
-        guard let core else { return }
+        // Return DNS to macOS before its TUN resolver is stopped.
+        do { try network.restore(); cleanupFailure = nil }
+        catch { cleanupFailure = "tun_dns_cleanup_failed"; state = "faulted"; return }
+        guard let core else { cleanup(); return }
         core.terminate()
         let deadline = ProcessInfo.processInfo.systemUptime + graceSeconds
         while core.isRunning && ProcessInfo.processInfo.systemUptime < deadline { Thread.sleep(forTimeInterval: 0.05) }
@@ -178,22 +189,27 @@ public final class TunSession {
     }
 
     private func cleanup() {
+        do { try network.restore(); cleanupFailure = nil }
+        catch { cleanupFailure = "tun_dns_cleanup_failed"; state = "faulted"; return }
         if let directory = prepared?.directory { try? FileManager.default.removeItem(at: directory) }
         prepared = nil; core = nil; limiter.release(id)
     }
 
     private func appendLog(_ text: String) {
         logLock.lock(); defer { logLock.unlock() }
-        logs.append(String(text.prefix(8192)))
-        if logs.count > 128 { logs.removeFirst(logs.count - 128) }
+        let entry = String(text.prefix(16_384))
+        logs.append(entry); logBytes += entry.utf8.count
+        while logs.count > 10_000 || logBytes > 1_000_000 {
+            logBytes -= logs.removeFirst().utf8.count
+        }
     }
 
     private func response() -> HelperResponse {
-        var result = HelperResponse(success: state != "faulted", code: forced ? "forced_stop_cleanup_unconfirmed" : (state == "faulted" ? "core_failed" : "ok"), state: state)
+        var result = HelperResponse(success: state != "faulted", code: cleanupFailure ?? (forced ? "forced_stop_cleanup_unconfirmed" : (state == "faulted" ? "core_failed" : "ok")), state: state)
         result.pid = core?.pid
         result.executablePath = prepared?.executable.path
         result.forced = forced
-        logLock.lock(); result.logs = logs; logs.removeAll(); logLock.unlock()
+        logLock.lock(); result.logs = logs; logs.removeAll(); logBytes = 0; logLock.unlock()
         return result
     }
 }

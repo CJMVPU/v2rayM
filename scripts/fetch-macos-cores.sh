@@ -27,7 +27,7 @@ with zipfile.ZipFile(archive) as source:
     if not files or len(files) > 4096 or sum(item.file_size for item in files) > 1024 ** 3:
         raise RuntimeError('Unexpected upstream bundle size.')
     names = {item.filename[len(prefix):] for item in files}
-    if not {'xray/xray', 'sing_box/sing-box', 'geoip.dat', 'geosite.dat'}.issubset(names):
+    if not {'xray/xray', 'geoip.dat', 'geosite.dat'}.issubset(names):
         raise RuntimeError('Upstream bundle lacks required cores or Geo data.')
     for item in files:
         relative = PurePosixPath(item.filename[len(prefix):])
@@ -35,11 +35,13 @@ with zipfile.ZipFile(archive) as source:
             raise RuntimeError('Unsafe upstream archive entry.')
     destination.mkdir(parents=True)
     for item in files:
+        if item.filename[len(prefix):] not in {'xray/xray', 'xray/LICENSE', 'geoip.dat', 'geosite.dat'}:
+            continue
         target = destination / item.filename[len(prefix):]
         target.parent.mkdir(parents=True, exist_ok=True)
         with source.open(item) as incoming, target.open('xb') as output:
             shutil.copyfileobj(incoming, output)
-    for name in ('xray/xray', 'sing_box/sing-box', 'mihomo/mihomo'):
+    for name in ('xray/xray',):
         if (destination / name).is_file():
             (destination / name).chmod(0o755)
 print('Official upstream core bundle SHA-256:', hashlib.sha256(archive.read_bytes()).hexdigest())

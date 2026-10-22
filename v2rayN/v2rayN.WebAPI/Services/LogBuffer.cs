@@ -5,13 +5,14 @@ namespace v2rayN.WebAPI.Services;
 
 public sealed class LogBuffer
 {
-    private const int Capacity = 2000;
+    public const int Capacity = 10_000;
     private const int MaximumMessageCharacters = 16 * 1024;
-    private const int MaximumRetainedCharacters = 1_000_000;
+    public const int MaximumRetainedCharacters = 8_000_000;
     private readonly object _gate = new();
     private readonly Queue<LogView> _items = new();
     private int _retainedCharacters;
     private long _generation;
+    private long _sequence;
 
     public LogView Add(string source, string message)
     {
@@ -24,7 +25,7 @@ public sealed class LogBuffer
         LogView entry;
         lock (_gate)
         {
-            entry = new LogView(DateTimeOffset.UtcNow, source, normalized, _generation);
+            entry = new LogView(DateTimeOffset.UtcNow, source, normalized, _generation, ++_sequence);
             _items.Enqueue(entry);
             _retainedCharacters += entry.Source.Length + entry.Message.Length;
             while (_items.Count > Capacity || _retainedCharacters > MaximumRetainedCharacters)
@@ -69,6 +70,18 @@ public sealed class LogBuffer
             var start = Math.Max(0, end - safePageSize);
 
             return new LogPageView(items.Skip(start).Take(end - start).ToArray(), safePage, safePageSize, total, totalPages);
+        }
+    }
+
+    public LogTailView Tail(long afterSequence, int limit)
+    {
+        lock (_gate)
+        {
+            // A new backend session has its own sequence. Return its available history
+            // if a reconnecting client presents a cursor from the previous session.
+            var after = afterSequence > _sequence ? 0 : Math.Max(0, afterSequence);
+            var items = _items.Where(item => item.Sequence > after).TakeLast(Math.Clamp(limit, 1, Capacity)).ToArray();
+            return new LogTailView(items, _sequence, _generation);
         }
     }
 

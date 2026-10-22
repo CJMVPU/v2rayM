@@ -54,9 +54,6 @@ public sealed partial class V2rayRuntime
                 Config.Mux4RayItem.Concurrency,
                 Config.Mux4RayItem.XudpConcurrency,
                 Config.Mux4RayItem.XudpProxyUDP443,
-                Config.Mux4SboxItem.Protocol,
-                Config.Mux4SboxItem.Padding,
-                Config.CoreBasicItem.EnableCacheFile4Sbox,
                 Config.HysteriaItem.UpMbps,
                 Config.HysteriaItem.DownMbps,
                 Config.CoreBasicItem.EnableFragment,
@@ -72,7 +69,6 @@ public sealed partial class V2rayRuntime
                 Config.GuiItem.AutoUpdateInterval,
                 Config.GuiItem.RootCertProvider,
                 Config.ConstItem.GeoSourceUrl,
-                Config.ConstItem.SrsSourceUrl,
                 Config.ConstItem.RouteRulesTemplateSourceUrl,
                 Config.ConstItem.SubConvertUrl),
             new SpeedTestSettingsView(
@@ -83,10 +79,9 @@ public sealed partial class V2rayRuntime
                 Config.SpeedTestItem.IPAPIUrl,
                 Config.SpeedTestItem.UdpTestTarget),
             Config.RoutingBasicItem.DomainStrategy,
-            Config.RoutingBasicItem.DomainStrategy4Singbox,
             Config.CoreTypeItem
                 .Where(item => WebEditableCoreTypes.Contains(item.ConfigType))
-                .Select(item => new CoreTypeMapping(item.ConfigType, item.CoreType))
+                .Select(item => new CoreTypeMapping(item.ConfigType, ECoreType.Xray))
                 .ToArray(),
             GetWebSettingsOptions(),
             ShouldShowIpInfoColumn(Config.SpeedTestItem.IPAPIUrl, Config.UiItem.HideColumnIpInfo)));
@@ -97,14 +92,11 @@ public sealed partial class V2rayRuntime
         Global.RootCertProviders.ToArray(),
         Global.Fingerprints.ToArray(),
         Global.UserAgent.ToArray(),
-        Global.SingboxMuxs.ToArray(),
         ["reject", "skip"],
         Global.FragmentPacketsOptions.ToArray(),
         Global.destOverrideProtocols.ToArray(),
         Global.DomainStrategies.ToArray(),
-        Global.DomainStrategies4Sbox.ToArray(),
         Global.DomainStrategies.AppendEmpty().ToArray(),
-        Global.DomainStrategies4Sbox.ToArray(),
         Enumerable.Range(Global.SpeedTestConcurrencyCountMin, 20).ToArray(),
         Enumerable.Range(2, 5).Select(value => value * 5).ToArray(),
         Global.SpeedTestUrls.ToArray(),
@@ -113,34 +105,27 @@ public sealed partial class V2rayRuntime
         Global.IPAPIUrls.ToArray(),
         Global.SubConvertUrls.ToArray(),
         Global.GeoFilesSources.ToArray(),
-        Global.SingboxRulesetSources.ToArray(),
         Global.RoutingRulesSources.ToArray());
 
     public static WebEditorOptionsView GetEditorOptions() => new(
         new SubscriptionEditorOptionsView(
             Global.SubConvertTargets.ToArray(),
-            Enum.GetValues<ECoreType>().Where(coreType => coreType != ECoreType.v2rayN).Select(coreType => coreType.ToString()).ToArray()),
+            new[] { ECoreType.Xray }.Where(coreType => coreType == ECoreType.Xray).Select(coreType => coreType.ToString()).ToArray()),
         ProfileEditorOptionsValue.Value,
         GetDnsEditorOptions());
 
     private static ProfileEditorOptionsView CreateProfileEditorOptions()
     {
-        var shadowsocksMethods = Enum.GetValues<ECoreType>()
-            .Where(coreType => coreType != ECoreType.v2rayN)
+        var shadowsocksMethods = new[] { ECoreType.Xray }
+            .Where(coreType => coreType == ECoreType.Xray)
             .ToDictionary(
                 coreType => coreType.ToString(),
-                coreType => coreType switch
-                {
-                    ECoreType.v2fly => Global.SsSecurities.ToArray(),
-                    ECoreType.Xray => Global.SsSecuritiesInXray.ToArray(),
-                    _ => Global.SsSecuritiesInSingbox.ToArray(),
-                },
+                coreType => Global.SsSecuritiesInXray.ToArray(),
                 StringComparer.OrdinalIgnoreCase);
 
         return new ProfileEditorOptionsView(
             Global.CoreTypes.ToArray(),
-            Enum.GetValues<EConfigType>().Select(configType => configType.ToString()).ToArray(),
-            Global.SingboxOnlyConfigType.Select(configType => configType.ToString()).ToArray(),
+            Global.XraySupportConfigType.Select(configType => configType.ToString()).ToArray(),
             Global.Networks.ToArray(),
             Global.DefaultNetwork,
             new ProfileItem().StreamSecurity,
@@ -167,7 +152,6 @@ public sealed partial class V2rayRuntime
     public static DnsEditorOptionsView GetDnsEditorOptions() => new(
         Global.CoreTypes.ToArray(),
         Global.DomainStrategy.ToArray(),
-        Global.DomainStrategies4Sbox.ToArray(),
         Global.DomainPureIPDNSAddress.ToArray(),
         Global.DomainDirectDNSAddress.ToArray(),
         Global.DomainRemoteDNSAddress.ToArray(),
@@ -180,17 +164,18 @@ public sealed partial class V2rayRuntime
         new(ECoreType.Xray,
             EmbedUtils.GetEmbedText(Global.DNSV2rayNormalFileName),
             EmbedUtils.GetEmbedText(Global.DNSV2rayNormalFileName)),
-        new(ECoreType.sing_box,
-            EmbedUtils.GetEmbedText(Global.DNSSingboxNormalFileName),
-            EmbedUtils.GetEmbedText(Global.TunSingboxDNSFileName)),
     ];
 
     public async Task<OperationView> ApplySettingsAsync(SettingsApplyInput input)
     {
+        if (input.NativeTun is { } nativeTun && (!OperatingSystem.IsMacOS() || !ValidMacNativeTunSettings(nativeTun)))
+            return OperationView.Fail("mac_tun_settings_invalid", ApiMessageKeys.CommonInvalidInput);
         var inbound = input.Inbound;
         var core = input.Core;
         var application = input.Application;
         var speed = input.SpeedTest;
+        if (!ValidLanCredentials(inbound))
+            return OperationView.Fail("inbound_lan_credentials_invalid", ApiMessageKeys.CommonInvalidInput);
         var highestPortOffset = inbound.SecondLocalPortEnabled || (inbound.AllowLANConn && inbound.NewPort4LAN) ? 2 : 0;
         if (inbound.LocalPort <= 0 || inbound.LocalPort > 65535 - highestPortOffset
             || !AreDestOverrideProtocolsValid(inbound.DestOverride))
@@ -209,8 +194,7 @@ public sealed partial class V2rayRuntime
             return OperationView.Fail("settings_apply_invalid", ApiMessageKeys.SettingsInvalidSpeedTest);
         }
         if (!AreWebCoreTypeMappingsValid(input.CoreTypes)
-            || !Global.DomainStrategies.Contains(input.DomainStrategy ?? string.Empty)
-            || !Global.DomainStrategies4Sbox.Contains(input.DomainStrategy4Singbox ?? string.Empty))
+            || !Global.DomainStrategies.Contains(input.DomainStrategy ?? string.Empty))
         {
             return OperationView.Fail("settings_apply_invalid", ApiMessageKeys.CommonInvalidInput);
         }
@@ -228,13 +212,18 @@ public sealed partial class V2rayRuntime
                 ApplyInboundSettings(Config.Inbound[0], inbound);
 
                 ApplyCoreSettingsToConfig(core);
+                if (input.NativeTun is { } tun)
+                {
+                    Config.TunModeItem.Mtu = tun.Mtu;
+                    Config.TunModeItem.EnableIPv6Address = tun.EnableIPv6Address;
+                    Config.TunModeItem.RouteExcludeAddress = (tun.RouteExcludeAddress ?? []).ToList();
+                }
                 Config.GuiItem.EnableStatistics = application.EnableStatistics;
                 Config.GuiItem.DisplayRealTimeSpeed = application.DisplayRealTimeSpeed;
                 Config.GuiItem.KeepOlderDedupl = application.KeepOlderDedupl;
                 Config.GuiItem.AutoUpdateInterval = Math.Max(0, application.GeoAutoUpdateInterval);
                 Config.GuiItem.RootCertProvider = application.RootCertProvider;
                 Config.ConstItem.GeoSourceUrl = application.GeoSourceUrl;
-                Config.ConstItem.SrsSourceUrl = application.SrsSourceUrl;
                 Config.ConstItem.RouteRulesTemplateSourceUrl = application.RouteRulesTemplateSourceUrl;
                 Config.ConstItem.SubConvertUrl = application.SubConvertUrl;
 
@@ -255,7 +244,6 @@ public sealed partial class V2rayRuntime
                     }
                 }
                 Config.RoutingBasicItem.DomainStrategy = input.DomainStrategy!;
-                Config.RoutingBasicItem.DomainStrategy4Singbox = input.DomainStrategy4Singbox!;
                 await EnsureConfigSaveSucceededAsync(() => ConfigHandler.SaveConfig(Config));
             });
         }
@@ -298,6 +286,8 @@ public sealed partial class V2rayRuntime
 
     public async Task<OperationView> UpdateInboundSettingsAsync(InboundSettingsInput input)
     {
+        if (!ValidLanCredentials(input))
+            return OperationView.Fail("inbound_lan_credentials_invalid", ApiMessageKeys.CommonInvalidInput);
         var highestPortOffset = input.SecondLocalPortEnabled || (input.AllowLANConn && input.NewPort4LAN) ? 2 : 0;
         if (input.LocalPort <= 0 || input.LocalPort > 65535 - highestPortOffset)
         {
@@ -359,9 +349,6 @@ public sealed partial class V2rayRuntime
             Config.Mux4RayItem.Concurrency = input.Mux4RayConcurrency is > 0 ? input.Mux4RayConcurrency : null;
             Config.Mux4RayItem.XudpConcurrency = input.Mux4RayXudpConcurrency is > 0 ? input.Mux4RayXudpConcurrency : null;
             Config.Mux4RayItem.XudpProxyUDP443 = input.Mux4RayXudpProxyUDP443;
-            Config.Mux4SboxItem.Protocol = input.Mux4SboxProtocol ?? string.Empty;
-            Config.Mux4SboxItem.Padding = input.Mux4SboxPadding;
-            Config.CoreBasicItem.EnableCacheFile4Sbox = input.EnableCacheFile4Sbox;
             Config.HysteriaItem.UpMbps = input.Hy2UpMbps;
             Config.HysteriaItem.DownMbps = input.Hy2DownMbps;
             Config.CoreBasicItem.EnableFragment = input.EnableFragment;
@@ -395,7 +382,6 @@ public sealed partial class V2rayRuntime
             Config.GuiItem.AutoUpdateInterval = Math.Max(0, input.GeoAutoUpdateInterval);
             Config.GuiItem.RootCertProvider = input.RootCertProvider;
             Config.ConstItem.GeoSourceUrl = input.GeoSourceUrl;
-            Config.ConstItem.SrsSourceUrl = input.SrsSourceUrl;
             Config.ConstItem.RouteRulesTemplateSourceUrl = input.RouteRulesTemplateSourceUrl;
             Config.ConstItem.SubConvertUrl = input.SubConvertUrl;
             await EnsureConfigSaveSucceededAsync(() => ConfigHandler.SaveConfig(Config));
@@ -478,8 +464,7 @@ public sealed partial class V2rayRuntime
 
     public async Task<OperationView> UpdateRoutingStrategiesAsync(RoutingSettingsInput input)
     {
-        if (!Global.DomainStrategies.Contains(input.DomainStrategy ?? string.Empty)
-            || !Global.DomainStrategies4Sbox.Contains(input.DomainStrategy4Singbox ?? string.Empty))
+        if (!Global.DomainStrategies.Contains(input.DomainStrategy ?? string.Empty))
         {
             return OperationView.Fail("routing_strategy_invalid", ApiMessageKeys.SettingsInvalidRoutingStrategy);
         }
@@ -490,7 +475,6 @@ public sealed partial class V2rayRuntime
         await _mutations.RunAsync(async () =>
         {
             Config.RoutingBasicItem.DomainStrategy = input.DomainStrategy!;
-            Config.RoutingBasicItem.DomainStrategy4Singbox = input.DomainStrategy4Singbox!;
             await EnsureConfigSaveSucceededAsync(() => ConfigHandler.SaveConfig(Config));
         });
         return await CompleteCoreAffectingChangeAsync("routing", fingerprint != GetCoreConfigurationFingerprint(), applyContext);
@@ -518,10 +502,10 @@ public sealed partial class V2rayRuntime
 
     public async Task<OperationView> UpdateDnsProfileAsync(ECoreType coreType, DnsProfileInput input)
     {
-        if (!IsValidCustomDns(coreType, input.NormalDNS)
+        if (coreType != ECoreType.Xray || !IsValidCustomDns(coreType, input.NormalDNS)
             || !IsValidCustomDns(coreType, input.TunDNS)
             || (coreType == ECoreType.Xray && !Global.DomainStrategy.Contains(input.DomainStrategy4Freedom ?? string.Empty))
-            || (coreType == ECoreType.sing_box && !Global.DomainStrategies4Sbox.Contains(input.DomainStrategy4Freedom ?? string.Empty)))
+            )
         {
             return OperationView.Fail("dns_profile_invalid", ApiMessageKeys.CommonInvalidInput);
         }
@@ -583,12 +567,6 @@ public sealed partial class V2rayRuntime
     internal static bool IsValidCustomDns(ECoreType coreType, string? content)
     {
         if (string.IsNullOrEmpty(content)) return true;
-        if (coreType == ECoreType.sing_box)
-        {
-            var parsed = JsonUtils.Deserialize<Dns4Sbox>(content);
-            return parsed?.servers is { Count: > 0 }
-                && parsed.servers.All(server => !string.IsNullOrEmpty(server.type));
-        }
 
         if (!content.TrimStart().StartsWith('{'))
         {
@@ -606,7 +584,7 @@ public sealed partial class V2rayRuntime
         {
             return OperationView.Fail("routing_name_required", ApiMessageKeys.RoutingNameRequired);
         }
-        if (!AreRoutingProfileStrategiesValid(input.DomainStrategy, input.DomainStrategy4Singbox))
+        if (!AreRoutingProfileStrategiesValid(input.DomainStrategy))
         {
             return OperationView.Fail("routing_strategy_invalid", ApiMessageKeys.SettingsInvalidRoutingStrategy);
         }
@@ -644,18 +622,14 @@ public sealed partial class V2rayRuntime
                     || item.Enabled != input.Enabled
                     || item.Locked != input.Locked
                     || item.CustomIcon != input.CustomIcon
-                    || item.CustomRulesetPath4Singbox != input.CustomRulesetPath4Singbox
                     || item.DomainStrategy != input.DomainStrategy
-                    || item.DomainStrategy4Singbox != input.DomainStrategy4Singbox
                     || item.RuleSet != ruleJson;
                 item.Remarks = input.Remarks;
                 item.Url = input.Url;
                 item.Enabled = input.Enabled;
                 item.Locked = input.Locked;
                 item.CustomIcon = input.CustomIcon;
-                item.CustomRulesetPath4Singbox = input.CustomRulesetPath4Singbox;
                 item.DomainStrategy = input.DomainStrategy;
-                item.DomainStrategy4Singbox = input.DomainStrategy4Singbox;
             }
 
             if (parsedRules.Count == 0)
@@ -797,8 +771,6 @@ public sealed partial class V2rayRuntime
                 active.RuleSet,
                 active.Enabled,
                 active.DomainStrategy,
-                active.DomainStrategy4Singbox,
-                active.CustomRulesetPath4Singbox,
             });
     }
 
@@ -1080,7 +1052,6 @@ public sealed partial class V2rayRuntime
                         {
                             token.ThrowIfCancellationRequested();
                             Config.ConstItem.GeoSourceUrl = stage.GeoSourceUrl;
-                            Config.ConstItem.SrsSourceUrl = stage.SrsSourceUrl;
                             Config.ConstItem.RouteRulesTemplateSourceUrl = stage.RouteRulesTemplateSourceUrl;
                             Config.SimpleDNSItem = stage.SimpleDnsItem;
 
@@ -1307,6 +1278,9 @@ public sealed partial class V2rayRuntime
     internal static bool ShouldShowIpInfoColumn(string? ipApiUrl, bool hideColumnIpInfo) =>
         !string.IsNullOrEmpty(ipApiUrl) && !hideColumnIpInfo;
 
+    internal static bool ValidLanCredentials(InboundSettingsInput input) => !input.AllowLANConn || !input.NewPort4LAN
+        || string.IsNullOrWhiteSpace(input.User) == string.IsNullOrWhiteSpace(input.Pass);
+
     internal static void ApplyInboundSettings(InItem target, InboundSettingsInput input)
     {
         var destOverride = NormalizeDestOverride(input.SniffingEnabled, input.DestOverride);
@@ -1364,11 +1338,13 @@ public sealed partial class V2rayRuntime
     internal static bool IsWebEditableCoreType(EConfigType configType) => WebEditableCoreTypes.Contains(configType);
 
     internal static bool AreWebCoreTypeMappingsValid(IReadOnlyCollection<CoreTypeMapping> mappings) =>
-        mappings.All(mapping => IsWebEditableCoreType(mapping.ConfigType) && Enum.IsDefined(mapping.CoreType))
+        mappings.All(mapping => IsWebEditableCoreType(mapping.ConfigType) && mapping.CoreType == ECoreType.Xray)
         && mappings.Select(mapping => mapping.ConfigType).Distinct().Count() == mappings.Count;
 
     internal static bool AreDestOverrideProtocolsValid(IEnumerable<string>? protocols) =>
-        protocols is null || protocols.All(Global.destOverrideProtocols.Contains);
+        // Older generators could persist the generated FakeDNS override. Allow
+        // that valid Xray value to round-trip rather than trapping settings saves.
+        protocols is null || protocols.All(value => value == "fakedns" || Global.destOverrideProtocols.Contains(value));
 
     internal static bool IsRootCertProviderValid(string? provider) =>
         string.IsNullOrEmpty(provider) || Global.RootCertProviders.Contains(provider);
@@ -1376,15 +1352,13 @@ public sealed partial class V2rayRuntime
     internal static bool AreCoreSettingsOptionsValid(CoreSettingsInput input) =>
         Global.Fingerprints.Contains(input.DefFingerprint ?? string.Empty)
         && (string.IsNullOrEmpty(input.DefUserAgent) || Global.UserAgent.Contains(input.DefUserAgent))
-        && Global.SingboxMuxs.Contains(input.Mux4SboxProtocol ?? string.Empty)
         && (string.IsNullOrEmpty(input.Mux4RayXudpProxyUDP443)
             || input.Mux4RayXudpProxyUDP443 is "reject" or "skip")
         && (string.IsNullOrEmpty(input.FragmentPackets)
             || Global.FragmentPacketsOptions.Contains(input.FragmentPackets));
 
-    internal static bool AreRoutingProfileStrategiesValid(string? domainStrategy, string? domainStrategy4Singbox) =>
-        Global.DomainStrategies.AppendEmpty().Contains(domainStrategy ?? string.Empty)
-        && Global.DomainStrategies4Sbox.Contains(domainStrategy4Singbox ?? string.Empty);
+    internal static bool AreRoutingProfileStrategiesValid(string? domainStrategy) =>
+        Global.DomainStrategies.AppendEmpty().Contains(domainStrategy ?? string.Empty);
 
     private string GetCoreConfigurationFingerprint() => System.Text.Json.JsonSerializer.Serialize(new
     {
@@ -1412,7 +1386,6 @@ public sealed partial class V2rayRuntime
             BindInterface = Config.CoreBasicItem.BindInterface ?? string.Empty,
             Config.CoreBasicItem.EnableFragment,
             Config.CoreBasicItem.EnableFinalFragment,
-            Config.CoreBasicItem.EnableCacheFile4Sbox,
         },
         TunMode = Config.TunModeItem,
         Mux4Ray = new
@@ -1420,12 +1393,6 @@ public sealed partial class V2rayRuntime
             Config.Mux4RayItem.Concurrency,
             Config.Mux4RayItem.XudpConcurrency,
             XudpProxyUDP443 = Config.Mux4RayItem.XudpProxyUDP443 ?? string.Empty,
-        },
-        Mux4Sbox = new
-        {
-            Protocol = Config.Mux4SboxItem.Protocol ?? string.Empty,
-            Config.Mux4SboxItem.MaxConnections,
-            Config.Mux4SboxItem.Padding,
         },
         Config.HysteriaItem.UpMbps,
         Config.HysteriaItem.DownMbps,
@@ -1440,7 +1407,6 @@ public sealed partial class V2rayRuntime
         Routing = new
         {
             DomainStrategy = Config.RoutingBasicItem.DomainStrategy ?? string.Empty,
-            DomainStrategy4Singbox = Config.RoutingBasicItem.DomainStrategy4Singbox ?? string.Empty,
         },
         CoreTypeMapping = Config.CoreTypeItem ?? [],
     });
@@ -1727,9 +1693,6 @@ public sealed partial class V2rayRuntime
         Config.Mux4RayItem.Concurrency = input.Mux4RayConcurrency is > 0 ? input.Mux4RayConcurrency : null;
         Config.Mux4RayItem.XudpConcurrency = input.Mux4RayXudpConcurrency is > 0 ? input.Mux4RayXudpConcurrency : null;
         Config.Mux4RayItem.XudpProxyUDP443 = input.Mux4RayXudpProxyUDP443;
-        Config.Mux4SboxItem.Protocol = input.Mux4SboxProtocol ?? string.Empty;
-        Config.Mux4SboxItem.Padding = input.Mux4SboxPadding;
-        Config.CoreBasicItem.EnableCacheFile4Sbox = input.EnableCacheFile4Sbox;
         Config.HysteriaItem.UpMbps = input.Hy2UpMbps;
         Config.HysteriaItem.DownMbps = input.Hy2DownMbps;
         Config.CoreBasicItem.EnableFragment = input.EnableFragment;

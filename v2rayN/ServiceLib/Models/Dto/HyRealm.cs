@@ -16,7 +16,6 @@ public record HyRealm(
     public string RendezvousHostPort => RendezvousPort > 0 ? $"{RendezvousHost}:{RendezvousPort}" : RendezvousHost;
 
     /// <summary>
-    /// sing-box realm.server_url requires a scheme (https:// or http://).
     /// </summary>
     public string ToServerUrl()
     {

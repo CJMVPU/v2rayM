@@ -8,6 +8,7 @@ namespace ServiceLib.Services;
 public class DownloadService
 {
     public event EventHandler<UpdateResult>? UpdateCompleted;
+    public event EventHandler<FileTransferProgress>? ProgressChanged;
 
     public event ErrorEventHandler? Error;
 
@@ -68,7 +69,12 @@ public class DownloadService
             void OnProgress(FileDownloadState state)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                if (state.Error != null)
+                {
+                    Error?.Invoke(this, new ErrorEventArgs(state.Error));
+                }
                 UpdateCompleted?.Invoke(this, new UpdateResult(state.Completed, $"{Utils.HumanFy((long)state.SpeedBytesPerSecond / 1024)}/s | {Utils.HumanFy(state.DownloadedBytes / 1024)}/{Utils.HumanFy(state.TotalBytes / 1024)}"));
+                ProgressChanged?.Invoke(this, FileTransferProgress.FromStates([state]));
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -140,6 +146,7 @@ public class DownloadService
                     }
                 }
                 UpdateCompleted?.Invoke(this, new UpdateResult(allCompleted, $"{completedCount}/{span.Length} | {Utils.HumanFy((long)totalSpeed / 1024)}/s {Utils.HumanFy(totalDownloadedBytes / 1024)}/{Utils.HumanFy(totalTotalBytes / 1024)} {downloadingFileName}"));
+                ProgressChanged?.Invoke(this, FileTransferProgress.FromStates(span));
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

@@ -456,14 +456,6 @@ namespace ServiceLib.Resx {
             }
         }
         
-        /// <summary>
-        ///   查找类似 Customize the rule-set of sing-box 的本地化字符串。
-        /// </summary>
-        public static string LvCustomRulesetPath4Singbox {
-            get {
-                return ResourceManager.GetString("LvCustomRulesetPath4Singbox", resourceCulture);
-            }
-        }
         
         /// <summary>
         ///   查找类似 Enable update 的本地化字符串。
@@ -3006,23 +2998,7 @@ namespace ServiceLib.Resx {
             }
         }
         
-        /// <summary>
-        ///   查找类似 sing-box Custom DNS 的本地化字符串。
-        /// </summary>
-        public static string TbCustomDnsSingbox {
-            get {
-                return ResourceManager.GetString("TbCustomDnsSingbox", resourceCulture);
-            }
-        }
         
-        /// <summary>
-        ///   查找类似 Only single outbound/endpoint supported for xray/sing-box 的本地化字符串。
-        /// </summary>
-        public static string TbCustomOutboundTip {
-            get {
-                return ResourceManager.GetString("TbCustomOutboundTip", resourceCulture);
-            }
-        }
         
         /// <summary>
         ///   查找类似 Direct Target Resolution Strategy 的本地化字符串。
@@ -3087,14 +3063,6 @@ namespace ServiceLib.Resx {
             }
         }
         
-        /// <summary>
-        ///   查找类似 Please fill in DNS Structure, Click to view the document 的本地化字符串。
-        /// </summary>
-        public static string TbDnsSingboxObjectDoc {
-            get {
-                return ResourceManager.GetString("TbDnsSingboxObjectDoc", resourceCulture);
-            }
-        }
         
         /// <summary>
         ///   查找类似 Domain strategy 的本地化字符串。
@@ -3105,14 +3073,6 @@ namespace ServiceLib.Resx {
             }
         }
         
-        /// <summary>
-        ///   查找类似 sing-box domain strategy 的本地化字符串。
-        /// </summary>
-        public static string TbdomainStrategy4Singbox {
-            get {
-                return ResourceManager.GetString("TbdomainStrategy4Singbox", resourceCulture);
-            }
-        }
         
         /// <summary>
         ///   查找类似 Domestic DNS 的本地化字符串。
@@ -3213,14 +3173,6 @@ namespace ServiceLib.Resx {
             }
         }
         
-        /// <summary>
-        ///   查找类似 Applies globally by default, and built-in FakeIP filtering is only built into sing-box. 的本地化字符串。
-        /// </summary>
-        public static string TbFakeIPTips {
-            get {
-                return ResourceManager.GetString("TbFakeIPTips", resourceCulture);
-            }
-        }
         
         /// <summary>
         ///   查找类似 Fallback 的本地化字符串。
@@ -3501,14 +3453,6 @@ namespace ServiceLib.Resx {
             }
         }
         
-        /// <summary>
-        ///   查找类似 If enabled, use sing-box TUN; otherwise, use xray TUN. 的本地化字符串。
-        /// </summary>
-        public static string TbLegacyProtectTip {
-            get {
-                return ResourceManager.GetString("TbLegacyProtectTip", resourceCulture);
-            }
-        }
         
         /// <summary>
         ///   查找类似 Address (IPv4, IPv6) 的本地化字符串。
@@ -3933,14 +3877,6 @@ namespace ServiceLib.Resx {
             }
         }
         
-        /// <summary>
-        ///   查找类似 sing-box Full Config Template 的本地化字符串。
-        /// </summary>
-        public static string TbSBFullConfigTemplate {
-            get {
-                return ResourceManager.GetString("TbSBFullConfigTemplate", resourceCulture);
-            }
-        }
         
         /// <summary>
         ///   查找类似 Add Outbound and Endpoint Config Only, Click to view the document 的本地化字符串。
@@ -4266,14 +4202,6 @@ namespace ServiceLib.Resx {
             }
         }
         
-        /// <summary>
-        ///   查找类似 Enable cache file for sing-box (ruleset files) 的本地化字符串。
-        /// </summary>
-        public static string TbSettingsEnableCacheFile4Sbox {
-            get {
-                return ResourceManager.GetString("TbSettingsEnableCacheFile4Sbox", resourceCulture);
-            }
-        }
         
         /// <summary>
         ///   查找类似 Check for pre-release 的本地化字符串。
@@ -4374,14 +4302,6 @@ namespace ServiceLib.Resx {
             }
         }
         
-        /// <summary>
-        ///   查找类似 Fallback delay when ACK detection unavailable (e.g., 500ms). sing-box only. Empty = default. 的本地化字符串。
-        /// </summary>
-        public static string TbSettingsFragmentFallbackDelayTip {
-            get {
-                return ResourceManager.GetString("TbSettingsFragmentFallbackDelayTip", resourceCulture);
-            }
-        }
         
         /// <summary>
         ///   查找类似 Fragment Interval 的本地化字符串。
@@ -4626,14 +4546,6 @@ namespace ServiceLib.Resx {
             }
         }
         
-        /// <summary>
-        ///   查找类似 sing-box Mux Protocol 的本地化字符串。
-        /// </summary>
-        public static string TbSettingsMux4SboxProtocol {
-            get {
-                return ResourceManager.GetString("TbSettingsMux4SboxProtocol", resourceCulture);
-            }
-        }
         
         /// <summary>
         ///   查找类似 Turn on Mux Multiplexing 的本地化字符串。
@@ -4788,14 +4700,6 @@ namespace ServiceLib.Resx {
             }
         }
         
-        /// <summary>
-        ///   查找类似 sing-box ruleset files source (optional) 的本地化字符串。
-        /// </summary>
-        public static string TbSettingsSrsFilesSource {
-            get {
-                return ResourceManager.GetString("TbSettingsSrsFilesSource", resourceCulture);
-            }
-        }
         
         /// <summary>
         ///   查找类似 Start on boot 的本地化字符串。
@@ -5247,14 +5151,6 @@ namespace ServiceLib.Resx {
             }
         }
         
-        /// <summary>
-        ///   查找类似 * After setting this value, a socks service will be started using Xray/sing-box(Tun) to provide functions such as speed display 的本地化字符串。
-        /// </summary>
-        public static string TipPreSocksPort {
-            get {
-                return ResourceManager.GetString("TipPreSocksPort", resourceCulture);
-            }
-        }
         
         /// <summary>
         ///   查找类似 XHTTP Extra 的本地化字符串。

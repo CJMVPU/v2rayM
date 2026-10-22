@@ -7,7 +7,9 @@ private final class MemoryPreferences: ProxyPreferencesStore {
         "ProxyAutoConfigEnable": 1, "ProxyAutoConfigURLString": "https://example.invalid/proxy.pac",
         "UnmanagedField": "keep-me"])]
     var failApply = false
-    func services() throws -> [ProxyService] { values }
+    var disabled = Set<String>()
+    func services() throws -> [ProxyService] { values.filter { !disabled.contains($0.id) } }
+    func recoveryServices() throws -> [ProxyService] { values }
     func apply(_ services: [ProxyService]) throws {
         if failApply { throw ClientFailure("proxy_configuration") }
         for service in services {
@@ -80,4 +82,31 @@ final class ProxyRecoveryTests: XCTestCase {
         XCTAssertEqual(store.values[1].configuration["HTTPPort"] as? Int, 9999)
     }
     private func temporary() -> URL { FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString) }
+
+    func testDisabledServiceIsRestoredWithoutBlockingOtherServices() async throws {
+        let directory = temporary(); defer { try? FileManager.default.removeItem(at: directory) }
+        let store = MemoryPreferences()
+        store.values.append(ProxyService(id: "ethernet", configuration: ["HTTPEnable": 0]))
+        let original = store.values
+        let controller = SystemProxyController(dataDirectory: directory, makeStore: { store })
+        try await controller.enable(port: 10808)
+        store.disabled.insert("wifi")
+        _ = try await controller.restore()
+        for (actual, expected) in zip(store.values, original) {
+            XCTAssertTrue(NSDictionary(dictionary: actual.configuration).isEqual(to: expected.configuration))
+        }
+        let pending = await controller.needsRecovery; XCTAssertFalse(pending)
+    }
+
+    func testDeletedServiceDoesNotTrapRecoveryJournal() async throws {
+        let directory = temporary(); defer { try? FileManager.default.removeItem(at: directory) }
+        let store = MemoryPreferences()
+        store.values.append(ProxyService(id: "ethernet", configuration: ["HTTPEnable": 0]))
+        let controller = SystemProxyController(dataDirectory: directory, makeStore: { store })
+        try await controller.enable(port: 10808)
+        store.values.removeAll { $0.id == "wifi" }
+        _ = try await controller.restore()
+        XCTAssertEqual(store.values[0].configuration["HTTPEnable"] as? Int, 0)
+        let pending = await controller.needsRecovery; XCTAssertFalse(pending)
+    }
 }

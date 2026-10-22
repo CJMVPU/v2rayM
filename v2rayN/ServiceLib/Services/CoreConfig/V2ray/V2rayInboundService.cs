@@ -84,8 +84,7 @@ public partial class CoreConfigV2rayService
                 {
                     tunInbound.settings.autoOutboundsInterface = bindInterface;
                 }
-                tunInbound.sniffing = inbound.sniffing;
-                // tunInbound.sniffing.routeOnly = inbound.sniffing.routeOnly;
+                tunInbound.sniffing = JsonUtils.DeepCopy(inbound.sniffing);
                 tunInbound.sniffing.routeOnly = true;
 
                 if (context.IsWindows && _config.TunModeItem.StrictRoute == true)
@@ -165,10 +164,12 @@ public partial class CoreConfigV2rayService
         inbound.protocol = nameof(EInboundProtocol.mixed);
         inbound.settings.udp = inItem.UdpEnabled;
         inbound.sniffing.enabled = inItem.SniffingEnabled;
-        inbound.sniffing.destOverride = inItem.DestOverride;
+        // FakeDNS adds a generated-only override below. Do not mutate the saved
+        // inbound list, which is shared by settings and subsequent generations.
+        inbound.sniffing.destOverride = inItem.DestOverride?.ToList();
         inbound.sniffing.routeOnly = inItem.RouteOnly;
 
-        if (_config.SimpleDNSItem.FakeIP == true)
+        if (context.RawDnsItem?.Enabled != true && _config.SimpleDNSItem.FakeIP == true)
         {
             // Ensure destOverride contains "fakedns" if FakeIP is enabled
             inbound.sniffing.destOverride ??= [];

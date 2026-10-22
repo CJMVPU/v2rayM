@@ -651,9 +651,7 @@
   <data name="TbPreSocksPort" xml:space="preserve">
     <value>Socks port</value>
   </data>
-  <data name="TipPreSocksPort" xml:space="preserve">
-    <value>* After setting this value, a socks service will be started using Xray/sing-box(Tun) to provide functions such as speed display</value>
-  </data>
+
   <data name="TbBrowse" xml:space="preserve">
     <value>Browse</value>
   </data>
@@ -1011,21 +1009,13 @@
   <data name="menuDNSSetting" xml:space="preserve">
     <value>DNS Settings</value>
   </data>
-  <data name="TbCustomDnsSingbox" xml:space="preserve">
-    <value>sing-box Custom DNS</value>
-  </data>
-  <data name="TbDnsSingboxObjectDoc" xml:space="preserve">
-    <value>Please fill in DNS Structure, Click to view the document</value>
-  </data>
+
+
   <data name="TbSettingDnsImportDefConfig" xml:space="preserve">
     <value>Click to import default DNS config</value>
   </data>
-  <data name="TbdomainStrategy4Singbox" xml:space="preserve">
-    <value>sing-box domain strategy</value>
-  </data>
-  <data name="TbSettingsMux4SboxProtocol" xml:space="preserve">
-    <value>sing-box Mux Protocol</value>
-  </data>
+
+
   <data name="TbSettingsMux4RayConcurrency" xml:space="preserve">
     <value>Xray Mux concurrency</value>
   </data>
@@ -1152,18 +1142,12 @@
   <data name="TbSettingsFragmentFallbackDelay" xml:space="preserve">
     <value>Fallback Delay</value>
   </data>
-  <data name="TbSettingsFragmentFallbackDelayTip" xml:space="preserve">
-    <value>Fallback delay when ACK detection unavailable (e.g., 500ms). sing-box only. Empty = default.</value>
-  </data>
+
   <data name="FillFragmentParameterError" xml:space="preserve">
     <value>Invalid range format. Use 'from-to' (e.g., 50-100).</value>
   </data>
-  <data name="TbSettingsEnableCacheFile4Sbox" xml:space="preserve">
-    <value>Enable cache file for sing-box (ruleset files)</value>
-  </data>
-  <data name="LvCustomRulesetPath4Singbox" xml:space="preserve">
-    <value>Customize the rule-set of sing-box</value>
-  </data>
+
+
   <data name="NeedRebootTips" xml:space="preserve">
     <value>Successful operation. Click the settings menu to reboot the app.</value>
   </data>
@@ -1320,9 +1304,7 @@
   <data name="TbSettingsGeoFilesSource" xml:space="preserve">
     <value>Geo files source (optional)</value>
   </data>
-  <data name="TbSettingsSrsFilesSource" xml:space="preserve">
-    <value>sing-box ruleset files source (optional)</value>
-  </data>
+
   <data name="UpgradeAppNotExistTip" xml:space="preserve">
     <value>Upgrade App does not exist</value>
   </data>
@@ -1500,9 +1482,7 @@
   <data name="TbSetUpstreamProxyDetour" xml:space="preserve">
     <value>Set Upstream Proxy Tag</value>
   </data>
-  <data name="TbSBFullConfigTemplate" xml:space="preserve">
-    <value>sing-box Full Config Template</value>
-  </data>
+
   <data name="TbSBFullConfigTemplateDesc" xml:space="preserve">
     <value>Add Outbound and Endpoint Config Only, Click to view the document</value>
   </data>
@@ -1515,9 +1495,7 @@
   <data name="TbSelectProfile" xml:space="preserve">
     <value>Select Profile</value>
   </data>
-  <data name="TbFakeIPTips" xml:space="preserve">
-    <value>Applies globally by default, and built-in FakeIP filtering is only built into sing-box.</value>
-  </data>
+
   <data name="PleaseAddAtLeastOneServer" xml:space="preserve">
     <value>Please Add At Least One Configuration</value>
   </data>
@@ -1836,9 +1814,7 @@ The "Get Certificate" action may fail if a self-signed certificate is used or if
   <data name="TbGeckoPacketSize" xml:space="preserve">
     <value>Gecko Packet Size (min/max)</value>
   </data>
-  <data name="TbLegacyProtectTip" xml:space="preserve">
-    <value>If enabled, use sing-box TUN; otherwise, use xray TUN.</value>
-  </data>
+
   <data name="TbRootCertificateProvider" xml:space="preserve">
     <value>Root Certificate Provider</value>
   </data>
@@ -1869,9 +1845,7 @@ The "Get Certificate" action may fail if a self-signed certificate is used or if
   <data name="MsgCustomOutboundFileNotFound" xml:space="preserve">
     <value>Custom outbound {0} file not found: {1}</value>
   </data>
-  <data name="TbCustomOutboundTip" xml:space="preserve">
-    <value>Only single outbound/endpoint supported for xray/sing-box</value>
-  </data>
+
   <data name="LvCustomCoreType" xml:space="preserve">
     <value>Custom config core</value>
   </data>

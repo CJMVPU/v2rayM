@@ -648,9 +648,7 @@
   <data name="TbPreSocksPort" xml:space="preserve">
     <value>SOCKS portu</value>
   </data>
-  <data name="TipPreSocksPort" xml:space="preserve">
-    <value>* Bu dəyər təyin edildikdən sonra sürətin göstərilməsi kimi funksiyaları təmin etmək üçün Xray/sing-box(Tun) vasitəsilə SOCKS xidməti başladılacaq</value>
-  </data>
+
   <data name="TbBrowse" xml:space="preserve">
     <value>Fayl seç</value>
   </data>
@@ -1008,21 +1006,13 @@
   <data name="menuDNSSetting" xml:space="preserve">
     <value>DNS parametrləri</value>
   </data>
-  <data name="TbCustomDnsSingbox" xml:space="preserve">
-    <value>sing-box üçün xüsusi DNS</value>
-  </data>
-  <data name="TbDnsSingboxObjectDoc" xml:space="preserve">
-    <value>DNS strukturunu doldurun; sənədə baxmaq üçün klikləyin</value>
-  </data>
+
+
   <data name="TbSettingDnsImportDefConfig" xml:space="preserve">
     <value>Standart DNS konfiqurasiyasını idxal etmək üçün kliklə</value>
   </data>
-  <data name="TbdomainStrategy4Singbox" xml:space="preserve">
-    <value>sing-box domen strategiyası</value>
-  </data>
-  <data name="TbSettingsMux4SboxProtocol" xml:space="preserve">
-    <value>sing-box Mux protokolu</value>
-  </data>
+
+
   <data name="TbSettingsMux4RayConcurrency" xml:space="preserve">
     <value>Xray Mux paralellik sayı</value>
   </data>
@@ -1149,18 +1139,12 @@
   <data name="TbSettingsFragmentFallbackDelay" xml:space="preserve">
     <value>Ehtiyat gecikmə</value>
   </data>
-  <data name="TbSettingsFragmentFallbackDelayTip" xml:space="preserve">
-    <value>ACK aşkarlaması mümkün olmadıqda ehtiyat gecikmə (məsələn, 500ms). Yalnız sing-box. Boş = standart.</value>
-  </data>
+
   <data name="FillFragmentParameterError" xml:space="preserve">
     <value>Aralıq formatı yanlışdır. &apos;başlanğıc-son&apos; formatından istifadə edin (məsələn, 50-100).</value>
   </data>
-  <data name="TbSettingsEnableCacheFile4Sbox" xml:space="preserve">
-    <value>sing-box üçün keş faylını aktiv et (qayda dəsti faylları)</value>
-  </data>
-  <data name="LvCustomRulesetPath4Singbox" xml:space="preserve">
-    <value>sing-box üçün xüsusi qayda dəsti</value>
-  </data>
+
+
   <data name="NeedRebootTips" xml:space="preserve">
     <value>Əməliyyat uğurla tamamlandı. Tətbiqi yenidən başlatmaq üçün parametrlər menyusuna klikləyin.</value>
   </data>
@@ -1317,9 +1301,7 @@
   <data name="TbSettingsGeoFilesSource" xml:space="preserve">
     <value>Geo fayllarının mənbəyi (istəyə bağlı)</value>
   </data>
-  <data name="TbSettingsSrsFilesSource" xml:space="preserve">
-    <value>sing-box qayda dəsti fayllarının mənbəyi (istəyə bağlı)</value>
-  </data>
+
   <data name="UpgradeAppNotExistTip" xml:space="preserve">
     <value>Yeniləmə tətbiqi mövcud deyil</value>
   </data>
@@ -1497,9 +1479,7 @@
   <data name="TbSetUpstreamProxyDetour" xml:space="preserve">
     <value>Yuxarı səviyyəli proksi etiketini təyin et</value>
   </data>
-  <data name="TbSBFullConfigTemplate" xml:space="preserve">
-    <value>sing-box tam konfiqurasiya şablonu</value>
-  </data>
+
   <data name="TbSBFullConfigTemplateDesc" xml:space="preserve">
     <value>Yalnız çıxış və son nöqtə konfiqurasiyasını əlavə edin; sənədə baxmaq üçün klikləyin</value>
   </data>
@@ -1512,9 +1492,7 @@
   <data name="TbSelectProfile" xml:space="preserve">
     <value>Profil seç</value>
   </data>
-  <data name="TbFakeIPTips" xml:space="preserve">
-    <value>Standart olaraq qlobal tətbiq edilir və daxili FakeIP süzgəci yalnız sing-box-da mövcuddur.</value>
-  </data>
+
   <data name="PleaseAddAtLeastOneServer" xml:space="preserve">
     <value>Ən azı bir konfiqurasiya əlavə edin</value>
   </data>
@@ -1833,9 +1811,7 @@ Təyin edildikdə sertifikat sabitlənəcək və "Təhlükəsiz olmayan əlaqəy
   <data name="TbGeckoPacketSize" xml:space="preserve">
     <value>Gecko paket ölçüsü (min/maks)</value>
   </data>
-  <data name="TbLegacyProtectTip" xml:space="preserve">
-    <value>Aktiv olduqda sing-box TUN, əks halda xray TUN istifadə edilir.</value>
-  </data>
+
   <data name="TbRootCertificateProvider" xml:space="preserve">
     <value>Kök sertifikat təminatçısı</value>
   </data>
@@ -1866,9 +1842,7 @@ Təyin edildikdə sertifikat sabitlənəcək və "Təhlükəsiz olmayan əlaqəy
   <data name="MsgCustomOutboundFileNotFound" xml:space="preserve">
     <value>Xüsusi çıxışın {0} faylı tapılmadı: {1}</value>
   </data>
-  <data name="TbCustomOutboundTip" xml:space="preserve">
-    <value>xray/sing-box üçün yalnız bir çıxış/son nöqtə dəstəklənir</value>
-  </data>
+
   <data name="LvCustomCoreType" xml:space="preserve">
     <value>Xüsusi konfiqurasiyanın nüvəsi</value>
   </data>

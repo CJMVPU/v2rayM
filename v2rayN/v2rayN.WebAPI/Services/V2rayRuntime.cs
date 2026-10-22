@@ -49,6 +49,8 @@ public sealed partial class V2rayRuntime(
     private CoreProcessIdentity[] _trackedCoreProcesses = [];
     private string? _xrayPath;
     private ServerSpeedItem? _latestTraffic;
+    private DateTimeOffset? _trafficSampledAt;
+    private readonly InstalledXrayVersion _installedXrayVersion = new();
     private bool _initialized;
     private readonly MacTunCoreLauncher _macTunLauncher = MacTunCoreLauncher.ForCurrentApp();
     private bool _restoring;
@@ -71,6 +73,7 @@ public sealed partial class V2rayRuntime(
         if (snapshot.State != CoreRuntimeState.Running)
         {
             _coreMonitorCancellation?.Cancel();
+            _latestTraffic = null; _trafficSampledAt = null;
         }
         _events.Publish("core-state", new
         {
@@ -697,11 +700,11 @@ public sealed partial class V2rayRuntime(
             subscriptions.Count,
             DateTimeOffset.UtcNow,
             Config.GuiItem.EnableStatistics,
-            _latestTraffic is null ? null : new TrafficView(
+            _latestTraffic is null || !coreRunning ? null : new TrafficView(
                 _latestTraffic.ProxyUp,
                 _latestTraffic.ProxyDown,
                 _latestTraffic.DirectUp,
-                _latestTraffic.DirectDown),
+                _latestTraffic.DirectDown, _latestTraffic.SampleSeconds, _trafficSampledAt),
             snapshot.State.ToString().ToLowerInvariant(),
             configuredProxyPort,
             snapshot.State == CoreRuntimeState.Stopped ? null : snapshot.ProxyPort,
@@ -716,11 +719,13 @@ public sealed partial class V2rayRuntime(
             WebBuildIdentity.Current.BuildDate,
             sniffingEnabled,
             sniffingTypes,
-            WebApiCapabilities.Current);
+            WebApiCapabilities.Current,
+            Config.GuiItem.EnableStatistics || Config.GuiItem.DisplayRealTimeSpeed,
+            await _installedXrayVersion.ReadAsync(_xrayPath));
 
     }
 
-    public async Task<OperationView> SelectProfileAsync(string profileId, CancellationToken cancellationToken)
+    public async Task<OperationView> SelectProfileAsync(string profileId, CancellationToken cancellationToken, bool connect = true)
     {
         var profile = await AppManager.Instance.GetProfileItem(profileId);
         if (profile is null)
@@ -728,7 +733,19 @@ public sealed partial class V2rayRuntime(
             return OperationView.Fail("profile_not_found", ApiMessageKeys.ProfileNotFound);
         }
 
-        return await StartCoreAsync(profile, cancellationToken, selectProfile: true);
+        if (connect) return await StartCoreAsync(profile, cancellationToken, selectProfile: true);
+        await _coreGate.WaitAsync(cancellationToken);
+        try
+        {
+            if (CurrentCoreRuntime.State != CoreRuntimeState.Stopped)
+                return OperationView.Fail("core_selection_requires_stop", ApiMessageKeys.CommonInvalidInput);
+            await _mutations.RunAsync(async () => {
+                Config.IndexId = profile.IndexId;
+                await EnsureConfigSaveSucceededAsync(() => ConfigHandler.SaveConfig(Config));
+            });
+            return OperationView.Ok(ApiMessageKeys.CommonCompleted);
+        }
+        finally { _coreGate.Release(); }
     }
 
     public async Task<OperationView> StartCoreAsync(string? profileId, CancellationToken cancellationToken)
@@ -807,7 +824,7 @@ public sealed partial class V2rayRuntime(
     private async Task<CoreLaunchPreflightResult> BuildAndValidateCoreLaunchAsync(ProfileItem profile)
     {
         var helper = Config.TunModeItem.EnableTun ? await _macTunLauncher.ProbeAsync() : null;
-        var preflight = await CoreLaunchPreflight.BuildAndValidateAsync(Config, profile, coreType =>
+        var preflight = await CoreLaunchPreflight.BuildAndValidateAsync(MacNativeTunConfig.ForLaunch(Config, OperatingSystem.IsMacOS()), profile, coreType =>
         {
             var coreInfo = CoreInfoManager.Instance.GetCoreInfo(coreType);
             var executable = CoreInfoManager.Instance.GetCoreExecFile(coreInfo, out var missingCoreMessage);
@@ -1129,6 +1146,7 @@ public sealed partial class V2rayRuntime(
     }
 
     public IReadOnlyList<LogView> GetRecentLogs(int limit, string? filter = null) => _logs.Recent(limit, filter);
+    public LogTailView GetLogTail(long afterSequence, int limit) => _logs.Tail(afterSequence, limit);
 
     public LogPageView GetRecentLogsPage(int page, int pageSize, string? filter = null) => _logs.RecentPage(page, pageSize, filter);
 
@@ -1147,8 +1165,11 @@ public sealed partial class V2rayRuntime(
 
     private void AddLog(string source, string message)
     {
-        var entry = _logs.Add(source, message);
-        _events.Publish("log", entry);
+        foreach (var line in message.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var entry = _logs.Add(source, line);
+            _events.Publish("log", entry);
+        }
         Console.Out.WriteLine($"[{source}] {message.TrimEnd()}");
     }
 
@@ -1172,6 +1193,7 @@ public sealed partial class V2rayRuntime(
     private Task OnStatisticsUpdateAsync(ServerSpeedItem update)
     {
         _latestTraffic = update;
+        _trafficSampledAt = DateTimeOffset.UtcNow;
         _events.Publish("traffic", update);
         return Task.CompletedTask;
     }

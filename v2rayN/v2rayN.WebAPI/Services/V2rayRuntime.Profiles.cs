@@ -91,6 +91,9 @@ public sealed partial class V2rayRuntime
             return OperationView.Fail("profile_data_required", ApiMessageKeys.CommonInvalidInput);
         }
 
+        if (!XrayOnlyPolicy.Supports(profile))
+            return OperationView.Fail("xray_only_profile_required", ApiMessageKeys.ProfileInvalid);
+
         var isNew = string.IsNullOrWhiteSpace(profileId);
         if (!isNew)
         {
@@ -128,7 +131,7 @@ public sealed partial class V2rayRuntime
             var childIds = Utils.String2List(protocolExtra.ChildItems) ?? [];
             if (string.IsNullOrWhiteSpace(profile.Remarks)
                 || (childIds.Count == 0 && string.IsNullOrWhiteSpace(protocolExtra.SubChildItems))
-                || profile.CoreType is not (ECoreType.Xray or ECoreType.sing_box))
+                || profile.CoreType is not (ECoreType.Xray))
             {
                 return OperationView.Fail("profile_group_invalid", ApiMessageKeys.ProfileInvalid);
             }
@@ -205,6 +208,10 @@ public sealed partial class V2rayRuntime
 
     internal static bool TryValidateProfile(ProfileItem profile, out string code, out string messageKey)
     {
+        if (!XrayOnlyPolicy.Supports(profile))
+        {
+            code = "xray_only_profile_required"; messageKey = ApiMessageKeys.ProfileInvalid; return false;
+        }
         if (string.IsNullOrEmpty(profile.Remarks)
             || string.IsNullOrEmpty(profile.Address)
             || profile.Port <= 0
@@ -469,7 +476,7 @@ public sealed partial class V2rayRuntime
 
         if (action != ESpeedActionType.Tcping
             && profiles.Where(item => !item.ConfigType.IsComplexType())
-                .Any(item => AppManager.Instance.GetCoreType(item, item.ConfigType) is not (ECoreType.Xray or ECoreType.sing_box)))
+                .Any(item => AppManager.Instance.GetCoreType(item, item.ConfigType) is not (ECoreType.Xray)))
         {
             return OperationView.Fail("speedtest_core_unsupported", ApiMessageKeys.SpeedTestUnsupportedCore);
         }

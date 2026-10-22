@@ -66,6 +66,7 @@ public class ProfileItem
 
     public bool IsValid()
     {
+        if (!XrayOnlyPolicy.Supports(this)) return false;
         if (IsComplex() || ConfigType == EConfigType.Outbound)
         {
             return true;
@@ -106,7 +107,7 @@ public class ProfileItem
                 }
 
                 if (string.IsNullOrEmpty(GetProtocolExtra().SsMethod)
-                    || !Global.SsSecuritiesInSingbox.Contains(GetProtocolExtra().SsMethod))
+                    || !Global.SsSecuritiesInXray.Contains(GetProtocolExtra().SsMethod))
                 {
                     return false;
                 }

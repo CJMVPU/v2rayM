@@ -20,7 +20,6 @@ internal static class CoreConfigTestFactory
                 new RoutingBasicItem
                 {
                     DomainStrategy = Global.AsIs,
-                    DomainStrategy4Singbox = string.Empty,
                     RoutingIndexId = string.Empty,
                 },
             GuiItem = new GUIItem { EnableStatistics = false, DisplayRealTimeSpeed = false, EnableLog = false },
@@ -43,7 +42,6 @@ internal static class CoreConfigTestFactory
                 IPAPIUrl = string.Empty,
             },
             Mux4RayItem = new Mux4RayItem { Concurrency = 8, XudpConcurrency = 16, XudpProxyUDP443 = "reject" },
-            Mux4SboxItem = new Mux4SboxItem { Protocol = Global.SingboxMuxs.First(), MaxConnections = 8 },
             HysteriaItem = new HysteriaItem { UpMbps = 100, DownMbps = 100 },
             ClashUIItem = new ClashUIItem { ConnectionsColumnItem = [] },
             SystemProxyItem =
@@ -214,7 +212,6 @@ internal static class CoreConfigTestFactory
                 Remarks = "default",
                 RuleSet = "[]",
                 DomainStrategy = Global.AsIs,
-                DomainStrategy4Singbox = string.Empty,
             },
             RawDnsItem = null,
             SimpleDnsItem = config.SimpleDNSItem,

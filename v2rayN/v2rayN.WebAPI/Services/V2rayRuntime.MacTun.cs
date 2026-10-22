@@ -5,16 +5,31 @@ using v2rayN.WebAPI.Contracts;
 namespace v2rayN.WebAPI.Services;
 
 public sealed record MacTunInput(bool Enabled);
+public sealed record MacNativeTunSettings(int Mtu, bool EnableIPv6Address, string[]? RouteExcludeAddress);
 public sealed record MacTunStatus(bool PlatformSupported, bool HelperAvailable, string HelperCode, string HelperState,
     bool Enabled, string[] SupportedCores, string CoreSource, string RuntimeState, int[] PrivilegedCoreProcessIds);
 
 public sealed partial class V2rayRuntime
 {
+    public MacNativeTunSettings GetMacNativeTunSettings() => new(Config.TunModeItem.Mtu,
+        Config.TunModeItem.EnableIPv6Address, Config.TunModeItem.RouteExcludeAddress?.ToArray() ?? []);
+
+    internal static bool ValidMacNativeTunSettings(MacNativeTunSettings input) => input.Mtu is >= 1280 and <= 65535
+        && (input.RouteExcludeAddress ?? []).Length <= 128
+        && (input.RouteExcludeAddress ?? []).All(value =>
+        {
+            if (string.IsNullOrWhiteSpace(value)) return false;
+            var parts = value.Split('/');
+            return parts.Length == 2 && System.Net.IPAddress.TryParse(parts[0], out var address)
+                && int.TryParse(parts[1], out var prefix) && prefix >= 0
+                && prefix <= (address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork ? 32 : 128);
+        });
+
     public async Task<MacTunStatus> GetMacTunStatusAsync()
     {
         var helper = await _macTunLauncher.ProbeAsync();
         return new(OperatingSystem.IsMacOS(), helper.Success, helper.Code, helper.Success ? "ready" : helper.State,
-            Config.TunModeItem.EnableTun, ["xray", "sing_box"], "signed-app-bundle", GetCoreRuntimeState(),
+            Config.TunModeItem.EnableTun, ["xray"], "helper-verified-xray", GetCoreRuntimeState(),
             _macTunLauncher.CaptureIdentities().Select(identity => identity.ProcessId).ToArray());
     }
 

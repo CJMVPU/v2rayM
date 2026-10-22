@@ -57,7 +57,7 @@ public class HyRealmTests
     }
 
     [Test]
-    public async Task ToServerUrl_ShouldIncludeSchemeForSingbox()
+    public async Task ToServerUrl_ShouldIncludeScheme()
     {
         var realm = new HyRealm(
             IsHttp: false,

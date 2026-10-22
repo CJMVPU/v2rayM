@@ -138,25 +138,20 @@ public sealed partial class V2rayRuntime
 
     private async Task RunScheduledGeoUpdateAsync(CancellationToken cancellationToken)
     {
-        await using var operation = await _operations.EnterExclusiveAsync(
-            cancellationToken,
-            allowReadOnlyObservations: true);
-        await new UpdateService(Config, (success, message) =>
+        cancellationToken.ThrowIfCancellationRequested();
+        // Use the same task registration, file transaction, platform selection and
+        // serving-core reload/rollback as a manual update. Direct ServiceLib calls
+        // bypass those guarantees and leave a privileged core on stale Geo snapshots.
+        var started = StartGeoUpdate(Config.CheckUpdateItem.UpdateViaProxy
+            && CurrentCoreRuntime.State == CoreRuntimeState.Running);
+        if (!started.Success)
         {
-            AddLog("update", message);
-            _events.Publish("geo-update-progress", new
-            {
-                success,
-                code = success ? "ok" : "geo_update_progress",
-                messageKey = success ? ApiMessageKeys.CommonCompleted : ApiMessageKeys.GeoUpdateProgress,
-                rawLog = message,
-            });
-            if (success)
-            {
-                _events.Publish("geo-update-completed", OperationView.Ok(ApiMessageKeys.CommonCompleted));
-            }
-            return Task.CompletedTask;
-        }).UpdateGeoFileAll(blProxy: true, cancellationToken: operation.Token);
+            AddLog("task", $"Scheduled GeoFiles update skipped: {started.Code}");
+            return;
+        }
+        Task? task;
+        lock (_updateTaskGate) { task = _geoUpdateTask; }
+        if (task is not null) await task.WaitAsync(cancellationToken);
     }
 
     private async Task RunScheduledCoreUpdateCheckAsync(CancellationToken cancellationToken)

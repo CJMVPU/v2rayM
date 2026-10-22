@@ -651,9 +651,7 @@
   <data name="TbPreSocksPort" xml:space="preserve">
     <value>SOCKS 埠</value>
   </data>
-  <data name="TipPreSocksPort" xml:space="preserve">
-    <value>*自訂設定的 Socks 埠值，可留空；當設定此值後，將使用 Xray/sing-box (Tun) 額外啟動一個前置 Socks 服務，提供分流和速度顯示等功能</value>
-  </data>
+
   <data name="TbBrowse" xml:space="preserve">
     <value>瀏覽</value>
   </data>
@@ -1008,21 +1006,13 @@
   <data name="menuDNSSetting" xml:space="preserve">
     <value>DNS設定</value>
   </data>
-  <data name="TbCustomDnsSingbox" xml:space="preserve">
-    <value>sing-box 自訂 DNS</value>
-  </data>
-  <data name="TbDnsSingboxObjectDoc" xml:space="preserve">
-    <value>請填寫 DNS JSON 結構，點擊查看檔案</value>
-  </data>
+
+
   <data name="TbSettingDnsImportDefConfig" xml:space="preserve">
     <value>點擊匯入預設 DNS 設定</value>
   </data>
-  <data name="TbdomainStrategy4Singbox" xml:space="preserve">
-    <value>sing-box 域名解析策略</value>
-  </data>
-  <data name="TbSettingsMux4SboxProtocol" xml:space="preserve">
-    <value>sing-box Mux 多路復用協定</value>
-  </data>
+
+
   <data name="TbSettingsMux4RayConcurrency" xml:space="preserve">
     <value>Xray Mux 並行數</value>
   </data>
@@ -1149,18 +1139,12 @@
   <data name="TbSettingsFragmentFallbackDelay" xml:space="preserve">
     <value>回退延遲</value>
   </data>
-  <data name="TbSettingsFragmentFallbackDelayTip" xml:space="preserve">
-    <value>ACK 偵測不可用時的回退延遲 (如 500ms)。僅 sing-box。留空使用預設值。</value>
-  </data>
+
   <data name="FillFragmentParameterError" xml:space="preserve">
     <value>無效的範圍格式。請使用 'from-to' (如 50-100)。</value>
   </data>
-  <data name="TbSettingsEnableCacheFile4Sbox" xml:space="preserve">
-    <value>啟用 sing-box（規則集檔案）的快取檔案</value>
-  </data>
-  <data name="LvCustomRulesetPath4Singbox" xml:space="preserve">
-    <value>自訂 sing-box rule-set</value>
-  </data>
+
+
   <data name="NeedRebootTips" xml:space="preserve">
     <value>操作成功。請點選設定選單重啟應用程式。</value>
   </data>
@@ -1317,9 +1301,7 @@
   <data name="TbSettingsGeoFilesSource" xml:space="preserve">
     <value>Geo 檔案來源 (可選)</value>
   </data>
-  <data name="TbSettingsSrsFilesSource" xml:space="preserve">
-    <value>sing-box ruleset 檔案來源 (可選)</value>
-  </data>
+
   <data name="UpgradeAppNotExistTip" xml:space="preserve">
     <value>升級工具 App 不存在</value>
   </data>
@@ -1497,9 +1479,7 @@
   <data name="TbSetUpstreamProxyDetour" xml:space="preserve">
     <value>設定上游代理標籤</value>
   </data>
-  <data name="TbSBFullConfigTemplate" xml:space="preserve">
-    <value>sing-box 完整設定範本</value>
-  </data>
+
   <data name="TbSBFullConfigTemplateDesc" xml:space="preserve">
     <value>僅新增出站與端點設定。點選以查看說明文件</value>
   </data>
@@ -1512,9 +1492,7 @@
   <data name="TbSelectProfile" xml:space="preserve">
     <value>選擇節點</value>
   </data>
-  <data name="TbFakeIPTips" xml:space="preserve">
-    <value>預設會套用至全域；內建 FakeIP 過濾僅支援 sing-box。</value>
-  </data>
+
   <data name="PleaseAddAtLeastOneServer" xml:space="preserve">
     <value>請至少新增一個設定檔</value>
   </data>
@@ -1834,9 +1812,7 @@
   <data name="TbGeckoPacketSize" xml:space="preserve">
     <value>Gecko 封包大小 (min/max)</value>
   </data>
-  <data name="TbLegacyProtectTip" xml:space="preserve">
-    <value>啟用則使用 sing-box TUN ,否則使用 xray TUN</value>
-  </data>
+
   <data name="InvalidHttpOutboundHeaders" xml:space="preserve">
     <value>請填寫合法的HTTP請求頭JSON。</value>
   </data>
@@ -1870,9 +1846,7 @@
   <data name="MsgCustomOutboundFileNotFound" xml:space="preserve">
     <value>自訂出站 {0} 的檔案未找到：{1}</value>
   </data>
-  <data name="TbCustomOutboundTip" xml:space="preserve">
-    <value>僅支援 xray/sing-box 的單一 outbound/endpoint</value>
-  </data>
+
   <data name="LvCustomCoreType" xml:space="preserve">
     <value>自訂設定核心</value>
   </data>

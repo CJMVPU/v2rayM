@@ -9,7 +9,8 @@ final class FakeCore: ManagedCore {
     var ignoresTerminate = false
     var terminated = false
     var killed = false
-    func terminate() { terminated = true; if !ignoresTerminate { isRunning = false } }
+    var beforeTerminate: (() -> Void)?
+    func terminate() { beforeTerminate?(); terminated = true; if !ignoresTerminate { isRunning = false } }
     func forceKill() { killed = true; isRunning = false }
 }
 
@@ -73,6 +74,49 @@ final class TunSessionTests: XCTestCase {
         XCTAssertEqual(session.handle(try data("status")).state, "faulted")
         XCTAssertFalse(FileManager.default.fileExists(atPath: temporary.path))
     }
+    func testDnsIsRestoredBeforeStoppingCoreAndAfterUnexpectedExit() throws {
+        let core = FakeCore(), network = FakeTunNetwork()
+        let session = TunSession(limiter: SlotLimiter(), network: network, prepare: { _ in self.prepared() }, launch: { _, _ in core })
+        XCTAssertTrue(session.handle(try data("start")).success)
+        XCTAssertTrue(network.active)
+        core.beforeTerminate = { XCTAssertFalse(network.active) }
+        XCTAssertTrue(session.handle(try data("stop")).success)
+        XCTAssertFalse(network.active)
+
+        let second = FakeCore(), secondNetwork = FakeTunNetwork()
+        let broken = TunSession(limiter: SlotLimiter(), network: secondNetwork, prepare: { _ in self.prepared() }, launch: { _, _ in second })
+        XCTAssertTrue(broken.handle(try data("start")).success)
+        second.isRunning = false; second.exitCode = 1
+        XCTAssertEqual(broken.handle(try data("status")).state, "faulted")
+        XCTAssertFalse(secondNetwork.active)
+    }
+    func testDnsInstallationFailureStopsTheOwnedCoreAndRestoresNetwork() throws {
+        let core = FakeCore(), network = FakeTunNetwork(); network.installFails = true
+        let session = TunSession(limiter: SlotLimiter(), network: network, prepare: { _ in self.prepared() }, launch: { _, _ in core })
+        XCTAssertFalse(session.handle(try data("start")).success)
+        XCTAssertFalse(core.isRunning)
+        XCTAssertFalse(network.active)
+    }
+    func testDnsRestoreFailureKeepsResolverAliveAndReportsFailureUntilRetry() throws {
+        let core = FakeCore(), network = FakeTunNetwork()
+        let session = TunSession(limiter: SlotLimiter(), network: network, prepare: { _ in self.prepared() }, launch: { _, _ in core })
+        XCTAssertTrue(session.handle(try data("start")).success)
+        network.restoreFails = true
+        let failed = session.handle(try data("stop"))
+        XCTAssertFalse(failed.success); XCTAssertEqual(failed.code, "tun_dns_cleanup_failed")
+        XCTAssertTrue(core.isRunning); XCTAssertTrue(network.active)
+        network.restoreFails = false
+        XCTAssertTrue(session.handle(try data("stop")).success)
+        XCTAssertFalse(core.isRunning); XCTAssertFalse(network.active)
+    }
+    func testDisconnectRestoresTemporaryDns() throws {
+        let core = FakeCore(), network = FakeTunNetwork()
+        let session = TunSession(limiter: SlotLimiter(), network: network, prepare: { _ in self.prepared() }, launch: { _, _ in core })
+        XCTAssertTrue(session.handle(try data("start")).success)
+        session.disconnect()
+        XCTAssertFalse(network.active); XCTAssertFalse(core.isRunning)
+    }
+
     func testNativeProcessTerminatesGracefullyWithoutRootOrNetworking() throws {
         let session = TunSession(limiter: SlotLimiter(), prepare: { _ in self.prepared() })
         let started = session.handle(try data("start"))
@@ -89,5 +133,19 @@ final class TunSessionTests: XCTestCase {
         let stopped = session.handle(try data("stop"))
         XCTAssertTrue(stopped.success, stopped.code)
         XCTAssertFalse(stopped.forced)
+    }
+}
+
+private final class FakeTunNetwork: ManagedTunNetwork {
+    var active = false
+    var installFails = false
+    var restoreFails = false
+    func install(_ settings: TunDNSSettings?) throws {
+        active = true
+        if installFails { throw HelperFailure("tun_dns_install_failed") }
+    }
+    func restore() throws {
+        if restoreFails { throw HelperFailure("tun_dns_cleanup_failed") }
+        active = false
     }
 }

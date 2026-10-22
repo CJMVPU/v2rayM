@@ -14,7 +14,7 @@ public struct SigningPolicy {
             throw HelperFailure("signing_identity_missing")
         }
         var information: CFDictionary?
-        guard SecCodeCopySigningInformation(staticCode, [], &information) == errSecSuccess,
+        guard SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &information) == errSecSuccess,
               let info = information as? [String: Any],
               let team = info[kSecCodeInfoTeamIdentifier as String] as? String,
               team.range(of: "^[A-Z0-9]{10}$", options: .regularExpression) != nil else {

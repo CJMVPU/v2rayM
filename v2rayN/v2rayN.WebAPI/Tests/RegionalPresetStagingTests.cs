@@ -35,18 +35,16 @@ public class RegionalPresetStagingTests
             CancellationToken.None);
 
         await staged.GeoSourceUrl.Should().BeEqualTo(Global.GeoFilesSources[1]);
-        await staged.SrsSourceUrl.Should().BeEqualTo(Global.SingboxRulesetSources[1]);
         await staged.RouteRulesTemplateSourceUrl.Should().BeEqualTo(Global.RoutingRulesSources[1]);
-        await staged.DnsItems.Count.Should().BeEqualTo(2);
+        await staged.DnsItems.Count.Should().BeEqualTo(1);
         await (staged.DnsItems[0].Id == "xray-id" && staged.DnsItems[0].Enabled && staged.DnsItems[0].Remarks == "my Xray DNS").Should().BeTrue();
         await (staged.DnsItems[0].NormalDNS == "xray-normal-content" && staged.DnsItems[0].TunDNS == "xray-tun-content").Should().BeTrue();
-        await (staged.DnsItems[1].Id == "singbox-id" && !staged.DnsItems[1].Enabled && staged.DnsItems[1].Remarks == "my sing-box DNS").Should().BeTrue();
         await staged.SimpleDnsItem.RemoteDNS.Should().BeEqualTo("https://dns.example.test/remote");
         await staged.Routing.TemplateVersion.Should().BeEqualTo("R1");
         await staged.Routing.Items.Count.Should().BeEqualTo(1);
         await staged.Routing.Items[0].Remarks.Should().BeEqualTo("R1-Region rules");
         await existingDns[0].NormalDNS.Should().BeEqualTo("existing-xray-data");
-        await requestedUrls.Count.Should().BeEqualTo(7);
+        await requestedUrls.Count.Should().BeEqualTo(5);
     }
 
     [Test]
@@ -62,7 +60,7 @@ public class RegionalPresetStagingTests
         var staged = await stager.StageAsync(EPresetType.Default, [], [], null, CancellationToken.None);
 
         await downloaded.Should().BeFalse();
-        await staged.DnsItems.Count.Should().BeEqualTo(2);
+        await staged.DnsItems.Count.Should().BeEqualTo(1);
         await staged.DnsItems.All(item => !item.Enabled).Should().BeTrue();
         await staged.GeoSourceUrl.Should().BeEqualTo(string.Empty);
         await staged.Routing.Items.Count.Should().BeEqualTo(0);
@@ -210,16 +208,13 @@ public class RegionalPresetStagingTests
                 null,
                 CancellationToken.None);
             var currentGeoSource = "old-geo-source";
-            var currentSrsSource = "old-srs-source";
             var updaterGeoSource = string.Empty;
-            var updaterSrsSource = string.Empty;
             var order = new List<string>();
 
             await RegionalPresetApplyWorkflow.RunAsync(
                 applyConfiguration: _ =>
                 {
                     currentGeoSource = stage.GeoSourceUrl;
-                    currentSrsSource = stage.SrsSourceUrl;
                     order.Add("config/db apply");
                     return Task.CompletedTask;
                 },
@@ -227,7 +222,6 @@ public class RegionalPresetStagingTests
                 {
                     order.Add("GeoFiles update started");
                     updaterGeoSource = currentGeoSource;
-                    updaterSrsSource = currentSrsSource;
                     await Task.Yield();
                     order.Add("GeoFiles update completed");
                     await beforeCommit(() => Task.CompletedTask, token);
@@ -241,7 +235,6 @@ public class RegionalPresetStagingTests
                 CancellationToken.None);
 
             await updaterGeoSource.Should().BeEqualTo(sourceIndex < 0 ? string.Empty : Global.GeoFilesSources[sourceIndex]);
-            await updaterSrsSource.Should().BeEqualTo(sourceIndex < 0 ? string.Empty : Global.SingboxRulesetSources[sourceIndex]);
             await order.SequenceEqual(new[]
             {
                 "config/db apply", "GeoFiles update started", "GeoFiles update completed", "Core restart",
@@ -474,7 +467,7 @@ public class RegionalPresetStagingTests
     private static List<DNSItem> CreateDnsRows() =>
     [
         new() { Id = "xray-id", CoreType = ECoreType.Xray, Remarks = "my Xray DNS", Enabled = true, NormalDNS = "existing-xray-data" },
-        new() { Id = "singbox-id", CoreType = ECoreType.sing_box, Remarks = "my sing-box DNS", Enabled = false, NormalDNS = "existing-singbox-data" },
+        new() { Id = "singbox-id", CoreType = (ECoreType)24, Remarks = "my sing-box DNS", Enabled = false, NormalDNS = "existing-singbox-data" },
     ];
 
     private static Dictionary<string, string?> CreateRegionalResponses(int sourceIndex = 1)
@@ -537,9 +530,6 @@ public class RegionalPresetStagingTests
             && staged.DnsItems[0].Remarks == existingDns[0].Remarks
             && staged.DnsItems[0].Enabled == existingDns[0].Enabled
             && staged.DnsItems[0].NormalDNS == existingDns[0].NormalDNS).Should().BeTrue();
-        await (staged.DnsItems[1].Id == existingDns[1].Id
-            && staged.DnsItems[1].Enabled == existingDns[1].Enabled
-            && staged.DnsItems[1].NormalDNS == existingDns[1].NormalDNS).Should().BeTrue();
         await existingDns[0].NormalDNS.Should().BeEqualTo("existing-xray-data");
     }
 

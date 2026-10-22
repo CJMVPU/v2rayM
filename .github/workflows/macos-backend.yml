@@ -10,6 +10,9 @@ on:
       - 'scripts/*macos*'
       - '.github/workflows/macos-backend.yml'
       - 'global.json'
+      - 'AGENTS.md'
+      - 'docs/upstream-merge-policy.md'
+      - 'scripts/check-macos-product-boundaries.py'
   pull_request:
     paths:
       - 'v2rayN/**'
@@ -17,6 +20,9 @@ on:
       - 'scripts/*macos*'
       - '.github/workflows/macos-backend.yml'
       - 'global.json'
+      - 'AGENTS.md'
+      - 'docs/upstream-merge-policy.md'
+      - 'scripts/check-macos-product-boundaries.py'
 
 permissions:
   contents: read
@@ -35,6 +41,9 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.x'
+
+      - name: Check product boundaries
+        run: python3 scripts/check-macos-product-boundaries.py
 
       - name: Build backend solution
         run: dotnet build v2rayN/v2rayN.slnx --configuration Release

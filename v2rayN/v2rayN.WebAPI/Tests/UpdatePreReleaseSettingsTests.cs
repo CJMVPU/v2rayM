@@ -139,7 +139,9 @@ public class UpdatePreReleaseSettingsTests
     [Test]
     [Arguments("GeoFiles")]
     [Arguments("v2rayN")]
+    [Arguments("hysteria2")]
     [Arguments("mihomo")]
+    [Arguments("sing_box")]
     public async Task InvalidPerTargetPreReleaseSettingsDoNotMutateConfig(string target)
     {
         using var fixture = new RuntimeFixture();

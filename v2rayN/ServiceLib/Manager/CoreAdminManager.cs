@@ -35,7 +35,6 @@ public class CoreAdminManager
         sb.AppendLine("#!/bin/bash");
         var cmdLine = $"{fileName.AppendQuotes()} {string.Format(coreInfo.Arguments, Utils.GetBinConfigPath(configPath).AppendQuotes())}";
 
-        // Passing environment variables to the sudo command, here it only xray or sing-box.
         if (coreInfo.Environment.Count > 0)
         {
             var envArgs = string.Join(" ", coreInfo.Environment.Where(kv => kv.Value.IsNotEmpty()).Select(kv => $"{kv.Key}={kv.Value.AppendQuotes()}"));

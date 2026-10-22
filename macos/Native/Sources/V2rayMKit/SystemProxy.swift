@@ -9,7 +9,11 @@ public struct ProxyService {
 }
 public protocol ProxyPreferencesStore: AnyObject {
     func services() throws -> [ProxyService]
+    func recoveryServices() throws -> [ProxyService]
     func apply(_ services: [ProxyService]) throws
+}
+extension ProxyPreferencesStore {
+    public func recoveryServices() throws -> [ProxyService] { try services() }
 }
 /// A preferences session is created only in response to an explicit proxy change.
 /// macOS owns any authorization dialog; the app never collects a password.
@@ -31,11 +35,17 @@ public final class MacProxyPreferences: ProxyPreferencesStore {
     }
     deinit { SCPreferencesUnlock(preferences); if let authorization { AuthorizationFree(authorization, []) } }
     public func services() throws -> [ProxyService] {
+        try services(includeDisabled: false)
+    }
+    public func recoveryServices() throws -> [ProxyService] {
+        try services(includeDisabled: true)
+    }
+    private func services(includeDisabled: Bool) throws -> [ProxyService] {
         guard let services = SCNetworkServiceCopyAll(preferences) as? [SCNetworkService] else {
             throw ClientFailure("proxy_no_services")
         }
         return services.compactMap { service in
-            guard SCNetworkServiceGetEnabled(service), let serviceID = SCNetworkServiceGetServiceID(service),
+            guard (includeDisabled || SCNetworkServiceGetEnabled(service)), let serviceID = SCNetworkServiceGetServiceID(service),
                   let protocolRef = SCNetworkServiceCopyProtocol(service, kSCNetworkProtocolTypeProxies) else { return nil }
             return ProxyService(id: serviceID as String,
                 configuration: SCNetworkProtocolGetConfiguration(protocolRef) as? [String: Any] ?? [:])
@@ -101,13 +111,14 @@ public actor SystemProxyController {
         guard needsRecovery else { return false }
         let records = try PropertyListDecoder().decode([ProxyRecord].self, from: Data(contentsOf: journalURL))
         let store = try makeStore()
-        let current = try store.services()
+        let current = try store.recoveryServices()
         var replacements: [ProxyService] = []
         var changedElsewhere = false
         for record in records {
             guard let service = current.first(where: { $0.id == record.id }) else {
-                // A disabled service may be enabled later; keep recovery data until it is available.
-                throw ClientFailure("proxy_recovery")
+                // Recovery enumerates disabled services too. A missing ID has been
+                // deleted, so it cannot retain our proxy and must not block recovery.
+                continue
             }
             let applied = try Self.decode(record.applied)
             let original = try Self.decode(record.original)

@@ -7,24 +7,24 @@ final class LaunchPolicyTests: XCTestCase {
     override func setUpWithError() throws {
         temporary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         bundle = temporary.appendingPathComponent("V2rayM.app")
-        let core = bundle.appendingPathComponent("Contents/Resources/Backend/bin/sing_box")
+        let core = bundle.appendingPathComponent("Contents/Resources/Backend/bin/xray")
         try FileManager.default.createDirectory(at: core, withIntermediateDirectories: true)
-        try Data("test-fixture-never-executed".utf8).write(to: core.appendingPathComponent("sing-box"))
+        try Data("test-fixture-never-executed".utf8).write(to: core.appendingPathComponent("xray"))
     }
     override func tearDownWithError() throws { try? FileManager.default.removeItem(at: temporary) }
     func policy(validate: @escaping (URL, String) throws -> Void = { _, _ in }) -> LaunchPolicy {
         LaunchPolicy(bundle: bundle, stateRoot: temporary.appendingPathComponent("state"), validate: validate)
     }
     func request(extra: [String: Any] = [:]) throws -> HelperRequest {
-        var object: [String: Any] = ["inbounds": [["type": "tun"]], "outbounds": [["type": "direct"]]]
+        var object: [String: Any] = ["inbounds": [["protocol": "tun"]], "outbounds": [["protocol": "freedom"]]]
         for (key, value) in extra { object[key] = value }
-        var request = HelperRequest(action: "start"); request.core = "sing_box"
+        var request = HelperRequest(action: "start"); request.core = "xray"
         request.config = try JSONSerialization.data(withJSONObject: object)
         return request
     }
     func testPrivateCopyIsVerifiedAndArbitraryLogFileIsRemoved() throws {
         var validated: URL?
-        let result = try policy { validated = $0; XCTAssertEqual($1, "sing_box") }
+        let result = try policy { validated = $0; XCTAssertEqual($1, "xray") }
             .prepare(request(extra: ["log": ["output": "/etc/privileged-file"]]))
         XCTAssertEqual(validated, result.executable)
         XCTAssertTrue(result.executable.path.hasPrefix(temporary.appendingPathComponent("state").path + "/"))
@@ -83,4 +83,21 @@ final class LaunchPolicyTests: XCTestCase {
         XCTAssertEqual((stream["wsSettings"] as! [String: Any])["path"] as? String, "/proxy")
         XCTAssertEqual((stream["xhttpSettings"] as! [String: Any])["path"] as? String, "/xhttp")
     }
+    func testNativeXrayDnsIsDerivedOnlyFromTheTunnelGateway() throws {
+        let directory = bundle.appendingPathComponent("Contents/Resources/Backend/bin/xray")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data([0]).write(to: directory.appendingPathComponent("xray"))
+        var input = HelperRequest(action: "start"); input.core = "xray"; input.configureSystemDNS = true
+        input.config = try JSONSerialization.data(withJSONObject: ["inbounds": [["protocol": "tun", "settings": ["name": "not-an-interface", "gateway": ["172.30.255.1/30"]]]]])
+        let prepared = try policy().prepare(input)
+        let dns = try XCTUnwrap(prepared.tunDNS)
+        XCTAssertTrue(dns.interface.hasPrefix("utun")); XCTAssertEqual(dns.resolver, "172.30.255.1")
+        let object = try JSONSerialization.jsonObject(with: Data(contentsOf: prepared.directory.appendingPathComponent("config.json"))) as! [String: Any]
+        let settings = ((object["inbounds"] as! [[String: Any]])[0]["settings"] as! [String: Any])
+        XCTAssertEqual(settings["autoOutboundsInterface"] as? String, "auto")
+        XCTAssertEqual(settings["name"] as? String, dns.interface)
+        input.config = Data("{\"inbounds\":[{\"protocol\":\"tun\",\"settings\":{\"gateway\":[\"not-an-ip/30\"]}}]}".utf8)
+        XCTAssertThrowsError(try policy().prepare(input))
+    }
+
 }

@@ -3,6 +3,8 @@ namespace ServiceLib.Models.Dto;
 [Serializable]
 public class ServerSpeedItem : ServerStatItem
 {
+    public double SampleSeconds { get; set; } = 1;
+
     public long ProxyUp { get; set; }
 
     public long ProxyDown { get; set; }

@@ -21,7 +21,6 @@ internal sealed record RegionalRoutingPlan(
 internal sealed record RegionalPresetStage(
     EPresetType Preset,
     string GeoSourceUrl,
-    string SrsSourceUrl,
     string RouteRulesTemplateSourceUrl,
     SimpleDNSItem SimpleDnsItem,
     IReadOnlyList<DNSItem> DnsItems,
@@ -48,9 +47,8 @@ internal sealed class RegionalPresetStager(
                 preset,
                 string.Empty,
                 string.Empty,
-                string.Empty,
                 ConfigHandler.InitBuiltinSimpleDNS(),
-                [CreateDefaultDns(ECoreType.Xray, "V2ray"), CreateDefaultDns(ECoreType.sing_box, "sing-box")],
+                [CreateDefaultDns(ECoreType.Xray, "V2ray")],
                 new(null, []));
         }
 
@@ -62,34 +60,28 @@ internal sealed class RegionalPresetStager(
         };
         var xrayItem = existingDnsItems.FirstOrDefault(item => item.CoreType == ECoreType.Xray)
             ?? throw new InvalidOperationException("The Xray DNS profile is missing.");
-        var singboxItem = existingDnsItems.FirstOrDefault(item => item.CoreType == ECoreType.sing_box)
-            ?? throw new InvalidOperationException("The sing-box DNS profile is missing.");
         var dnsBaseUrl = Global.DNSTemplateSources[sourceIndex];
         var routeTemplateUrl = Global.RoutingRulesSources[sourceIndex];
 
         var xrayTask = StageDnsProfileAsync(ECoreType.Xray, xrayItem, dnsBaseUrl + "v2ray.json", proxy, cancellationToken);
-        var singboxTask = StageDnsProfileAsync(ECoreType.sing_box, singboxItem, dnsBaseUrl + "sing_box.json", proxy, cancellationToken);
         var simpleDnsTask = StageSimpleDnsAsync(dnsBaseUrl + "simple_dns.json", proxy, cancellationToken);
         var routingTask = StageRoutingAsync(routeTemplateUrl, existingRoutingItems, legacyRoutingIndexId, proxy, cancellationToken);
-        await Task.WhenAll(xrayTask, singboxTask, simpleDnsTask, routingTask);
+        await Task.WhenAll(xrayTask, simpleDnsTask, routingTask);
 
         var xrayDns = await xrayTask;
-        var singboxDns = await singboxTask;
         var simpleDns = await simpleDnsTask;
         if (simpleDns.UsedFallback)
         {
             // Desktop enables both Core-specific DNS profiles when simple_dns.json is unavailable.
             xrayDns.Enabled = true;
-            singboxDns.Enabled = true;
         }
 
         return new(
             preset,
             Global.GeoFilesSources[sourceIndex],
-            Global.SingboxRulesetSources[sourceIndex],
             routeTemplateUrl,
             simpleDns.Item,
-            [xrayDns, singboxDns],
+            [xrayDns],
             await routingTask);
     }
 

@@ -58,5 +58,4 @@ public record ProtocolExtraItem
     public EMultipleLoad? MultipleLoad { get; init; }
 
     // custom outbound
-    public bool? IsSingboxEndpoint { get; init; }
 }

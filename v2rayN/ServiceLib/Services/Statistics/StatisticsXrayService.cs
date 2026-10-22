@@ -4,8 +4,9 @@ public class StatisticsXrayService
 {
     private const long linkBase = 1024;
     private ServerSpeedItem _serverSpeedItem = new();
+    private long _sampleTime = System.Diagnostics.Stopwatch.GetTimestamp();
     private readonly Config _config;
-    private CancellationTokenSource? _cts;
+    private readonly CancellationTokenSource _cts = new();
     private readonly Func<ServerSpeedItem, Task>? _updateFunc;
     private string Url => $"{Global.HttpProtocol}{Global.Loopback}:{AppManager.Instance.StatePort}/debug/vars";
     private static readonly string _tag = "StatisticsXrayService";
@@ -22,9 +23,7 @@ public class StatisticsXrayService
     {
         try
         {
-            _cts?.Cancel();
-            _cts?.Dispose();
-            _cts = null;
+            _cts.Cancel();
         }
         catch (Exception ex)
         {
@@ -34,11 +33,11 @@ public class StatisticsXrayService
 
     private async Task Run()
     {
-        Close();
-        _cts = new CancellationTokenSource();
         var token = _cts.Token;
 
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+        try
+        {
         while (await timer.WaitForNextTickAsync(token).ConfigureAwait(false))
         {
             try
@@ -51,8 +50,8 @@ public class StatisticsXrayService
                 var result = await HttpClientHelper.Instance.TryGetAsync(Url, token);
                 if (result != null)
                 {
-                    var server = ParseOutput(result) ?? new ServerSpeedItem();
-                    await _updateFunc!.Invoke(server);
+                    var server = ParseOutput(result);
+                    if (server is not null) await _updateFunc!.Invoke(server);
                 }
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
@@ -64,6 +63,9 @@ public class StatisticsXrayService
                 await Task.Delay(3000, token).ConfigureAwait(false);
             }
         }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        finally { _cts.Dispose(); }
     }
 
     private ServerSpeedItem? ParseOutput(string result)
@@ -98,14 +100,19 @@ public class StatisticsXrayService
                 }
             }
 
-            if (server.DirectDown < _serverSpeedItem.DirectDown || server.ProxyDown < _serverSpeedItem.ProxyDown)
+            var now = System.Diagnostics.Stopwatch.GetTimestamp();
+            var elapsed = System.Diagnostics.Stopwatch.GetElapsedTime(_sampleTime, now).TotalSeconds;
+            _sampleTime = now;
+            if (server.DirectDown < _serverSpeedItem.DirectDown || server.ProxyDown < _serverSpeedItem.ProxyDown
+                || server.DirectUp < _serverSpeedItem.DirectUp || server.ProxyUp < _serverSpeedItem.ProxyUp)
             {
-                _serverSpeedItem = new();
+                _serverSpeedItem = server;
                 return null;
             }
 
             ServerSpeedItem curItem = new()
             {
+                SampleSeconds = Math.Max(elapsed, 0.001),
                 ProxyUp = server.ProxyUp - _serverSpeedItem.ProxyUp,
                 ProxyDown = server.ProxyDown - _serverSpeedItem.ProxyDown,
                 DirectUp = server.DirectUp - _serverSpeedItem.DirectUp,

@@ -11,7 +11,6 @@ public class StatisticsManager
     private Func<ServerSpeedItem, Task>? _updateFunc;
 
     private StatisticsXrayService? _statisticsXray;
-    private StatisticsSingboxService? _statisticsSingbox;
     private static readonly string _tag = "StatisticsHandler";
     public List<ServerStatItem> ServerStat => _lstServerStat;
 
@@ -24,7 +23,6 @@ public class StatisticsManager
             await InitData();
 
             _statisticsXray = new StatisticsXrayService(config, UpdateServerStatHandler);
-            _statisticsSingbox = new StatisticsSingboxService(config, UpdateServerStatHandler);
         }
     }
 
@@ -33,7 +31,6 @@ public class StatisticsManager
         try
         {
             _statisticsXray?.Close();
-            _statisticsSingbox?.Close();
         }
         catch (Exception ex)
         {
@@ -104,6 +101,12 @@ public class StatisticsManager
 
     private async Task UpdateServerStat(ServerSpeedItem server)
     {
+        if (!_config.GuiItem.EnableStatistics)
+        {
+            server.IndexId = _config.IndexId;
+            if (_updateFunc is not null) await _updateFunc(server);
+            return;
+        }
         await GetServerStatItem(_config.IndexId);
 
         if (_serverStatItem is null)

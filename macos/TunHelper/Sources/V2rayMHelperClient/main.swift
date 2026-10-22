@@ -28,7 +28,7 @@ final class Client {
         let proxy = connection.remoteObjectProxyWithErrorHandler { _ in finish(.failure(HelperFailure("helper_unavailable"))) }
         guard let remote = proxy as? TunHelperProtocol else { throw HelperFailure("helper_unavailable") }
         remote.request(try JSONEncoder().encode(request)) { finish(.success($0)) }
-        guard completion.wait(timeout: .now() + 20) == .success else { throw HelperFailure("helper_timeout") }
+        guard completion.wait(timeout: .now() + (request.action == "update-stage" ? 110 : 20)) == .success else { throw HelperFailure("helper_timeout") }
         lock.lock(); let value = result; lock.unlock()
         return try JSONDecoder().decode(HelperResponse.self, from: value!.get())
     }
@@ -47,7 +47,13 @@ do {
     if ["register", "unregister", "approval"].contains(action) {
         _ = try SigningPolicy()
         let service = SMAppService.daemon(plistName: HelperIdentity.plist)
-        if action == "register" { try service.register() }
+        if action == "register" {
+            do { try service.register() }
+            catch {
+                // A daemon can be registered while still awaiting the user's approval.
+                guard service.status == .requiresApproval else { throw error }
+            }
+        }
         if action == "unregister" { try service.unregister() }
         if action == "approval" { SMAppService.openSystemSettingsLoginItems() }
         let ready = service.status == .enabled
@@ -64,6 +70,14 @@ do {
         if !success { exit(2) }
     } else if action == "status" {
         let client = try Client(); let response = try client.call(HelperRequest(action: "status"))
+        emit(response)
+        if !response.success { exit(1) }
+    } else if action == "update" {
+        guard let line = readLine(), line.utf8.count <= 100 * 1024 * 1024,
+              let data = line.data(using: .utf8) else { throw HelperFailure("update_request_required") }
+        let request = try JSONDecoder().decode(HelperRequest.self, from: data)
+        guard request.action.hasPrefix("update-") else { throw HelperFailure("update_action_invalid") }
+        let response = try Client().call(request)
         emit(response)
         if !response.success { exit(1) }
     } else if action == "run" {
@@ -90,6 +104,8 @@ do {
         if !response.success || response.state == "running" { exit(1) }
     } else { throw HelperFailure("action_not_allowed") }
 } catch {
+    let detail = error as NSError
+    fputs("V2rayMHelperClient: \(detail.domain) (\(detail.code)): \(detail.localizedDescription)\n", stderr)
     emit(HelperResponse(success: false, code: (error as? HelperFailure)?.description ?? "helper_client_failed", state: "unavailable"))
     exit(1)
 }

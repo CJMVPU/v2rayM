@@ -22,10 +22,13 @@ public static class WebApiEndpoints
             Results.Ok(WebHealthEndpoint.CreateResponse(context, runtime)));
         app.MapGet("/api/status", async (V2rayRuntime runtime) => ApiReplies.Ok(await runtime.GetStatusAsync(), "status.loaded"));
         app.MapGet("/api/operations", async (V2rayRuntime runtime) => ApiReplies.Ok(await runtime.GetRunningOperationsAsync(), "operations.loaded"));
+        app.MapGet("/api/macos/tun/settings", (V2rayRuntime runtime) => ApiReplies.Ok(runtime.GetMacNativeTunSettings(), "macos.tun.settings.loaded"));
         app.MapGet("/api/macos/tun", async (V2rayRuntime runtime) => ApiReplies.Ok(await runtime.GetMacTunStatusAsync(), "macos.tun.loaded"));
         app.MapPut("/api/macos/tun", async (MacTunInput input, V2rayRuntime runtime) => ApiReplies.Operation(await runtime.SetMacTunAsync(input)));
         app.MapGet("/api/logs", (int? limit, string? filter, V2rayRuntime runtime) =>
             ApiReplies.Ok(runtime.GetRecentLogs(limit ?? 200, filter), "logs.loaded"));
+        app.MapGet("/api/logs/tail", (long? after, int? limit, V2rayRuntime runtime) =>
+            ApiReplies.Ok(runtime.GetLogTail(after ?? 0, limit ?? 10_000), "logs.loaded"));
         app.MapGet("/api/logs/page", (int? page, int? pageSize, string? filter, V2rayRuntime runtime) =>
             ApiReplies.Ok(runtime.GetRecentLogsPage(page ?? 1, pageSize ?? 100, filter), "logs.loaded"));
         app.MapDelete("/api/logs", (V2rayRuntime runtime) =>
@@ -128,8 +131,8 @@ public static class WebApiEndpoints
             ApiReplies.Operation(await runtime.RemoveInvalidProfilesAsync(subscriptionId)));
         app.MapPost("/api/profiles/export", async (ProfileExportRequest request, V2rayRuntime runtime) =>
             ApiReplies.Ok(await runtime.ExportProfileDataAsync(request), "profiles.exportReady"));
-        app.MapPost("/api/profiles/{id}/select", async (string id, V2rayRuntime runtime, CancellationToken cancellationToken) =>
-            ApiReplies.Operation(await runtime.SelectProfileAsync(id, cancellationToken), failureStatus: StatusCodes.Status409Conflict));
+        app.MapPost("/api/profiles/{id}/select", async (string id, bool? connect, V2rayRuntime runtime, CancellationToken cancellationToken) =>
+            ApiReplies.Operation(await runtime.SelectProfileAsync(id, cancellationToken, connect ?? true), failureStatus: StatusCodes.Status409Conflict));
         app.MapPost("/api/profiles/{id}/latency", async (string id, V2rayRuntime runtime) =>
             ApiReplies.Operation(await runtime.StartLatencyTestAsync(id), successStatus: StatusCodes.Status202Accepted));
         app.MapPost("/api/speedtests", async (SpeedTestRequest request, V2rayRuntime runtime, CancellationToken cancellationToken) =>
@@ -262,9 +265,9 @@ public static class WebApiEndpoints
                 runtime.StartCoreUpdate(ECoreType.Xray, preRelease ?? false, useProxy ?? true),
                 successStatus: StatusCodes.Status202Accepted,
                 failureStatus: StatusCodes.Status409Conflict));
-        app.MapPost("/api/core/geo/update", (bool? useProxy, V2rayRuntime runtime) =>
+        app.MapPost("/api/core/geo/update", (bool? useProxy, string? scope, V2rayRuntime runtime) =>
             ApiReplies.Operation(
-                runtime.StartGeoUpdate(useProxy),
+                runtime.StartGeoUpdate(useProxy, scope ?? "all"),
                 successStatus: StatusCodes.Status202Accepted,
                 failureStatus: StatusCodes.Status409Conflict));
 

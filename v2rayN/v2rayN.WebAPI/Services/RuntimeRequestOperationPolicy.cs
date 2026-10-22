@@ -30,7 +30,8 @@ internal static class RuntimeRequestOperationPolicy
         }
 
         if (isGet
-            && normalizedPath is "/api/status" or "/api/operations" or "/api/logs" or "/api/logs/page")
+            && normalizedPath is "/api/status" or "/api/operations" or "/api/logs" or "/api/logs/page" or "/api/logs/tail"
+                or "/api/core-updates/progress" or "/api/web-updates/progress")
         {
             return RuntimeRequestOperationKind.Observation;
         }

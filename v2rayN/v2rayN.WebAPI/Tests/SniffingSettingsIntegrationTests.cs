@@ -39,20 +39,6 @@ public class SniffingSettingsIntegrationTests
         await reloadedSettings.Inbound.DestOverride.SequenceEqual(new[] { "http", "tls" }).Should().BeTrue();
     }
 
-    [Test]
-    public async Task WebInboundInputEnablesSingboxSniffAction()
-    {
-        var config = CreateConfig();
-        BindAppManagerConfig(config);
-        var input = CreateInboundInput(sniffingEnabled: true, destOverride: []);
-        V2rayRuntime.ApplyInboundSettings(config.Inbound[0], input);
-
-        var generated = Generate(ECoreType.sing_box, config);
-        var routeRules = generated["route"]!["rules"]!.AsArray();
-
-        await routeRules.Any(rule => rule?["action"]?.GetValue<string>() == "sniff").Should().BeTrue();
-        await config.Inbound[0].SniffingEnabled.Should().BeTrue();
-    }
 
     [Test]
     public async Task EnablingSniffingPreservesExplicitProtocolsAndRunningCoreChangeRequestsOneRestart()
@@ -126,10 +112,102 @@ public class SniffingSettingsIntegrationTests
         await disabledExisting.SequenceEqual(new[] { "http", "tls" }).Should().BeTrue();
     }
 
+    [Test]
+    public async Task NativeMacTunProducesOneXrayTunInboundWithDnsCaptureAndNoPreSocks()
+    {
+        var saved = CreateConfig();
+        saved.TunModeItem.EnableTun = true;
+        var native = v2rayN.WebAPI.MacOS.MacNativeTunConfig.ForLaunch(saved, true);
+        BindAppManagerConfig(native);
+        var generated = Generate(ECoreType.Xray, native, nativeMacTun: true);
+        var tun = generated["inbounds"]!.AsArray().Single(item => item?["protocol"]?.GetValue<string>() == "tun")!;
+        await tun["settings"]!["name"]!.GetValue<string>().StartsWith("utun").Should().BeTrue();
+        await tun["settings"]!["autoOutboundsInterface"]!.GetValue<string>().Should().BeEqualTo("auto");
+        await tun["settings"]!["autoSystemRoutingTable"]!.AsArray().Any(item => item!.GetValue<string>() == "0.0.0.0/0").Should().BeTrue();
+        await generated["routing"]!["rules"]!.AsArray().Any(item => item?["port"]?.GetValue<string>() == "53" && item?["outboundTag"]?.GetValue<string>() == Global.DnsOutboundTag).Should().BeTrue();
+        await generated["outbounds"]!.AsArray().Any(item => item?["protocol"]?.GetValue<string>() == "dns").Should().BeTrue();
+        await (ConfigHandler.GetPreSocksItem(native, CreateVmessNode(ECoreType.Xray), ECoreType.Xray) is null).Should().BeTrue();
+    }
+
     private static InboundSettingsInput CreateInboundInput(bool sniffingEnabled, string[] destOverride) => new(
         10808, false, true, sniffingEnabled, destOverride, false, false, false, string.Empty, string.Empty);
 
-    private static JsonNode Generate(ECoreType coreType, Config config)
+    [Test]
+    public async Task FakeDnsGenerationDoesNotModifySavedSniffingProtocols()
+    {
+        var config = CreateConfig();
+        BindAppManagerConfig(config);
+        config.Inbound[0].DestOverride = ["http", "tls"];
+        config.SimpleDNSItem.FakeIP = true;
+        foreach (var nativeTun in new[] { false, true })
+        {
+            var generated = Generate(ECoreType.Xray, config, nativeMacTun: nativeTun);
+            await generated["inbounds"]![0]!["sniffing"]!["destOverride"]!.AsArray()
+                .Any(value => value!.GetValue<string>() == "fakedns").Should().BeTrue();
+            await config.Inbound[0].DestOverride.SequenceEqual(new[] { "http", "tls" }).Should().BeTrue();
+        }
+        config.SimpleDNSItem.FakeIP = false;
+        var disabled = Generate(ECoreType.Xray, config);
+        await disabled["inbounds"]![0]!["sniffing"]!["destOverride"]!.AsArray()
+            .Any(value => value!.GetValue<string>() == "fakedns").Should().BeFalse();
+    }
+
+    [Test]
+    public async Task NativeTunUsesItsOwnXrayDnsAndMtuWithoutChangingNormalProxyDns()
+    {
+        var config = CreateConfig();
+        BindAppManagerConfig(config);
+        config.TunModeItem.Mtu = 1420;
+        var dns = new DNSItem { Enabled = true, NormalDNS = "{\"servers\":[\"1.1.1.1\"]}",
+            TunDNS = "{\"servers\":[\"1.0.0.1\"]}", DomainStrategy4Freedom = "AsIs" };
+        var normal = Generate(ECoreType.Xray, config, dns: dns);
+        var tun = Generate(ECoreType.Xray, config, nativeMacTun: true, dns: dns);
+        await normal["dns"]!["servers"]![0]!.GetValue<string>().Should().BeEqualTo("1.1.1.1");
+        await tun["dns"]!["servers"]![0]!.GetValue<string>().Should().BeEqualTo("1.0.0.1");
+        var inbound = tun["inbounds"]!.AsArray().First(item => item?["protocol"]?.GetValue<string>() == "tun")!;
+        await inbound["settings"]!["MTU"]!.GetValue<int>().Should().BeEqualTo(1420);
+        await inbound["sniffing"]!["routeOnly"]!.GetValue<bool>().Should().BeTrue();
+    }
+
+    [Test]
+    public async Task NativeTunRouteOnlyDoesNotChangeTheLocalListener()
+    {
+        var config = CreateConfig();
+        BindAppManagerConfig(config);
+        config.Inbound[0].RouteOnly = false;
+        var generated = Generate(ECoreType.Xray, config, nativeMacTun: true);
+        var inputs = generated["inbounds"]!.AsArray();
+        await inputs.First(x => x?["protocol"]?.GetValue<string>() == "tun")!["sniffing"]!["routeOnly"]!.GetValue<bool>().Should().BeTrue();
+        await inputs.First(x => x?["protocol"]?.GetValue<string>() == "mixed")!["sniffing"]!["routeOnly"]!.GetValue<bool>().Should().BeFalse();
+        await config.Inbound[0].RouteOnly.Should().BeFalse();
+    }
+
+    [Test]
+    public async Task CustomDnsDoesNotInheritInactiveSimpleFakeDns()
+    {
+        var config = CreateConfig();
+        BindAppManagerConfig(config);
+        config.SimpleDNSItem.FakeIP = true;
+        var dns = new DNSItem { Enabled = true, NormalDNS = "{\"servers\":[\"1.1.1.1\"]}", TunDNS = "{\"servers\":[\"1.0.0.1\"]}" };
+        foreach (var native in new[] { false, true })
+        {
+            var generated = Generate(ECoreType.Xray, config, nativeMacTun: native, dns: dns);
+            await generated["inbounds"]![0]!["sniffing"]!["destOverride"]!.AsArray()
+                .Any(x => x!.GetValue<string>() == "fakedns").Should().BeFalse();
+        }
+    }
+
+    [Test]
+    public async Task IndependentLanPortRejectsHalfFilledAuthentication()
+    {
+        var baseInput = CreateInboundInput(true, ["tls"]) with { AllowLANConn = true, NewPort4LAN = true };
+        await V2rayRuntime.ValidLanCredentials(baseInput with { User = "user", Pass = "" }).Should().BeFalse();
+        await V2rayRuntime.ValidLanCredentials(baseInput with { User = "", Pass = "secret" }).Should().BeFalse();
+        await V2rayRuntime.ValidLanCredentials(baseInput with { User = "user", Pass = "secret" }).Should().BeTrue();
+        await V2rayRuntime.ValidLanCredentials(baseInput).Should().BeTrue();
+    }
+
+    private static JsonNode Generate(ECoreType coreType, Config config, bool nativeMacTun = false, DNSItem? dns = null)
     {
         var node = CreateVmessNode(coreType);
         var context = new CoreConfigContext
@@ -142,20 +220,18 @@ public class SniffingSettingsIntegrationTests
                 Remarks = "default",
                 RuleSet = "[]",
                 DomainStrategy = Global.AsIs,
-                DomainStrategy4Singbox = string.Empty,
             },
-            RawDnsItem = null,
+            RawDnsItem = dns,
             SimpleDnsItem = config.SimpleDNSItem,
             AllProxiesMap = new Dictionary<string, ProfileItem> { [node.IndexId] = node },
             AppConfig = config,
             FullConfigTemplate = null,
-            IsTunEnabled = false,
+            IsTunEnabled = nativeMacTun,
+            IsMacOS = nativeMacTun,
             ProtectDomainList = [],
             HasGlobalIPv6Address = true,
         };
-        var result = coreType == ECoreType.sing_box
-            ? new CoreConfigSingboxService(context).GenerateClientConfigContent()
-            : new CoreConfigV2rayService(context).GenerateClientConfigContent();
+        var result = new CoreConfigV2rayService(context).GenerateClientConfigContent();
         if (result.Success != true || result.Data is null)
         {
             throw new InvalidOperationException($"Core configuration generation failed: {result.Msg}");
@@ -194,7 +270,7 @@ public class SniffingSettingsIntegrationTests
         TunModeItem = new TunModeItem { EnableTun = false, IcmpRouting = "default" },
         KcpItem = new KcpItem(),
         GrpcItem = new GrpcItem(),
-        RoutingBasicItem = new RoutingBasicItem { DomainStrategy = Global.AsIs, DomainStrategy4Singbox = string.Empty, RoutingIndexId = string.Empty },
+        RoutingBasicItem = new RoutingBasicItem { DomainStrategy = Global.AsIs, RoutingIndexId = string.Empty },
         GuiItem = new GUIItem { EnableStatistics = false, DisplayRealTimeSpeed = false, EnableLog = false },
         MsgUIItem = new MsgUIItem(),
         UiItem = new UIItem { CurrentLanguage = "en", CurrentFontFamily = "sans", MainColumnItem = [], WindowSizeItem = [] },
@@ -208,7 +284,6 @@ public class SniffingSettingsIntegrationTests
             IPAPIUrl = string.Empty,
         },
         Mux4RayItem = new Mux4RayItem { Concurrency = 8, XudpConcurrency = 16, XudpProxyUDP443 = "reject" },
-        Mux4SboxItem = new Mux4SboxItem { Protocol = Global.SingboxMuxs.First(), MaxConnections = 8 },
         HysteriaItem = new HysteriaItem { UpMbps = 100, DownMbps = 100 },
         ClashUIItem = new ClashUIItem { ConnectionsColumnItem = [] },
         SystemProxyItem = new SystemProxyItem { SystemProxyExceptions = string.Empty, SystemProxyAdvancedProtocol = string.Empty },

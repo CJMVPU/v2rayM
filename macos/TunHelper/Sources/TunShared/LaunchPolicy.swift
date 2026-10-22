@@ -6,24 +6,49 @@ public struct PreparedLaunch {
     public let executable: URL
     public let arguments: [String]
     public let environment: [String: String]
+    public var tunDNS: TunDNSSettings? = nil
 }
 
 public struct LaunchPolicy {
     public let bundle: URL
     public let stateRoot: URL
     private let validate: (URL, String) throws -> Void
+    private let verifiedCore: ((String) throws -> VerifiedCoreSource?)?
 
-    public init(bundle: URL, stateRoot: URL, validate: @escaping (URL, String) throws -> Void) {
+    public init(bundle: URL, stateRoot: URL, validate: @escaping (URL, String) throws -> Void,
+                verifiedCore: ((String) throws -> VerifiedCoreSource?)? = nil) {
         self.bundle = bundle; self.stateRoot = stateRoot; self.validate = validate
+        self.verifiedCore = verifiedCore
     }
 
     public func prepare(_ request: HelperRequest) throws -> PreparedLaunch {
-        guard let kind = request.core, ["sing_box", "xray"].contains(kind),
+        guard let kind = request.core, kind == "xray",
               let data = request.config, !data.isEmpty, data.count <= 4 * 1024 * 1024,
               var object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let inbounds = object["inbounds"] as? [[String: Any]],
-              inbounds.contains(where: { ($0[kind == "xray" ? "protocol" : "type"] as? String) == "tun" }) else {
+              inbounds.contains(where: { ($0["protocol"] as? String) == "tun" }) else {
             throw HelperFailure("generated_tun_config_required")
+        }
+        var dns: TunDNSSettings?
+        do {
+            var nativeInbounds = inbounds
+            for index in nativeInbounds.indices where nativeInbounds[index]["protocol"] as? String == "tun" {
+                var settings = nativeInbounds[index]["settings"] as? [String: Any] ?? [:]
+                let requested = settings["name"] as? String ?? ""
+                let valid = requested.range(of: "^utun[0-9]{1,4}$", options: .regularExpression) != nil
+                let interface = valid && if_nametoindex(requested) == 0 ? requested : try availableInterface()
+                settings["name"] = interface
+                // Bind the core's own outbound sockets to the physical uplink to avoid loops.
+                if settings["autoOutboundsInterface"] == nil { settings["autoOutboundsInterface"] = "auto" }
+                nativeInbounds[index]["settings"] = settings
+                if request.configureSystemDNS == true {
+                    guard dns == nil, let gateway = (settings["gateway"] as? [String])?.first,
+                          let resolver = gateway.split(separator: "/").first.map(String.init),
+                          validIPv4(resolver) else { throw HelperFailure("native_tun_dns_gateway_required") }
+                    dns = TunDNSSettings(interface: interface, resolver: resolver)
+                }
+            }
+            object["inbounds"] = nativeInbounds
         }
         let resources = request.resources ?? [:]
         guard resources.count <= 128,
@@ -37,8 +62,9 @@ public struct LaunchPolicy {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
                                                 attributes: [.posixPermissions: 0o700])
         do {
-            let name = kind == "xray" ? "xray" : "sing-box"
-            let source = bundle.appendingPathComponent("Contents/Resources/Backend/bin/\(kind)/\(name)")
+            let name = "xray"
+            let approved = try verifiedCore?(kind)
+            let source = approved?.url ?? bundle.appendingPathComponent("Contents/Resources/Backend/bin/\(kind)/\(name)")
             let executable = directory.appendingPathComponent(name)
             try FileManager.default.copyItem(at: source, to: executable)
             let values = try executable.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
@@ -46,7 +72,11 @@ public struct LaunchPolicy {
                 throw HelperFailure("core_must_be_regular_file")
             }
             // Verify the private copy actually executed, closing the user-writable bundle race.
-            try validate(executable, kind)
+            if let approved {
+                guard OfficialCorePolicy.hash(try Data(contentsOf: executable)) == approved.sha256 else {
+                    throw HelperFailure("installed_core_digest_mismatch")
+                }
+            } else { try validate(executable, kind) }
             try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
             for (name, bytes) in resources {
                 let target = directory.appendingPathComponent(name)
@@ -54,29 +84,30 @@ public struct LaunchPolicy {
                 try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: target.path)
             }
             let originalLog = object["log"] as? [String: Any] ?? [:]
-            object["log"] = kind == "xray"
-                ? ["loglevel": originalLog["loglevel"] as? String ?? "warning"]
-                : ["level": originalLog["level"] as? String ?? "warn", "timestamp": true]
-            if var experimental = object["experimental"] as? [String: Any] {
-                experimental.removeValue(forKey: "cache_file")
-                if var clash = experimental["clash_api"] as? [String: Any] {
-                    clash.removeValue(forKey: "external_ui")
-                    clash.removeValue(forKey: "external_ui_download_url")
-                    experimental["clash_api"] = clash
-                }
-                object["experimental"] = experimental
-            }
+            object["log"] = ["loglevel": originalLog["loglevel"] as? String ?? "warning"]
             let transformed = try rewrite(object, mappings: request.paths ?? [:], directory: directory)
             let config = directory.appendingPathComponent("config.json")
             try JSONSerialization.data(withJSONObject: transformed, options: [.sortedKeys]).write(to: config)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: config.path)
             return PreparedLaunch(directory: directory, executable: executable,
-                arguments: ["run", kind == "xray" ? "-config" : "-c", config.path] + (kind == "sing_box" ? ["--disable-color"] : []),
-                environment: ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "XRAY_LOCATION_ASSET": directory.path, "XRAY_LOCATION_CERT": directory.path])
+                arguments: ["run", "-config", config.path],
+                environment: ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "XRAY_LOCATION_ASSET": directory.path, "XRAY_LOCATION_CERT": directory.path], tunDNS: dns)
         } catch {
             try? FileManager.default.removeItem(at: directory)
             throw error
         }
+    }
+
+    private func availableInterface() throws -> String {
+        for number in (100...1023).shuffled() {
+            let name = "utun\(number)"
+            if if_nametoindex(name) == 0 { return name }
+        }
+        throw HelperFailure("native_tun_interface_unavailable")
+    }
+    private func validIPv4(_ value: String) -> Bool {
+        var address = in_addr()
+        return inet_pton(AF_INET, value, &address) == 1 && value != "0.0.0.0" && value != "127.0.0.1"
     }
 
     private func ensurePrivateRoot() throws {

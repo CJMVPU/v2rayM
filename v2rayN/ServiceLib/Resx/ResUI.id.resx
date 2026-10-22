@@ -648,9 +648,7 @@
   <data name="TbPreSocksPort" xml:space="preserve">
     <value>Port Socks</value>
   </data>
-  <data name="TipPreSocksPort" xml:space="preserve">
-    <value>* Setelah diatur, layanan socks akan dijalankan melalui Xray/sing-box (Tun) untuk fungsi seperti tampilan kecepatan</value>
-  </data>
+
   <data name="TbBrowse" xml:space="preserve">
     <value>Telusuri</value>
   </data>
@@ -1005,21 +1003,13 @@
   <data name="menuDNSSetting" xml:space="preserve">
     <value>Pengaturan DNS</value>
   </data>
-  <data name="TbCustomDnsSingbox" xml:space="preserve">
-    <value>DNS kustom sing-box</value>
-  </data>
-  <data name="TbDnsSingboxObjectDoc" xml:space="preserve">
-    <value>Isi struktur DNS, klik untuk melihat dokumentasi</value>
-  </data>
+
+
   <data name="TbSettingDnsImportDefConfig" xml:space="preserve">
     <value>Klik untuk mengimpor konfigurasi DNS default</value>
   </data>
-  <data name="TbdomainStrategy4Singbox" xml:space="preserve">
-    <value>Strategi domain sing-box</value>
-  </data>
-  <data name="TbSettingsMux4SboxProtocol" xml:space="preserve">
-    <value>Protokol Mux sing-box</value>
-  </data>
+
+
   <data name="TbRoutingRuleProcess" xml:space="preserve">
     <value>Proses (Linux/Windows)</value>
   </data>
@@ -1131,18 +1121,12 @@
   <data name="TbSettingsFragmentFallbackDelay" xml:space="preserve">
     <value>Fallback Delay</value>
   </data>
-  <data name="TbSettingsFragmentFallbackDelayTip" xml:space="preserve">
-    <value>Delay fallback untuk TLS fragment. Hanya sing-box. Kosong = default.</value>
-  </data>
+
   <data name="FillFragmentParameterError" xml:space="preserve">
     <value>Format range tidak valid. Gunakan 'from-to' (cth: 50-100).</value>
   </data>
-  <data name="TbSettingsEnableCacheFile4Sbox" xml:space="preserve">
-    <value>Aktifkan file cache untuk sing-box (file ruleset)</value>
-  </data>
-  <data name="LvCustomRulesetPath4Singbox" xml:space="preserve">
-    <value>Kustomisasi rule-set sing-box</value>
-  </data>
+
+
   <data name="NeedRebootTips" xml:space="preserve">
     <value>Operasi berhasil. Silakan mulai ulang aplikasi melalui menu Pengaturan.</value>
   </data>
@@ -1299,9 +1283,7 @@
   <data name="TbSettingsGeoFilesSource" xml:space="preserve">
     <value>Sumber file Geo (opsional)</value>
   </data>
-  <data name="TbSettingsSrsFilesSource" xml:space="preserve">
-    <value>Sumber file ruleset sing-box (opsional)</value>
-  </data>
+
   <data name="UpgradeAppNotExistTip" xml:space="preserve">
     <value>Aplikasi pembaruan tidak ditemukan</value>
   </data>
@@ -1479,9 +1461,7 @@
   <data name="TbSetUpstreamProxyDetour" xml:space="preserve">
     <value>Atur tag proxy upstream</value>
   </data>
-  <data name="TbSBFullConfigTemplate" xml:space="preserve">
-    <value>Template konfigurasi lengkap sing-box</value>
-  </data>
+
   <data name="TbSBFullConfigTemplateDesc" xml:space="preserve">
     <value>Hanya menambahkan konfigurasi Outbound dan Endpoint. Klik untuk melihat dokumentasi</value>
   </data>
@@ -1494,9 +1474,7 @@
   <data name="TbSelectProfile" xml:space="preserve">
     <value>Pilih profil</value>
   </data>
-  <data name="TbFakeIPTips" xml:space="preserve">
-    <value>Applies globally by default, and built-in FakeIP filtering is only built into sing-box.</value>
-  </data>
+
   <data name="PleaseAddAtLeastOneServer" xml:space="preserve">
     <value>Silakan tambahkan setidaknya satu konfigurasi.</value>
   </data>

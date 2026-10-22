@@ -13,9 +13,7 @@ public class RoutingItem
     public bool Enabled { get; set; } = true;
     public bool Locked { get; set; }
     public string CustomIcon { get; set; }
-    public string CustomRulesetPath4Singbox { get; set; }
     public string DomainStrategy { get; set; }
-    public string DomainStrategy4Singbox { get; set; }
     public int Sort { get; set; }
     public bool IsActive { get; set; }
 }

@@ -10,7 +10,6 @@ internal static class BuiltinDnsProfileBootstrap
     private static readonly (ECoreType CoreType, string Remarks)[] BuiltinProfiles =
     [
         (ECoreType.Xray, "V2ray"),
-        (ECoreType.sing_box, "sing-box"),
     ];
 
     public static async Task EnsureAsync(

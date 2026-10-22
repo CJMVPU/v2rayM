@@ -27,7 +27,7 @@ public class ParityValidationTests
         var valid = V2rayRuntime.TryValidateProfile(profile, out var code, out _);
         await valid.Should().BeTrue();
         await code.Should().BeEqualTo("ok");
-        await profile.IsValid().Should().BeFalse();
+        await profile.IsValid().Should().BeTrue();
 
         var result = await ConfigHandler.AddShadowsocksServer(new Config(), profile, toFile: false);
 
@@ -36,19 +36,19 @@ public class ParityValidationTests
     }
 
     [Test]
-    public async Task SingboxShadowsocksMethodIsAcceptedAndSavedByServiceLib()
+    public async Task RetiredEngineIsRejectedWithoutSaving()
     {
         var method = "aes-128-gcm";
-        var profile = CreateShadowsocks(ECoreType.sing_box, method);
+        var profile = CreateShadowsocks((ECoreType)24, method);
 
         var valid = V2rayRuntime.TryValidateProfile(profile, out var code, out _);
-        await valid.Should().BeTrue();
-        await code.Should().BeEqualTo("ok");
-        await profile.IsValid().Should().BeTrue();
+        await valid.Should().BeFalse();
+        await code.Should().BeEqualTo("xray_only_profile_required");
+        await profile.IsValid().Should().BeFalse();
 
         var result = await ConfigHandler.AddShadowsocksServer(new Config(), profile, toFile: false);
 
-        await result.Should().BeEqualTo(0);
+        await result.Should().BeEqualTo(-1);
     }
 
     [Test]
@@ -131,13 +131,13 @@ public class ParityValidationTests
     public async Task FixedCoreSettingsOptionsRejectUnknownValuesAndAllowEmptyValues()
     {
         await V2rayRuntime.AreCoreSettingsOptionsValid(CreateCoreSettings(
-            fingerprint: "chrome", userAgent: "chrome", mux4SboxProtocol: "h2mux",
+            fingerprint: "chrome", userAgent: "chrome",
             xudpProxyUDP443: "reject", fragmentPackets: "tlshello")).Should().BeTrue();
         await V2rayRuntime.AreCoreSettingsOptionsValid(CreateCoreSettings(
-            fingerprint: string.Empty, userAgent: string.Empty, mux4SboxProtocol: string.Empty,
+            fingerprint: string.Empty, userAgent: string.Empty,
             xudpProxyUDP443: null, fragmentPackets: null)).Should().BeTrue();
         await V2rayRuntime.AreCoreSettingsOptionsValid(CreateCoreSettings(
-            fingerprint: "random-user-value", userAgent: "random-user-value", mux4SboxProtocol: "random-user-value",
+            fingerprint: "random-user-value", userAgent: "random-user-value",
             xudpProxyUDP443: "random-user-value", fragmentPackets: "random-user-value")).Should().BeFalse();
     }
 
@@ -145,6 +145,7 @@ public class ParityValidationTests
     public async Task DestOverrideOnlyAcceptsUpstreamProtocols()
     {
         await V2rayRuntime.AreDestOverrideProtocolsValid(["http", "tls"]).Should().BeTrue();
+        await V2rayRuntime.AreDestOverrideProtocolsValid(["http", "tls", "fakedns"]).Should().BeTrue();
         await V2rayRuntime.AreDestOverrideProtocolsValid([]).Should().BeTrue();
         await V2rayRuntime.AreDestOverrideProtocolsValid(null).Should().BeTrue();
         await V2rayRuntime.AreDestOverrideProtocolsValid(["http", "arbitrary"]).Should().BeFalse();
@@ -172,17 +173,13 @@ public class ParityValidationTests
     }
 
     [Test]
-    public async Task RoutingProfileStrategiesUseTheTwoUpstreamOptionSets()
+    public async Task RoutingProfileStrategiesUseXrayOptions()
     {
         foreach (var strategy in new[] { string.Empty, "AsIs", "IPIfNonMatch", "IPOnDemand" })
         {
-            await V2rayRuntime.AreRoutingProfileStrategiesValid(strategy, string.Empty).Should().BeTrue();
+            await V2rayRuntime.AreRoutingProfileStrategiesValid(strategy).Should().BeTrue();
         }
-        foreach (var strategy in new[] { "", "prefer_ipv4", "prefer_ipv6", "ipv4_only", "ipv6_only" })
-        {
-            await V2rayRuntime.AreRoutingProfileStrategiesValid("AsIs", strategy).Should().BeTrue();
-        }
-        await V2rayRuntime.AreRoutingProfileStrategiesValid("UseIP", "random-value").Should().BeFalse();
+        await V2rayRuntime.AreRoutingProfileStrategiesValid("UseIP").Should().BeFalse();
     }
 
     [Test]
@@ -230,10 +227,9 @@ public class ParityValidationTests
     private static CoreSettingsInput CreateCoreSettings(
         string? fingerprint,
         string? userAgent,
-        string? mux4SboxProtocol,
         string? xudpProxyUDP443,
         string? fragmentPackets) => new(
             false, "warning", fingerprint, userAgent, null, null,
-            null, null, xudpProxyUDP443, mux4SboxProtocol, null, false,
+            null, null, xudpProxyUDP443,
             0, 0, false, false, fragmentPackets, [], [], null);
 }

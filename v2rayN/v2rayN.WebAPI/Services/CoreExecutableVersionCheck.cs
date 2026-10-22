@@ -11,5 +11,7 @@ internal static class CoreExecutableVersionCheck
     public static bool IsValid(string? versionOutput, string expectedName) =>
         !string.IsNullOrWhiteSpace(versionOutput)
         && versionOutput.Contains(expectedName, StringComparison.OrdinalIgnoreCase)
-        && VersionPattern.IsMatch(versionOutput);
+        && (VersionPattern.IsMatch(versionOutput)
+            || expectedName.Equals("Mihomo", StringComparison.OrdinalIgnoreCase)
+                && Regex.IsMatch(versionOutput, @"\bMihomo\s+Meta\s+alpha-[a-f0-9]{7,40}\b", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase));
 }

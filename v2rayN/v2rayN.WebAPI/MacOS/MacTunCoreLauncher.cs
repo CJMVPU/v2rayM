@@ -14,9 +14,9 @@ using v2rayN.WebAPI.Services;
 namespace v2rayN.WebAPI.MacOS;
 
 internal sealed record MacHelperResponse(bool Success, string Code, string State, int ProtocolVersion = 0,
-    int? Pid = null, string? ExecutablePath = null, string[]? Logs = null, bool Forced = false);
+    int? Pid = null, string? ExecutablePath = null, string[]? Logs = null, bool Forced = false, string? UpdateToken = null);
 
-internal sealed class MacTunCoreLauncher(string? bridgePath) : IPrivilegedCoreLauncher
+internal sealed partial class MacTunCoreLauncher(string? bridgePath) : IPrivilegedCoreLauncher
 {
     internal static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly ConcurrentDictionary<int, MacTunProcess> _processes = new();
@@ -44,7 +44,7 @@ internal sealed class MacTunCoreLauncher(string? bridgePath) : IPrivilegedCoreLa
             await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
             var line = (await output).Split('\n', StringSplitOptions.RemoveEmptyEntries).LastOrDefault();
             var response = line is null ? null : JsonSerializer.Deserialize<MacHelperResponse>(line, JsonOptions);
-            if (response is null || response.ProtocolVersion != 1) return new(false, "helper_protocol_mismatch", "unavailable");
+            if (response is null || response.ProtocolVersion != 2) return new(false, "helper_protocol_mismatch", "unavailable");
             return response;
         }
         catch (Exception exception) when (exception is TimeoutException or JsonException)
@@ -61,7 +61,6 @@ internal sealed class MacTunCoreLauncher(string? bridgePath) : IPrivilegedCoreLa
         if (bridgePath is null) throw new InvalidOperationException("signed_app_bundle_required");
         var kind = coreInfo.CoreType switch
         {
-            ECoreType.sing_box => "sing_box",
             ECoreType.Xray => "xray",
             _ => throw new InvalidOperationException("mac_tun_core_not_supported"),
         };
@@ -140,6 +139,6 @@ internal sealed class MacTunCoreLauncher(string? bridgePath) : IPrivilegedCoreLa
         }
         if (resources.Count > 128 || resources.Values.Sum(value => (long)value.Length) > 64 * 1024 * 1024)
             throw new IOException("mac_tun_resources_too_large");
-        return JsonSerializer.Serialize(new { action = "start", core = kind, config = bytes, resources, paths }, JsonOptions);
+        return JsonSerializer.Serialize(new { action = "start", core = kind, config = bytes, resources, paths, configureSystemDNS = kind == "xray" }, JsonOptions);
     }
 }

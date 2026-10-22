@@ -214,7 +214,6 @@ public class CoreConfigV2rayServiceTests
                     }
                 }),
                 DomainStrategy = Global.AsIs,
-                DomainStrategy4Singbox = string.Empty,
             }
         };
 
@@ -262,7 +261,6 @@ public class CoreConfigV2rayServiceTests
                     }
                 }),
                 DomainStrategy = Global.AsIs,
-                DomainStrategy4Singbox = string.Empty,
             }
         };
         context.AllProxiesMap[$"remark:{routeNode.Remarks}"] = routeNode;
@@ -305,7 +303,6 @@ public class CoreConfigV2rayServiceTests
                     }
                 }),
                 DomainStrategy = Global.AsIs,
-                DomainStrategy4Singbox = string.Empty,
             }
         };
 
@@ -388,7 +385,6 @@ public class CoreConfigV2rayServiceTests
                     }
                 }),
                 DomainStrategy = Global.AsIs,
-                DomainStrategy4Singbox = string.Empty,
             }
         };
 
@@ -436,7 +432,6 @@ public class CoreConfigV2rayServiceTests
                     }
                 }),
                 DomainStrategy = Global.AsIs,
-                DomainStrategy4Singbox = string.Empty,
             }
         };
 
@@ -481,7 +476,6 @@ public class CoreConfigV2rayServiceTests
                     }
                 }),
                 DomainStrategy = Global.AsIs,
-                DomainStrategy4Singbox = string.Empty,
             }
         };
 

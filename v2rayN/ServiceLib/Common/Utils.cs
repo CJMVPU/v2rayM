@@ -484,22 +484,6 @@ public class Utils
         return (domain, port);
     }
 
-    public static string? DomainStrategy4Sbox(string? strategy)
-    {
-        if (strategy is null)
-        {
-            return null;
-        }
-
-        return strategy switch
-        {
-            _ when strategy.StartsWith("UseIPv6") => "prefer_ipv6",
-            _ when strategy.StartsWith("UseIP") => "prefer_ipv4",
-            _ when strategy.StartsWith("ForceIPv6") => "ipv6_only",
-            _ when strategy.StartsWith("ForceIP") => "ipv4_only",
-            _ => null
-        };
-    }
 
     public static List<(string, string)> ParseHeaders(string? headers)
     {

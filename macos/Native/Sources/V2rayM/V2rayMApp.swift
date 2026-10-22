@@ -3,8 +3,16 @@ import AppKit
 
 @MainActor final class AppDelegate: NSObject, NSApplicationDelegate {
     weak var model: AppModel?
+    var mainWindow: NSWindow?
+    private var statusBar: StatusBarController?
     private var terminating = false
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        statusBar = StatusBarController(model: { [weak self] in self?.model }, show: { [weak self] in
+            self?.mainWindow?.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+        })
+    }
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let model else { return .terminateNow }
         guard !terminating else { return .terminateLater }
@@ -25,15 +33,21 @@ import AppKit
     }
 }
 @main struct V2rayMApp: App {
+    init() { AppFont.register() }
     @StateObject private var model = AppModel()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     var body: some Scene {
-        WindowGroup("v2rayM", id: "main") {
+        Window("v2rayM", id: "main") {
             ContentView().environmentObject(model)
+                .font(AppFont.body)
+                .buttonStyle(HoverButtonStyle())
+                .background(WindowTracker { delegate.mainWindow = $0 })
                 .task { delegate.model = model; await model.connect() }
         }
-        .defaultSize(width: 1120, height: 740)
+        .defaultSize(width: 860, height: 600)
         .windowResizability(.contentMinSize)
+        .windowStyle(.hiddenTitleBar)
+        .windowBackgroundDragBehavior(.enabled)
         .commands {
             CommandGroup(replacing: .newItem) {}
             CommandGroup(after: .newItem) {

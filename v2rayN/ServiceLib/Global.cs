@@ -6,7 +6,6 @@ public class Global
     public const string GithubUrl = "https://github.com";
     public const string GithubApiUrl = "https://api.github.com/repos";
     public const string GeoUrl = "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/{0}.dat";
-    public const string SingboxRulesetUrl = @"https://raw.githubusercontent.com/2dust/sing-box-rules/rule-set-{0}/{1}.srs";
 
     public const string PromotionUrl = @"aHR0cHM6Ly85LjIzNDQ1Ni54eXovYWJjLmh0bWw=";
     public const string ConfigFileName = "guiNConfig.json";
@@ -17,20 +16,14 @@ public class Global
 
     public const string NamespaceSample = "ServiceLib.Sample.";
     public const string V2raySampleClient = NamespaceSample + "SampleClientConfig";
-    public const string SingboxSampleClient = NamespaceSample + "SingboxSampleClientConfig";
     public const string V2raySampleHttpRequestFileName = NamespaceSample + "SampleHttpRequest";
     public const string V2raySampleHttpResponseFileName = NamespaceSample + "SampleHttpResponse";
     public const string V2raySampleInbound = NamespaceSample + "SampleInbound";
     public const string V2raySampleOutbound = NamespaceSample + "SampleOutbound";
     public const string V2raySampleTunInbound = NamespaceSample + "SampleTunInbound";
     public const string V2raySampleTunRules = NamespaceSample + "SampleTunRules";
-    public const string SingboxSampleOutbound = NamespaceSample + "SingboxSampleOutbound";
     public const string CustomRoutingFileName = NamespaceSample + "custom_routing_";
-    public const string TunSingboxDNSFileName = NamespaceSample + "tun_singbox_dns";
-    public const string TunSingboxInboundFileName = NamespaceSample + "tun_singbox_inbound";
-    public const string TunSingboxRulesFileName = NamespaceSample + "tun_singbox_rules";
     public const string DNSV2rayNormalFileName = NamespaceSample + "dns_v2ray_normal";
-    public const string DNSSingboxNormalFileName = NamespaceSample + "dns_singbox_normal";
     public const string ClashMixinYaml = NamespaceSample + "clash_mixin_yaml";
     public const string ClashTunYaml = NamespaceSample + "clash_tun_yaml";
     public const string LinuxAutostartConfig = NamespaceSample + "linux_autostart_config";
@@ -39,7 +32,6 @@ public class Global
     public const string ProxySetLinuxShellFileName = NamespaceSample + "proxy_set_linux_sh";
     public const string KillAsSudoOSXShellFileName = NamespaceSample + "kill_as_sudo_osx_sh";
     public const string KillAsSudoLinuxShellFileName = NamespaceSample + "kill_as_sudo_linux_sh";
-    public const string SingboxFakeIPFilterFileName = NamespaceSample + "singbox_fakeip_filter";
     public const string ChromeRootCertFileName = NamespaceSample + "chrome_roots_pem";
     public const string MozillaRootCertFileName = NamespaceSample + "mozilla_roots_pem";
 
@@ -103,16 +95,6 @@ public class Global
     public static readonly TimeSpan DirectDownloadConnect = TimeSpan.FromSeconds(5);
     public static readonly TimeSpan ProxyDownloadConnect = TimeSpan.FromSeconds(10);
 
-    public const string SingboxDirectDNSTagPrefix = "direct-dns-";
-    public const string SingboxRemoteDNSTagPrefix = "remote-dns-";
-    public const string SingboxDirectDNSTag = "direct-dns-1";
-    public const string SingboxRemoteDNSTag = "remote-dns-1";
-    public const string SingboxDirectDNSTagTemplate = "direct-dns-{0}";
-    public const string SingboxRemoteDNSTagTemplate = "remote-dns-{0}";
-    public const string SingboxLocalDNSTag = "local-local";
-    public const string SingboxHostsDNSTag = "hosts-dns";
-    public const string SingboxFakeDNSTag = "fake-dns";
-    public const string SingboxSrsDownloadHttpClientTag = "srs-download-http-client";
 
     public const int Hysteria2DefaultHopInt = 30;
     public const string PolicyGroupExcludeKeywords = @"剩余|过期|到期|重置|[Rr]emaining|[Ee]xpir|[Rr]eset";
@@ -189,12 +171,6 @@ public class Global
         @"https://github.com/Chocolate4U/Iran-v2ray-rules/releases/latest/download/{0}.dat"
     ];
 
-    public static readonly List<string> SingboxRulesetSources =
-    [
-        "",
-        @"https://raw.githubusercontent.com/runetfreedom/russia-v2ray-rules-dat/release/sing-box/rule-set-{0}/{1}.srs",
-        @"https://raw.githubusercontent.com/chocolate4u/Iran-sing-box-rules/rule-set/{1}.srs"
-    ];
 
     public static readonly List<string> RoutingRulesSources =
     [
@@ -299,27 +275,6 @@ public class Global
         "2022-blake3-chacha20-poly1305"
     ];
 
-    public static readonly List<string> SsSecuritiesInSingbox =
-    [
-        "aes-256-gcm",
-        "aes-192-gcm",
-        "aes-128-gcm",
-        "chacha20-ietf-poly1305",
-        "xchacha20-ietf-poly1305",
-        "none",
-        "2022-blake3-aes-128-gcm",
-        "2022-blake3-aes-256-gcm",
-        "2022-blake3-chacha20-poly1305",
-        "aes-128-ctr",
-        "aes-192-ctr",
-        "aes-256-ctr",
-        "aes-128-cfb",
-        "aes-192-cfb",
-        "aes-256-cfb",
-        "rc4-md5",
-        "chacha20-ietf",
-        "xchacha20"
-    ];
 
     public static readonly List<string> Flows =
     [
@@ -361,7 +316,6 @@ public class Global
     public static readonly List<string> CoreTypes =
     [
         "Xray",
-        "sing_box"
     ];
 
     public static readonly HashSet<EConfigType> XraySupportConfigType =
@@ -377,23 +331,7 @@ public class Global
         EConfigType.HTTP,
     ];
 
-    public static readonly HashSet<EConfigType> SingboxSupportConfigType =
-    [
-        EConfigType.VMess,
-        EConfigType.VLESS,
-        EConfigType.Shadowsocks,
-        EConfigType.Trojan,
-        EConfigType.Hysteria2,
-        EConfigType.TUIC,
-        EConfigType.Anytls,
-        EConfigType.Naive,
-        EConfigType.WireGuard,
-        EConfigType.MASQUE,
-        EConfigType.SOCKS,
-        EConfigType.HTTP,
-    ];
 
-    public static readonly HashSet<EConfigType> SingboxOnlyConfigType = SingboxSupportConfigType.Except(XraySupportConfigType).ToHashSet();
 
     public static readonly List<string> DomainStrategies =
     [
@@ -402,14 +340,6 @@ public class Global
         IPOnDemand
     ];
 
-    public static readonly List<string> DomainStrategies4Sbox =
-    [
-        "",
-        "prefer_ipv4",
-        "prefer_ipv6",
-        "ipv4_only",
-        "ipv6_only"
-    ];
 
     public static readonly List<string> Fingerprints =
     [
@@ -600,13 +530,6 @@ public class Global
         ""
     ];
 
-    public static readonly List<string> SingboxMuxs =
-    [
-        "h2mux",
-        "smux",
-        "yamux",
-        ""
-    ];
 
     public static readonly List<string> TuicCongestionControls =
     [
@@ -654,7 +577,6 @@ public class Global
         { ECoreType.v2fly, "v2fly/v2ray-core" },
         { ECoreType.v2fly_v5, "v2fly/v2ray-core" },
         { ECoreType.Xray, "XTLS/Xray-core" },
-        { ECoreType.sing_box, "SagerNet/sing-box" },
         { ECoreType.mihomo, "MetaCubeX/mihomo" },
         { ECoreType.hysteria, "HyNetworks/hysteria" },
         { ECoreType.hysteria2, "HyNetworks/hysteria" },
@@ -777,7 +699,6 @@ public class Global
         "10.0.0.1/30",
     ];
 
-    // Prefixes must leave room for a peer address (max /126); the sing-box system
     // stack derives a gateway from the first prefix and rejects single-address prefixes.
     public static readonly IReadOnlyList<string> TunIPv6Address =
     [

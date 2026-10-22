@@ -19,9 +19,7 @@ public class RoutingParityTests
             Enabled = false,
             Locked = true,
             CustomIcon = "custom-icon",
-            CustomRulesetPath4Singbox = "/srv/rules/custom.srs",
             DomainStrategy = "UseIP",
-            DomainStrategy4Singbox = "prefer_ipv4",
             Sort = 19,
             IsActive = true,
         };
@@ -36,9 +34,7 @@ public class RoutingParityTests
         await reloaded.Enabled.Should().BeEqualTo(original.Enabled);
         await reloaded.Locked.Should().BeEqualTo(original.Locked);
         await reloaded.CustomIcon.Should().BeEqualTo(original.CustomIcon);
-        await reloaded.CustomRulesetPath4Singbox.Should().BeEqualTo(original.CustomRulesetPath4Singbox);
         await reloaded.DomainStrategy.Should().BeEqualTo(original.DomainStrategy);
-        await reloaded.DomainStrategy4Singbox.Should().BeEqualTo(original.DomainStrategy4Singbox);
         await reloaded.Sort.Should().BeEqualTo(original.Sort);
         await reloaded.IsActive.Should().BeEqualTo(original.IsActive);
     }

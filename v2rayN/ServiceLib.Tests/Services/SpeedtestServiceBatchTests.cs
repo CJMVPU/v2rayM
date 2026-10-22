@@ -27,7 +27,7 @@ public class SpeedtestServiceBatchTests
     }
 
     [Test]
-    public async Task NormalBatches_ShouldRespectPageSizeAndKeepCoreTypesSeparate()
+    public async Task NormalBatches_ShouldRespectPageSize()
     {
         var profiles = CreateProfiles();
         var batches = GetBatches(profiles, 2);
@@ -41,13 +41,26 @@ public class SpeedtestServiceBatchTests
         }
     }
 
+    [Test]
+    public async Task UnsupportedCoreTypes_ShouldNotEnterXrayBatches()
+    {
+        var eligible = new ServerTestItem { CoreType = ECoreType.Xray };
+        var batches = GetBatches([
+            eligible,
+            new() { CoreType = (ECoreType)3 },
+            new() { CoreType = ECoreType.mihomo }
+        ], 2);
+        await batches.SelectMany(batch => batch).Count().Should().BeEqualTo(1);
+        await ReferenceEquals(batches[0][0], eligible).Should().BeTrue();
+    }
+
     private static List<ServerTestItem> CreateProfiles() =>
     [
         new() { CoreType = ECoreType.Xray },
         new() { CoreType = ECoreType.Xray },
         new() { CoreType = ECoreType.Xray },
-        new() { CoreType = ECoreType.sing_box },
-        new() { CoreType = ECoreType.sing_box }
+        new() { CoreType = ECoreType.Xray },
+        new() { CoreType = ECoreType.Xray }
     ];
 
     private static List<List<ServerTestItem>> GetBatches(List<ServerTestItem> profiles, int pageSize)

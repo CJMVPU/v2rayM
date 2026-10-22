@@ -40,7 +40,7 @@ public class SubscriptionParityTests
             NextProfile = "typed landing alias",
             PreSocksPort = 10809,
             Memo = "memo",
-            CustomCoreType = ECoreType.sing_box,
+            CustomCoreType = (ECoreType)24,
         };
 
         var loaded = V2rayRuntime.ToSubscriptionView(original);
@@ -59,7 +59,7 @@ public class SubscriptionParityTests
             loaded.PrevProfile,
             loaded.NextProfile,
             loaded.PreSocksPort,
-            ECoreType.sing_box);
+            (ECoreType)24);
         var saved = V2rayRuntime.ToSubItem(input, original);
         var reloaded = V2rayRuntime.ToSubscriptionView(saved);
 
@@ -77,7 +77,7 @@ public class SubscriptionParityTests
         await reloaded.PrevProfile.Should().BeEqualTo("typed previous alias");
         await reloaded.NextProfile.Should().BeEqualTo("typed landing alias");
         await reloaded.PreSocksPort.Should().BeEqualTo(original.PreSocksPort);
-        await reloaded.CustomCoreType.Should().BeEqualTo("sing_box");
+        await reloaded.CustomCoreType.Should().BeEqualTo("24");
     }
 
     [Test]

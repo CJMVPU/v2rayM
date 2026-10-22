@@ -41,7 +41,6 @@ public sealed class AppManager
         switch (type)
         {
             case ECoreType.Xray when RunningCoreType is ECoreType.Xray or ECoreType.v2fly or ECoreType.v2fly_v5:
-            case ECoreType.sing_box when RunningCoreType is ECoreType.sing_box or ECoreType.mihomo:
                 return true;
 
             default:
@@ -646,22 +645,7 @@ public sealed class AppManager
 
     #region Core Type
 
-    public List<string> GetShadowsocksSecurities(ProfileItem profileItem)
-    {
-        var coreType = GetCoreType(profileItem, EConfigType.Shadowsocks);
-        switch (coreType)
-        {
-            case ECoreType.v2fly:
-                return Global.SsSecurities;
-
-            case ECoreType.Xray:
-                return Global.SsSecuritiesInXray;
-
-            case ECoreType.sing_box:
-                return Global.SsSecuritiesInSingbox;
-        }
-        return Global.SsSecuritiesInSingbox;
-    }
+    public List<string> GetShadowsocksSecurities(ProfileItem profileItem) => Global.SsSecuritiesInXray;
 
     public ECoreType GetCoreType(ProfileItem? profileItem, EConfigType eConfigType)
     {
@@ -670,8 +654,7 @@ public sealed class AppManager
             return (ECoreType)profileItem.CoreType;
         }
 
-        var item = _config.CoreTypeItem?.FirstOrDefault(it => it.ConfigType == eConfigType);
-        return item?.CoreType ?? ECoreType.Xray;
+        return ECoreType.Xray;
     }
 
     #endregion Core Type

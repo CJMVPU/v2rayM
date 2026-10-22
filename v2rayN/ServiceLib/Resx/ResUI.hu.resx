@@ -648,9 +648,7 @@
   <data name="TbPreSocksPort" xml:space="preserve">
     <value>Socks port</value>
   </data>
-  <data name="TipPreSocksPort" xml:space="preserve">
-    <value>* A beállítás után egy socks szolgáltatás indul az Xray/sing-box(Tun) segítségével, hogy olyan funkciókat biztosítson, mint a sebességkijelzés</value>
-  </data>
+
   <data name="TbBrowse" xml:space="preserve">
     <value>Tallózás</value>
   </data>
@@ -1005,21 +1003,13 @@
   <data name="menuDNSSetting" xml:space="preserve">
     <value>DNS beállítások</value>
   </data>
-  <data name="TbCustomDnsSingbox" xml:space="preserve">
-    <value>sing-box Custom DNS</value>
-  </data>
-  <data name="TbDnsSingboxObjectDoc" xml:space="preserve">
-    <value>Kérjük, töltse ki a DNS struktúrát, kattintson a dokumentum megtekintéséhez</value>
-  </data>
+
+
   <data name="TbSettingDnsImportDefConfig" xml:space="preserve">
     <value>Kattintson az alapértelmezett DNS konfiguráció importálásához</value>
   </data>
-  <data name="TbdomainStrategy4Singbox" xml:space="preserve">
-    <value>sing-box tartomány stratégia</value>
-  </data>
-  <data name="TbSettingsMux4SboxProtocol" xml:space="preserve">
-    <value>sing-box Mux protokoll</value>
-  </data>
+
+
   <data name="TbRoutingRuleProcess" xml:space="preserve">
     <value>Process (Linux/Windows)</value>
   </data>
@@ -1131,18 +1121,12 @@
   <data name="TbSettingsFragmentFallbackDelay" xml:space="preserve">
     <value>Fallback késleltetés</value>
   </data>
-  <data name="TbSettingsFragmentFallbackDelayTip" xml:space="preserve">
-    <value>TLS fragment fallback késleltetés. Csak sing-box. Üres = alapértelmezett.</value>
-  </data>
+
   <data name="FillFragmentParameterError" xml:space="preserve">
     <value>Érvénytelen tartomány formátum. Használja 'from-to' (pl. 50-100).</value>
   </data>
-  <data name="TbSettingsEnableCacheFile4Sbox" xml:space="preserve">
-    <value>Gyorsítótár fájl engedélyezése sing-boxhoz (szabálykészlet fájlok)</value>
-  </data>
-  <data name="LvCustomRulesetPath4Singbox" xml:space="preserve">
-    <value>A sing-box szabálykészletének testreszabása</value>
-  </data>
+
+
   <data name="NeedRebootTips" xml:space="preserve">
     <value>Sikeres művelet. Kattintson a beállítások menüre az alkalmazás újraindításához.</value>
   </data>
@@ -1299,9 +1283,7 @@
   <data name="TbSettingsGeoFilesSource" xml:space="preserve">
     <value>Geo fájlok forrása (opcionális)</value>
   </data>
-  <data name="TbSettingsSrsFilesSource" xml:space="preserve">
-    <value>sing-box szabálykészlet fájlok forrása (opcionális)</value>
-  </data>
+
   <data name="UpgradeAppNotExistTip" xml:space="preserve">
     <value>Frissítő alkalmazás nem létezik</value>
   </data>
@@ -1479,9 +1461,7 @@
   <data name="TbSetUpstreamProxyDetour" xml:space="preserve">
     <value>Set Upstream Proxy Tag</value>
   </data>
-  <data name="TbSBFullConfigTemplate" xml:space="preserve">
-    <value>sing-box Full Config Template</value>
-  </data>
+
   <data name="TbSBFullConfigTemplateDesc" xml:space="preserve">
     <value>Add Outbound and Endpoint Config Only, Click to view the document</value>
   </data>
@@ -1494,9 +1474,7 @@
   <data name="TbSelectProfile" xml:space="preserve">
     <value>Select Profile</value>
   </data>
-  <data name="TbFakeIPTips" xml:space="preserve">
-    <value>Applies globally by default, and built-in FakeIP filtering is only built into sing-box.</value>
-  </data>
+
   <data name="PleaseAddAtLeastOneServer" xml:space="preserve">
     <value>Please Add At Least One Configuration</value>
   </data>

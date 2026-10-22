@@ -13,8 +13,8 @@ core_bin="${CORE_BIN_DIR:-}"
 architecture="$(lipo -archs "$backend/v2rayN.WebAPI")"
 case "$architecture" in arm64|x86_64) ;; *) echo 'Backend must have one macOS architecture.' >&2; exit 1 ;; esac
 if [[ "$signing_identity" != - ]]; then
-  [[ -n "$core_bin" && -f "$core_bin/xray/xray" && -f "$core_bin/sing_box/sing-box" ]] || {
-    echo 'Signed packages require CORE_BIN_DIR with xray/xray and sing_box/sing-box.' >&2; exit 1;
+  [[ -n "$core_bin" && -f "$core_bin/xray/xray" ]] || {
+    echo 'Signed packages require CORE_BIN_DIR with xray/xray.' >&2; exit 1;
   }
 fi
 build_dir="${SWIFT_SCRATCH_PATH:-${TMPDIR:-/tmp}/v2raym-helper-build-$architecture}"
@@ -35,7 +35,7 @@ shutil.copytree(backend, destination, ignore=shutil.ignore_patterns(
     '.env', 'guiConfigs', 'guiLogs', 'guiTemps', 'guiBackups', 'binConfigs', 'WebAPIData', '*.instance.lock'))
 if sys.argv[3]:
     core_bin = Path(sys.argv[3])
-    for kind, name in [('xray', 'xray'), ('sing_box', 'sing-box')]:
+    for kind, name in [('xray', 'xray')]:
         target = destination / 'bin' / kind
         target.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(core_bin / kind / name, target / name)
@@ -50,8 +50,8 @@ PY
 cp "$swift_bin/V2rayMHelper" "$swift_bin/V2rayMHelperClient" "$app/Contents/MacOS/"
 cp "$repo_root/macos/Resources/io.github.CJMVPU.v2rayM.tun-helper.plist" "$app/Contents/Library/LaunchDaemons/"
 if [[ -n "$core_bin" ]]; then
-  for kind in xray sing_box; do
-    name=sing-box; [[ "$kind" != xray ]] || name=xray
+  for kind in xray; do
+    name=xray
     case " $(lipo -archs "$app/Contents/Resources/Backend/bin/$kind/$name") " in
       *" $architecture "*) ;;
       *) echo "Core architecture mismatch: $kind" >&2; exit 1 ;;

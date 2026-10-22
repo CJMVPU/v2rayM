@@ -651,9 +651,7 @@
   <data name="TbPreSocksPort" xml:space="preserve">
     <value>Порт SOCKS</value>
   </data>
-  <data name="TipPreSocksPort" xml:space="preserve">
-    <value>*Порт SOCKS пользовательской конфигурации можно не указывать. Если он задан, Xray/sing-box (TUN) дополнительно запустит предварительную службу SOCKS для разделения трафика, отображения скорости и других функций</value>
-  </data>
+
   <data name="TbBrowse" xml:space="preserve">
     <value>Обзор</value>
   </data>
@@ -1011,21 +1009,13 @@
   <data name="menuDNSSetting" xml:space="preserve">
     <value>Настройки DNS</value>
   </data>
-  <data name="TbCustomDnsSingbox" xml:space="preserve">
-    <value>Пользовательский DNS для sing-box</value>
-  </data>
-  <data name="TbDnsSingboxObjectDoc" xml:space="preserve">
-    <value>Заполните структуру DNS (формат JSON), нажмите для просмотра документации</value>
-  </data>
+
+
   <data name="TbSettingDnsImportDefConfig" xml:space="preserve">
     <value>Нажмите, чтобы импортировать конфигурацию DNS по умолчанию</value>
   </data>
-  <data name="TbdomainStrategy4Singbox" xml:space="preserve">
-    <value>Стратегия домена для sing-box</value>
-  </data>
-  <data name="TbSettingsMux4SboxProtocol" xml:space="preserve">
-    <value>Протокол Mux для sing-box</value>
-  </data>
+
+
   <data name="TbSettingsMux4RayConcurrency" xml:space="preserve">
     <value>Лимит дочерних соединений Mux для Xray</value>
   </data>
@@ -1152,18 +1142,12 @@
   <data name="TbSettingsFragmentFallbackDelay" xml:space="preserve">
     <value>Резервная задержка</value>
   </data>
-  <data name="TbSettingsFragmentFallbackDelayTip" xml:space="preserve">
-    <value>Резервная задержка для TLS-фрагмента. Только для sing-box. Пусто = по умолчанию</value>
-  </data>
+
   <data name="FillFragmentParameterError" xml:space="preserve">
     <value>Неверный формат диапазона. Используйте 'from-to' (например, 50-100)</value>
   </data>
-  <data name="TbSettingsEnableCacheFile4Sbox" xml:space="preserve">
-    <value>Включить файл кэша для sing-box (файлы наборов правил)</value>
-  </data>
-  <data name="LvCustomRulesetPath4Singbox" xml:space="preserve">
-    <value>Пользовательский набор правил для sing-box</value>
-  </data>
+
+
   <data name="NeedRebootTips" xml:space="preserve">
     <value>Операция успешна. Закройте приложение, нажав «Выход» в меню трея, и запустите его заново</value>
   </data>
@@ -1320,9 +1304,7 @@
   <data name="TbSettingsGeoFilesSource" xml:space="preserve">
     <value>Источник файлов Geo (необязательно)</value>
   </data>
-  <data name="TbSettingsSrsFilesSource" xml:space="preserve">
-    <value>Источник файлов наборов правил sing-box (необязательно)</value>
-  </data>
+
   <data name="UpgradeAppNotExistTip" xml:space="preserve">
     <value>Приложение для обновления не найдено</value>
   </data>
@@ -1500,9 +1482,7 @@
   <data name="TbSetUpstreamProxyDetour" xml:space="preserve">
     <value>Задать тег верхнего прокси (upstream)</value>
   </data>
-  <data name="TbSBFullConfigTemplate" xml:space="preserve">
-    <value>Полный шаблон конфигурации sing-box</value>
-  </data>
+
   <data name="TbSBFullConfigTemplateDesc" xml:space="preserve">
     <value>Добавляет только конфигурацию Outbound и Endpoint. Нажмите, чтобы открыть документ</value>
   </data>
@@ -1515,9 +1495,7 @@
   <data name="TbSelectProfile" xml:space="preserve">
     <value>Выбрать профиль</value>
   </data>
-  <data name="TbFakeIPTips" xml:space="preserve">
-    <value>Применяется глобально по умолчанию; встроенная фильтрация FakeIP есть только в sing-box</value>
-  </data>
+
   <data name="PleaseAddAtLeastOneServer" xml:space="preserve">
     <value>Добавьте хотя бы одну конфигурацию</value>
   </data>
@@ -1836,9 +1814,7 @@
   <data name="TbGeckoPacketSize" xml:space="preserve">
     <value>Размер пакета Gecko (мин/макс)</value>
   </data>
-  <data name="TbLegacyProtectTip" xml:space="preserve">
-    <value>Если включено, используется sing-box TUN; иначе — xray TUN</value>
-  </data>
+
   <data name="TbRootCertificateProvider" xml:space="preserve">
     <value>Поставщик корневых сертификатов</value>
   </data>
@@ -1869,9 +1845,7 @@
   <data name="MsgCustomOutboundFileNotFound" xml:space="preserve">
     <value>Файл пользовательского outbound {0} не найден: {1}</value>
   </data>
-  <data name="TbCustomOutboundTip" xml:space="preserve">
-    <value>Для xray/sing-box поддерживается только один outbound/endpoint</value>
-  </data>
+
   <data name="LvCustomCoreType" xml:space="preserve">
     <value>Ядро пользовательской конфигурации</value>
   </data>
