@@ -8,6 +8,8 @@ import AppKit
     private var terminating = false
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusBar = StatusBarController(model: { [weak self] in self?.model }, show: { [weak self] in
+            self?.model?.homeRequest += 1
+            self?.mainWindow?.deminiaturize(nil)
             self?.mainWindow?.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
         })
@@ -40,6 +42,8 @@ import AppKit
         Window("v2rayM", id: "main") {
             ContentView().environmentObject(model)
                 .font(AppFont.body)
+                .preferredColorScheme(.dark)
+                .tint(DashboardTheme.cyan)
                 .buttonStyle(HoverButtonStyle())
                 .background(WindowTracker { delegate.mainWindow = $0 })
                 .task { delegate.model = model; await model.connect() }

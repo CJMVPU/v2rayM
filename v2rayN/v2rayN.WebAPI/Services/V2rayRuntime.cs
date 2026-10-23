@@ -48,8 +48,7 @@ public sealed partial class V2rayRuntime(
     private Task? _coreMonitorTask;
     private CoreProcessIdentity[] _trackedCoreProcesses = [];
     private string? _xrayPath;
-    private ServerSpeedItem? _latestTraffic;
-    private DateTimeOffset? _trafficSampledAt;
+    private readonly TrafficAverageWindow _trafficWindow = new();
     private readonly InstalledXrayVersion _installedXrayVersion = new();
     private bool _initialized;
     private readonly MacTunCoreLauncher _macTunLauncher = MacTunCoreLauncher.ForCurrentApp();
@@ -73,7 +72,8 @@ public sealed partial class V2rayRuntime(
         if (snapshot.State != CoreRuntimeState.Running)
         {
             _coreMonitorCancellation?.Cancel();
-            _latestTraffic = null; _trafficSampledAt = null;
+            _trafficWindow.Clear();
+            StatisticsManager.Instance.ResetSample();
         }
         _events.Publish("core-state", new
         {
@@ -700,11 +700,7 @@ public sealed partial class V2rayRuntime(
             subscriptions.Count,
             DateTimeOffset.UtcNow,
             Config.GuiItem.EnableStatistics,
-            _latestTraffic is null || !coreRunning ? null : new TrafficView(
-                _latestTraffic.ProxyUp,
-                _latestTraffic.ProxyDown,
-                _latestTraffic.DirectUp,
-                _latestTraffic.DirectDown, _latestTraffic.SampleSeconds, _trafficSampledAt),
+            coreRunning ? _trafficWindow.Read(DateTimeOffset.UtcNow) : null,
             snapshot.State.ToString().ToLowerInvariant(),
             configuredProxyPort,
             snapshot.State == CoreRuntimeState.Stopped ? null : snapshot.ProxyPort,
@@ -1167,10 +1163,11 @@ public sealed partial class V2rayRuntime(
     {
         foreach (var line in message.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n', StringSplitOptions.RemoveEmptyEntries))
         {
+            if (!CoreLogPolicy.ShouldKeep(source, line)) continue;
             var entry = _logs.Add(source, line);
             _events.Publish("log", entry);
+            Console.Out.WriteLine($"[{source}] {line}");
         }
-        Console.Out.WriteLine($"[{source}] {message.TrimEnd()}");
     }
 
     private static void ConfigureServiceLibConsoleLogging()
@@ -1192,8 +1189,8 @@ public sealed partial class V2rayRuntime(
 
     private Task OnStatisticsUpdateAsync(ServerSpeedItem update)
     {
-        _latestTraffic = update;
-        _trafficSampledAt = DateTimeOffset.UtcNow;
+        if (CurrentCoreRuntime.State != CoreRuntimeState.Running) return Task.CompletedTask;
+        _trafficWindow.Add(update, DateTimeOffset.UtcNow);
         _events.Publish("traffic", update);
         return Task.CompletedTask;
     }

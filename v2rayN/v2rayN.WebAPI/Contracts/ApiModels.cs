@@ -307,7 +307,7 @@ public sealed record RouteRulesUrlImportInput(bool Append = false);
 
 public sealed record ProfileExportItem(string IndexId, string Remarks, string Format, string Content);
 
-public sealed record TrafficView(long ProxyUp, long ProxyDown, long DirectUp, long DirectDown,
+public sealed record TrafficView(double ProxyUp, double ProxyDown, double DirectUp, double DirectDown,
     double SampleSeconds = 1, DateTimeOffset? SampledAt = null);
 
 public sealed record CoreUpdateCheckView(bool UpdateAvailable, string? Version, bool IsUpToDate = false, string? Detail = null);

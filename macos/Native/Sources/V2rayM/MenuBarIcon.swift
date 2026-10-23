@@ -7,9 +7,15 @@ enum MenuBarIcon {
         case .inactive: .black
         case .system: .systemBlue
         case .tun: .systemGreen
-        case .attention: .systemOrange
+        case .recovering, .attention: .systemOrange
         }
         let image = NSImage(size: NSSize(width: 18, height: 18), flipped: true) { _ in
+            if mode == .recovering {
+                let symbol = NSImage(systemSymbolName: "arrow.triangle.2.circlepath", accessibilityDescription: mode.label)!
+                let tinted = symbol.withSymbolConfiguration(.init(paletteColors: [color])) ?? symbol
+                tinted.draw(in: NSRect(x: 0, y: 0, width: 18, height: 18))
+                return true
+            }
             let path = NSBezierPath()
             let points: [NSPoint] = [
                 .init(x: 1, y: 2), .init(x: 5.5, y: 2), .init(x: 9, y: 12),

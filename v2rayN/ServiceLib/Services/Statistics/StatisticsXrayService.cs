@@ -2,6 +2,10 @@ namespace ServiceLib.Services.Statistics;
 
 public class StatisticsXrayService
 {
+    public const int SamplingSeconds = 5;
+    private readonly object _sampleGate = new();
+    private long _sampleGeneration;
+    private bool _discardFirstCounter;
     private const long linkBase = 1024;
     private ServerSpeedItem _serverSpeedItem = new();
     private long _sampleTime = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -15,8 +19,43 @@ public class StatisticsXrayService
     {
         _config = config;
         _updateFunc = updateFunc;
+        // Re-enabling statistics while a core is already running must not add its
+        // lifetime counters a second time to the saved node totals.
+        _discardFirstCounter = AppManager.Instance.RunningCoreType == ECoreType.Xray;
 
-        Task.Run(Run);
+    }
+
+    public async Task StartAsync()
+    {
+        // Capture the existing core's baseline before returning from the settings
+        // change, so traffic generated after enabling counters is not discarded.
+        if (_discardFirstCounter)
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
+            timeout.CancelAfter(TimeSpan.FromSeconds(2));
+            try
+            {
+                var generation = Interlocked.Read(ref _sampleGeneration);
+                var result = await HttpClientHelper.Instance.TryGetAsync(Url, timeout.Token);
+                lock (_sampleGate)
+                {
+                    if (result != null && generation == _sampleGeneration) ParseOutput(result);
+                }
+            }
+            catch (OperationCanceledException) when (!_cts.IsCancellationRequested) { }
+        }
+        _ = Task.Run(Run);
+    }
+
+    public void ResetSample()
+    {
+        lock (_sampleGate)
+        {
+            _sampleGeneration++;
+            _serverSpeedItem = new();
+            _discardFirstCounter = false;
+            _sampleTime = System.Diagnostics.Stopwatch.GetTimestamp();
+        }
     }
 
     public void Close()
@@ -35,34 +74,41 @@ public class StatisticsXrayService
     {
         var token = _cts.Token;
 
-        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(SamplingSeconds));
         try
         {
-        while (await timer.WaitForNextTickAsync(token).ConfigureAwait(false))
-        {
-            try
+            while (await timer.WaitForNextTickAsync(token).ConfigureAwait(false))
             {
-                if (AppManager.Instance.RunningCoreType != ECoreType.Xray)
+                try
                 {
-                    continue;
-                }
+                    if (AppManager.Instance.RunningCoreType != ECoreType.Xray)
+                    {
+                        continue;
+                    }
 
-                var result = await HttpClientHelper.Instance.TryGetAsync(Url, token);
-                if (result != null)
+                    var generation = Interlocked.Read(ref _sampleGeneration);
+                    var result = await HttpClientHelper.Instance.TryGetAsync(Url, token);
+                    if (result != null)
+                    {
+                        ServerSpeedItem? server;
+                        lock (_sampleGate)
+                        {
+                            if (generation != _sampleGeneration) continue;
+                            server = ParseOutput(result);
+                        }
+                        if (server is not null && generation == Interlocked.Read(ref _sampleGeneration))
+                            await _updateFunc!.Invoke(server);
+                    }
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
                 {
-                    var server = ParseOutput(result);
-                    if (server is not null) await _updateFunc!.Invoke(server);
+                    break;
+                }
+                catch
+                {
+                    await Task.Delay(3000, token).ConfigureAwait(false);
                 }
             }
-            catch (OperationCanceledException) when (token.IsCancellationRequested)
-            {
-                break;
-            }
-            catch
-            {
-                await Task.Delay(3000, token).ConfigureAwait(false);
-            }
-        }
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         finally { _cts.Dispose(); }
@@ -90,24 +136,33 @@ public class StatisticsXrayService
 
                 if (key.StartsWith(Global.ProxyTag))
                 {
-                    server.ProxyUp += state.uplink / linkBase;
-                    server.ProxyDown += state.downlink / linkBase;
+                    server.ProxyUp += state.uplink;
+                    server.ProxyDown += state.downlink;
                 }
                 else if (key == Global.DirectTag)
                 {
-                    server.DirectUp = state.uplink / linkBase;
-                    server.DirectDown = state.downlink / linkBase;
+                    server.DirectUp = state.uplink;
+                    server.DirectDown = state.downlink;
                 }
             }
 
+            server.ProxyUp /= linkBase; server.ProxyDown /= linkBase;
+            server.DirectUp /= linkBase; server.DirectDown /= linkBase;
             var now = System.Diagnostics.Stopwatch.GetTimestamp();
             var elapsed = System.Diagnostics.Stopwatch.GetElapsedTime(_sampleTime, now).TotalSeconds;
             _sampleTime = now;
+            if (_discardFirstCounter)
+            {
+                _discardFirstCounter = false;
+                _serverSpeedItem = server;
+                return new ServerSpeedItem { SampleSeconds = 0 };
+            }
             if (server.DirectDown < _serverSpeedItem.DirectDown || server.ProxyDown < _serverSpeedItem.ProxyDown
                 || server.DirectUp < _serverSpeedItem.DirectUp || server.ProxyUp < _serverSpeedItem.ProxyUp)
             {
                 _serverSpeedItem = server;
-                return null;
+                // Invalidate the rolling window without adding negative cumulative bytes.
+                return new ServerSpeedItem { SampleSeconds = 0 };
             }
 
             ServerSpeedItem curItem = new()

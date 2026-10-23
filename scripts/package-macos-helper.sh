@@ -17,6 +17,13 @@ if [[ "$signing_identity" != - ]]; then
     echo 'Signed packages require CORE_BIN_DIR with xray/xray.' >&2; exit 1;
   }
 fi
+if [[ -n "$core_bin" ]]; then
+  core_version="$("$core_bin/xray/xray" version)"
+  if [[ "$core_version" == 'Xray 26.10.21 '* && ! "$core_version" =~ v2raym-darwin-bind[12]([[:space:]]|$) ]]; then
+    echo 'Xray 26.10.21 requires the Darwin binding fix. Build with scripts/build-macos-xray.py first.' >&2
+    exit 1
+  fi
+fi
 build_dir="${SWIFT_SCRATCH_PATH:-${TMPDIR:-/tmp}/v2raym-helper-build-$architecture}"
 swift build --package-path "$repo_root/macos/TunHelper" --scratch-path "$build_dir" \
   --configuration release --arch "$architecture"
@@ -40,6 +47,9 @@ if sys.argv[3]:
         target.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(core_bin / kind / name, target / name)
         (target / name).chmod(0o755)
+        for metadata in ('LICENSE', 'SOURCE.txt'):
+            if (core_bin / kind / metadata).is_file():
+                shutil.copyfile(core_bin / kind / metadata, target / metadata)
 (app / 'Contents/MacOS').mkdir()
 (app / 'Contents/Library/LaunchDaemons').mkdir(parents=True)
 with (app / 'Contents/Info.plist').open('wb') as output:

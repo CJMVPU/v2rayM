@@ -23,7 +23,7 @@ final class DashboardStatusTests: XCTestCase {
     func testTrafficUsesActualIntervalAndExpires() throws {
         let traffic = try JSONDecoder().decode(RuntimeTraffic.self, from: Data(#"{"proxyUp":10,"proxyDown":20,"directUp":4,"directDown":8,"sampleSeconds":2,"sampledAt":"1970-01-01T00:16:40Z"}"#.utf8))
         XCTAssertEqual(traffic.rates(at: now), [5,10,2,4])
-        XCTAssertNil(traffic.rates(at: now.addingTimeInterval(7)))
+        XCTAssertNil(traffic.rates(at: now.addingTimeInterval(13)))
         XCTAssertEqual(DashboardStatus.rate(2048), "2.0 MiB/s")
         XCTAssertEqual(DashboardStatus.rate(nil), "—")
     }
@@ -39,7 +39,7 @@ final class DashboardStatusTests: XCTestCase {
         XCTAssertEqual(DashboardStatus.trafficDescription(state: .stopped, enabled: true, hasSample: false), "采集已开启 · 等待连接")
         XCTAssertEqual(DashboardStatus.trafficDescription(state: .tun, enabled: false, hasSample: false), "流量采集未开启")
         XCTAssertEqual(DashboardStatus.trafficDescription(state: .tun, enabled: true, hasSample: false), "等待有效采样")
-        XCTAssertEqual(DashboardStatus.trafficDescription(state: .system, enabled: true, hasSample: true), "正在采集 · 每秒刷新")
+        XCTAssertEqual(DashboardStatus.trafficDescription(state: .system, enabled: true, hasSample: true), "5 秒采样 · 1 分钟均速")
         XCTAssertEqual(DashboardStatus.amount(1048576), "1.00 GiB")
         XCTAssertEqual(DashboardStatus.amount(0), "0.0 KiB")
         XCTAssertEqual(DashboardStatus.amount(nil), "—")

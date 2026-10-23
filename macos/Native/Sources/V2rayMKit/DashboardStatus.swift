@@ -9,7 +9,7 @@ public struct RuntimeTraffic: Decodable {
     public var sampledAt: String?
     public func rates(at now: Date) -> [Double]? {
         guard let date = DashboardStatus.date(sampledAt), now.timeIntervalSince(date) >= -2,
-              now.timeIntervalSince(date) < 6, let seconds = sampleSeconds,
+              now.timeIntervalSince(date) < 12, let seconds = sampleSeconds,
               seconds.isFinite, seconds > 0 else { return nil }
         let values = [proxyUp, proxyDown, directUp, directDown]
         guard values.allSatisfy({ $0.isFinite && $0 >= 0 }) else { return nil }
@@ -18,12 +18,13 @@ public struct RuntimeTraffic: Decodable {
 }
 
 public enum DashboardStatus: Equatable {
-    case offline, updating, changing, faulted, stale, tun, system, local, stopped
+    case recovering, offline, updating, changing, faulted, stale, tun, system, local, stopped
     public static func resolve(ready: Bool, updating: Bool, busy: Bool, recovery: Bool,
                                state: RuntimeStatus?, tunRunning: Bool, systemProxy: Bool,
-                               lastRefresh: Date?, now: Date) -> Self {
+                               lastRefresh: Date?, now: Date, reconnecting: Bool = false) -> Self {
         if !ready { return .offline }
         if updating { return .updating }
+        if reconnecting { return .recovering }
         if busy { return .changing }
         if recovery || state?.runtimeState == "faulted" { return .faulted }
         guard let lastRefresh, now.timeIntervalSince(lastRefresh) < 8 else { return .stale }
@@ -34,6 +35,7 @@ public enum DashboardStatus: Equatable {
     }
     public var title: String {
         switch self {
+        case .recovering: return "尝试恢复代理"
         case .offline: return "本地服务离线"
         case .updating: return "正在更新模块"
         case .changing: return "正在应用操作"
@@ -60,8 +62,8 @@ public enum DashboardStatus: Equatable {
         if state == .offline { return "本地服务离线" }
         if enabled == false { return "流量采集未开启" }
         if state == .stopped { return "采集已开启 · 等待连接" }
-        if [.stale, .faulted, .changing, .updating].contains(state) { return "等待状态恢复" }
-        return hasSample ? "正在采集 · 每秒刷新" : "等待有效采样"
+        if [.recovering, .stale, .faulted, .changing, .updating].contains(state) { return "等待状态恢复" }
+        return hasSample ? "5 秒采样 · 1 分钟均速" : "等待有效采样"
     }
     public static func amount(_ kib: Double?) -> String {
         guard let kib, kib.isFinite, kib >= 0 else { return "—" }

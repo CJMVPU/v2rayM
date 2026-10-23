@@ -54,7 +54,7 @@ private struct SettingsEditor: View {
             }
             Divider()
             if loaded {
-                ScrollView {
+                ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 12) {
                         switch pane {
                         case .parameters: parameters
@@ -62,7 +62,7 @@ private struct SettingsEditor: View {
                         case .dns: dnsSettings
                         }
                     }.frame(maxWidth: .infinity, alignment: .leading).padding(.trailing, 2)
-                }.scrollIndicators(.hidden).disabled(working)
+                }.scrollIndicators(.never).disabled(working)
             } else {
                 Spacer()
                 if failed { Button("重新加载") { Task { await load() } }.frame(maxWidth: .infinity) }
@@ -78,6 +78,7 @@ private struct SettingsEditor: View {
                 if pane == .routing { Button("保存方案与规则") { saveRoute() }.disabled(!loaded || working) }
             }.frame(height: 32)
         }.padding(16).frame(width: 796, height: 510).font(AppFont.body).buttonStyle(HoverButtonStyle())
+            .background(HiddenScrollbars())
             .interactiveDismissDisabled(dirty || working)
             .task { await load() }
             .alert("放弃未保存的修改？", isPresented: $dismissConfirmation) {
@@ -195,7 +196,7 @@ private struct SettingsEditor: View {
         })
         return VStack(alignment: .leading, spacing: 4) {
             Text(title).foregroundStyle(.secondary)
-            TextEditor(text: content).font(AppFont.caption).scrollIndicators(.hidden).frame(height: 80).border(Color.secondary.opacity(0.3))
+            TextEditor(text: content).font(AppFont.caption).scrollIndicators(.never).frame(height: 80).border(Color.secondary.opacity(0.3))
         }
     }
     private var parameters: some View {

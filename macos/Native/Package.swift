@@ -7,8 +7,9 @@ let package = Package(
     products: [.executable(name: "V2rayM", targets: ["V2rayM"])],
     targets: [
         .target(name: "V2rayMKit"),
-        .executableTarget(name: "V2rayM", dependencies: ["V2rayMKit"], resources: [.copy("Resources/Fonts")]),
+        .executableTarget(name: "V2rayM", dependencies: ["V2rayMKit"], resources: [.copy("Resources/Fonts"), .copy("Resources/Globe")]),
         .executableTarget(name: "V2rayMCheck", dependencies: ["V2rayMKit"]),
         .testTarget(name: "V2rayMKitTests", dependencies: ["V2rayMKit"]),
+        .testTarget(name: "V2rayMRenderingTests", dependencies: ["V2rayM"]),
     ]
 )

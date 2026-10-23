@@ -30,7 +30,7 @@ struct ProfileEditor: View {
                         ForEach(["基本信息", "传输与 TLS", "扩展配置"], id: \.self) { Text($0) }
                     }.pickerStyle(.segmented)
                 }
-                ScrollView {
+                ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 12) {
                         if !simple {
                             Text("此节点使用完整配置或节点组。当前可修改名称；协议内容请通过重新导入更新。")
@@ -63,12 +63,12 @@ struct ProfileEditor: View {
                             Toggle("允许不安全证书", isOn: Binding(get: { value["allowInsecure"].text == "true" }, set: { value["allowInsecure"] = .string($0 ? "true" : "false") }))
                         } else {
                             Text("协议扩展（JSON）").foregroundStyle(.secondary)
-                            TextEditor(text: binding("protoExtra")).frame(height: 115)
+                            TextEditor(text: binding("protoExtra")).scrollIndicators(.never).frame(height: 115)
                             Text("传输扩展（JSON，包括 XHTTP 模式、路径、Host 和 extra）").foregroundStyle(.secondary)
-                            TextEditor(text: binding("transportExtra")).frame(height: 145)
+                            TextEditor(text: binding("transportExtra")).scrollIndicators(.never).frame(height: 145)
                         }
                     }.textFieldStyle(.roundedBorder).padding(2)
-                }.scrollIndicators(.hidden).disabled(saving)
+                }.scrollIndicators(.never).disabled(saving)
             } else {
                 Spacer()
                 if failed { Button("重新加载") { Task { await load() } } }
@@ -84,6 +84,7 @@ struct ProfileEditor: View {
                     .disabled(!loaded || saving || model.busy || model.moduleUpdateActive || !dirty)
             }.frame(height: 32)
         }.padding(16).frame(width: 740, height: 500).font(AppFont.body)
+            .background(HiddenScrollbars())
             .buttonStyle(HoverButtonStyle())
             .interactiveDismissDisabled(dirty || saving)
             .task { await load() }

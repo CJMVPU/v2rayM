@@ -32,6 +32,9 @@ Older documents describing multi-core support are historical, not requirements.
 - Keep MTU presets/custom entry and the validated 1280–65535 range.
 
 ## Merge and verification
+- Read the v2rayM release version from `VERSION`: exactly three single-digit
+  components. Display version and bundle build must match; carry 0.2.9 to 0.3.0
+  and 0.9.9 to 1.0.0. Do not add a fourth component or rename upstream Xray versions.
 - No blanket “take upstream” resolution on protected areas. Review each change
   against the policy, port useful Xray/security fixes, omit retired features.
 - Run `python3 scripts/check-macos-product-boundaries.py` before builds and merges.

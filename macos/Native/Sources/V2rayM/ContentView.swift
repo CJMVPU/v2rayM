@@ -35,8 +35,9 @@ struct ContentView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .scrollIndicators(.hidden)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .scrollIndicators(.never)
+        .background(HiddenScrollbars())
+        .background(DashboardTheme.background)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.primary.opacity(0.32), lineWidth: 1.5)
@@ -56,6 +57,7 @@ struct ContentView: View {
             do { try await Task.sleep(for: .seconds(6)) } catch { return }
             if model.message == message { model.message = nil }
         }
+        .onChange(of: model.homeRequest) { page = .home }
         .sheet(isPresented: $importing) { ImportSheet { model.importNodes($0) } }
         .sheet(item: $editingProfile) { ProfileEditor(profile: $0).environmentObject(model) }
         .alert("删除节点？", isPresented: Binding(get: { deletingProfile != nil }, set: { if !$0 { deletingProfile = nil } })) {
@@ -65,19 +67,19 @@ struct ContentView: View {
     }
     private var titleBar: some View {
         HStack(spacing: 10) {
-            WindowControlButtons().frame(width: 52, height: 34)
+            WindowControlButtons().frame(width: 64, height: 28)
             HStack(spacing: 4) {
                 ForEach(Page.allCases) { item in
                     Button { page = item } label: {
                         Group {
-                            if item == .home { Image(systemName: "house") }
+                            if item == .home { Image(systemName: "house.fill").font(.system(size: 17)) }
                             else { Text(item.rawValue) }
                         }
-                            .foregroundStyle(page == item ? Color.accentColor : Color.secondary)
+                            .foregroundStyle(page == item ? DashboardTheme.cyan : DashboardTheme.muted)
                             .frame(width: 44, height: 29)
                             .background {
                                 if page == item {
-                                    BottomJoinedTab().fill(Color(nsColor: .controlBackgroundColor))
+                                    BottomJoinedTab().fill(DashboardTheme.cyan.opacity(0.12))
                                         .overlay(BottomJoinedTab().stroke(Color.primary.opacity(0.18), lineWidth: 1))
                                 }
                             }
@@ -87,10 +89,9 @@ struct ContentView: View {
                         .accessibilityLabel(item.rawValue)
                         .accessibilityAddTraits(page == item ? [.isSelected] : [])
                 }
-            }.frame(height: 34, alignment: .bottom)
+            }.frame(height: 30, alignment: .bottom)
                 .accessibilityElement(children: .contain).accessibilityLabel("页面")
             Spacer(minLength: 8)
-            Button("导入节点") { importing = true }.disabled(controlsDisabled)
             if model.proxyNeedsRecovery {
                 Button("恢复代理") { model.recoverProxy() }.disabled(model.busy || model.moduleUpdateActive)
             } else {
@@ -99,15 +100,21 @@ struct ContentView: View {
             }
             Toggle("TUN", isOn: Binding(get: { model.tun?.isRunning == true }, set: { model.toggleTun($0) }))
                 .toggleStyle(.switch).fixedSize().disabled(controlsDisabled || model.tun == nil)
-            Image(systemName: model.status?.runtimeState == "faulted" ? "exclamationmark.circle.fill" : model.proxyRunning ? "checkmark.circle.fill" : "circle")
-                .foregroundStyle(model.status?.runtimeState == "faulted" ? .orange : model.proxyRunning ? .green : .secondary)
-                .help(model.proxyDescription).accessibilityLabel(model.proxyDescription)
-        }.controlSize(.small).padding(.leading, 12).padding(.trailing, 12).frame(height: 34)
-            .background(alignment: .bottom) {
-                Rectangle().fill(Color.primary.opacity(0.32)).frame(height: 2)
+        }.controlSize(.small).padding(.horizontal, 12).frame(height: 32)
+            .overlay {
+                Text("powered by cj")
+                    .font(.custom("SnellRoundhand-Bold", size: 19))
+                    .foregroundStyle(Color(red: 0.2, green: 0.29, blue: 0.4))
+                    .shadow(color: .black.opacity(0.95), radius: 0.5, x: 0, y: -1)
+                    .shadow(color: .white.opacity(0.16), radius: 0.4, x: 0, y: 1)
+                    .allowsHitTesting(false).accessibilityLabel("powered by cj")
             }
-            .background(Color(nsColor: .windowBackgroundColor))
+            .background(alignment: .bottom) {
+                Rectangle().fill(DashboardTheme.line.opacity(0.6)).frame(height: 0.5)
+            }
+            .background(LinearGradient(colors: [DashboardTheme.panel, DashboardTheme.background], startPoint: .top, endPoint: .bottom))
     }
+
     private func notice(_ text: String, error: Bool) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: error ? "exclamationmark.circle.fill" : "info.circle.fill")
@@ -127,7 +134,7 @@ struct ContentView: View {
             if model.profiles.isEmpty {
                 ContentUnavailableView {
                     Label("还没有节点", systemImage: "network")
-                } description: { Text("点击标题栏的“导入节点”添加分享链接或配置。") }
+                } description: { Text("导入分享链接或配置，添加你的第一个节点。") }
                 actions: { Button("导入节点") { importing = true } }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -163,6 +170,7 @@ struct ContentView: View {
             Divider()
             HStack {
                 Text("\(model.profiles.count) 个节点").font(AppFont.caption).foregroundStyle(.secondary)
+                Button("导入节点") { importing = true }.disabled(controlsDisabled)
                 Spacer()
                 let item = model.profiles.first(where: { $0.id == selectedProfile })
                 Text(item?.coreType ?? "").font(AppFont.caption).foregroundStyle(.secondary)
@@ -178,7 +186,7 @@ struct ContentView: View {
     }
 
     private var homePage: some View {
-        HomeDashboard(showNodes: { page = .profiles }, showSettings: { page = .settings }, showLogs: { page = .logs })
+        HomeDashboard()
             .environmentObject(model)
     }
     private func activateRoute(_ route: RoutingProfile) {
@@ -194,8 +202,10 @@ struct ContentView: View {
             .background(Color(nsColor: .controlBackgroundColor))
     }
     private var settingsPage: some View {
-        ScrollView {
+        ScrollView(showsIndicators: false) {
             VStack(spacing: 1) {
+                settingsSection("通用") { LoginItemSettings().environmentObject(model) }
+                settingsSection("地图展示") { GlobeDisplaySettings() }
                 settingsSection("代理设置") {
                     HStack(spacing: 12) {
                         Text("路由规则").fixedSize()
@@ -205,7 +215,7 @@ struct ContentView: View {
                                 Button { activateRoute(route) } label: {
                                     HStack(spacing: 7) {
                                         Image(systemName: route.isActive ? "largecircle.fill.circle" : "circle")
-                                            .foregroundStyle(route.isActive ? Color.accentColor : Color.secondary)
+                                            .foregroundStyle(route.isActive ? DashboardTheme.cyan : DashboardTheme.muted)
                                         Text(route.remarks).lineLimit(1).fixedSize()
                                             .foregroundStyle(route.isActive ? Color.accentColor : Color.primary)
                                     }.contentShape(Rectangle())
@@ -240,7 +250,7 @@ struct ContentView: View {
                     Button("在访达中打开") { NSWorkspace.shared.open(model.dataDirectory) }
                 }
             }.frame(maxWidth: .infinity)
-        }.scrollIndicators(.hidden).background(Color(nsColor: .separatorColor))
+        }.scrollIndicators(.never).background(Color(nsColor: .separatorColor))
     }
 }
 private struct ImportSheet: View {
@@ -251,7 +261,7 @@ private struct ImportSheet: View {
         VStack(alignment: .leading, spacing: 16) {
             Text("导入节点").font(AppFont.title)
             Text("粘贴分享链接或兼容的配置内容，可一次导入多个节点。").foregroundStyle(.secondary)
-            TextEditor(text: $content).font(AppFont.body).border(.separator).frame(height: 220)
+            TextEditor(text: $content).font(AppFont.body).scrollIndicators(.never).border(.separator).frame(height: 220)
             HStack {
                 Spacer()
                 Button("取消") { dismiss() }.keyboardShortcut(.cancelAction)
@@ -259,6 +269,7 @@ private struct ImportSheet: View {
                     .disabled(content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }.padding(24).frame(width: 560).font(AppFont.body)
+            .background(HiddenScrollbars())
     }
 }
 

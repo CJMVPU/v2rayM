@@ -1,7 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+export APP_VERSION="${APP_VERSION:-$(cat "$repo_root/VERSION")}"
+export APP_BUILD="${APP_BUILD:-$APP_VERSION}"
+if [[ ! "$APP_VERSION" =~ ^[0-9]\.[0-9]\.[0-9]$ || "$APP_BUILD" != "$APP_VERSION" ]]; then
+  echo 'Use three single-digit version components; APP_BUILD must equal APP_VERSION.' >&2
+  exit 1
+fi
 python3 "$repo_root/scripts/check-macos-product-boundaries.py"
+for resource in earth.jpg night.jpg land-polygons.json ipv4.bin ipv6.bin places.json ATTRIBUTION.txt; do
+  if [[ ! -s "$repo_root/macos/Native/Sources/V2rayM/Resources/Globe/$resource" ]]; then
+    echo "Missing globe resource: $resource. See docs/globe-dashboard.md before packaging." >&2
+    exit 1
+  fi
+done
 backend="${1:?Usage: package-macos-app.sh <backend-publish-directory> <new-output.app>}"
 app="${2:?Specify a new output .app directory}"
 architecture="$(lipo -archs "$backend/v2rayN.WebAPI")"

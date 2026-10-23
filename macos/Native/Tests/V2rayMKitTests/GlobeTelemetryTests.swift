@@ -1,0 +1,49 @@
+import XCTest
+@testable import V2rayMKit
+
+final class GlobeTelemetryTests: XCTestCase {
+    private func log(_ message: String) -> LogEntry {
+        LogEntry(timestamp: "2026-10-22T12:00:00Z", source: "core", message: message, sequence: 1)
+    }
+    func testAccessEventsIPv6AndRouting() {
+        let domain = GlobeConnection.parse(log("from tcp:127.0.0.1:1234 accepted tcp:example.com:443 [socks >> proxy]"))
+        XCTAssertEqual(domain?.host, "example.com"); XCTAssertEqual(domain?.routeTitle, "代理")
+        let v6 = GlobeConnection.parse(log("from udp:[::1]:1234 accepted udp:[2606:4700::1111]:443 [tun -> direct]"))
+        XCTAssertEqual(v6?.host, "2606:4700::1111"); XCTAssertEqual(v6?.port, 443)
+        XCTAssertNil(GlobeConnection.parse(log("failed to connect to example.com:443")))
+        XCTAssertNil(GlobeConnection.parse(log("accepted tcp:example.com:443 [proxy]")))
+        XCTAssertNil(GlobeConnection.parse(log("from udp:127.0.0.1:1 accepted udp:8.8.8.8:53 [tun -> dns]")))
+    }
+    func testPrivateAndFakeIPDoNotGetInventedLocations() {
+        for ip in ["127.0.0.1", "10.1.1.1", "198.18.0.1", "172.18.0.2", "192.168.0.1", "::1", "fc00::1", "fe80::1", "::ffff:192.168.1.1"] {
+            XCTAssertFalse(GlobeGeoDatabase.isPublic(GlobeGeoDatabase.addressBytes(ip)!))
+        }
+        XCTAssertTrue(GlobeGeoDatabase.isPublic(GlobeGeoDatabase.addressBytes("1.1.1.1")!))
+        XCTAssertNil(GlobeGeoDatabase.addressBytes("example.com"))
+    }
+    func testRangeBoundariesAndMissingRanges() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let ranges: [UInt8] = [1,1,1,0, 1,1,1,255, 0,0,0,0, 8,8,8,8, 8,8,8,8, 0,0,0,1]
+        try Data(ranges).write(to: root.appendingPathComponent("ipv4.bin"))
+        try Data().write(to: root.appendingPathComponent("ipv6.bin"))
+        try JSONEncoder().encode([GlobePlace(city: "A", latitude: 1, longitude: 2), GlobePlace(city: "B", latitude: 3, longitude: 4)])
+            .write(to: root.appendingPathComponent("places.json"))
+        let db = try GlobeGeoDatabase(directory: root)
+        XCTAssertEqual(db.lookup("1.1.1.0")?.city, "A")
+        XCTAssertEqual(db.lookup("1.1.1.255")?.city, "A")
+        XCTAssertEqual(db.lookup("8.8.8.8")?.city, "B")
+        XCTAssertNil(db.lookup("8.8.8.9")); XCTAssertNil(db.lookup("1.1.0.255"))
+    }
+    func testFiveMinutePeakExpiryAndDuplicateSamples() {
+        let now = DashboardStatus.date("2026-10-22T12:00:00Z")!
+        var window = TrafficPeakWindow()
+        let traffic = RuntimeTraffic(proxyUp: 500, proxyDown: 1000, directUp: 0, directDown: 0, sampleSeconds: 5, sampledAt: "2026-10-22T12:00:00Z")
+        window.append(traffic, now: now); window.append(traffic, now: now.addingTimeInterval(2))
+        let ratio = window.fractions(up: 50, down: 50, now: now.addingTimeInterval(299))
+        XCTAssertEqual(ratio.0, 0.5); XCTAssertEqual(ratio.1, 0.25)
+        XCTAssertEqual(window.fractions(up: 50, down: 50, now: now.addingTimeInterval(300)).0, 1)
+        XCTAssertEqual(window.fractions(up: 0, down: 0, now: now.addingTimeInterval(300)).0, 0)
+    }
+}

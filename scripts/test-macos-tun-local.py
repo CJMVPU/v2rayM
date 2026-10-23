@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Operator-triggered TUN verification that continues without a chat connection."""
 import argparse
+import hashlib
 import json
 import os
 import plistlib
@@ -47,7 +48,7 @@ def capture_network():
 def check_no_existing_proxy(network):
     if any('utun' in line for line in network['testRoute']):
         raise RuntimeError('仍有其他 TUN 接管外网路由。请先暂停 v2rayN 的 TUN。')
-    if re.search(r'\b(?:HTTP|HTTPS|SOCKS)Enable\s*:\s*1\b', network['proxy']):
+    if re.search(r'\b(?:HTTP|HTTPS|SOCKS|ProxyAutoConfig|ProxyAutoDiscovery)Enable\s*:\s*1\b', network['proxy']):
         raise RuntimeError('系统代理仍开启。请先在 v2rayN 中关闭系统代理。')
     processes = command(['/bin/ps', '-axo', 'comm='])[1].splitlines()
     if any('/Application Support/v2rayN/bin/' in p and
@@ -75,6 +76,8 @@ def main():
     parser.add_argument('--source-data', type=Path,
                         default=Path.home() / 'Library/Application Support/v2rayM')
     parser.add_argument('--check-only', action='store_true', help='只检查签名、helper、后端；不启用 TUN')
+    parser.add_argument('--expect-app-version', help='拒绝测试不匹配的应用版本或构建号')
+    parser.add_argument('--expect-xray-marker', help='要求随包 Xray 包含指定修复标记')
     args = parser.parse_args()
     if sys.platform != 'darwin' or os.geteuid() == 0:
         parser.error('请在 Mac 上用普通用户运行，不要加 sudo。')
@@ -151,6 +154,15 @@ def main():
         app_info = plistlib.loads((args.app / 'Contents/Info.plist').read_bytes())
         report['appVersion'] = app_info.get('CFBundleShortVersionString')
         report['appBuild'] = app_info.get('CFBundleVersion')
+        if args.expect_app_version and (report['appVersion'] != args.expect_app_version
+                                       or report['appBuild'] != args.expect_app_version):
+            raise RuntimeError('应用版本不匹配，请先安装指定测试版本。')
+        core = args.app / 'Contents/Resources/Backend/bin/xray/xray'
+        code, version, _ = command([str(core), 'version'])
+        if code != 0 or (args.expect_xray_marker and args.expect_xray_marker not in version):
+            raise RuntimeError('随包 Xray 不是本次要求的修复版。')
+        report['bundledXrayVersion'] = version.splitlines()[0]
+        report['bundledXraySHA256'] = hashlib.sha256(core.read_bytes()).hexdigest()
         report['sourceData'] = str(args.source_data)
         say('测试应用版本：' + str(report['appVersion']) + '（' + str(report['appBuild']) + '）')
         config_path = args.source_data / 'guiConfigs/guiNConfig.json'
@@ -205,6 +217,7 @@ def main():
                                'coreSource': tun['coreSource'], 'profileCount': status['profileCount']}
         if not tun['helperAvailable'] or status['coreRunning']:
             raise RuntimeError('helper 未就绪或测试内核意外自启。')
+        report['preflight']['installedXrayVersion'] = status.get('installedXrayVersion')
         say('准备检查通过：签名、helper、后端和节点副本均可用，尚未开启 TUN。')
         if args.check_only:
             report['stage'] = 'preflight-passed'
@@ -216,6 +229,10 @@ def main():
             input('准备好后在本终端按回车开始；按 Ctrl+C 取消：')
             before = capture_network()
             check_no_existing_proxy(before)
+            helper_client = args.app / 'Contents/MacOS/V2rayMHelperClient'
+            helper_code, helper_output, _ = command([str(helper_client), 'status'])
+            if helper_code != 0 or json.loads(helper_output).get('state') != 'idle':
+                raise RuntimeError('v2rayM 后台服务不是空闲状态，请先关闭 v2rayM 的代理。')
             report['before'] = before
             report['stage'] = 'testing'
             report['tunAttempted'] = True
@@ -272,6 +289,12 @@ def main():
         failure = str(error)
     finally:
         if report['tunAttempted'] and token:
+            try:
+                entries = api('/api/logs?limit=10000', timeout=5)
+                (root / 'core-logs.json').write_text(json.dumps(entries, ensure_ascii=False, indent=2))
+                report['coreLogs'] = 'core-logs.json'
+            except Exception as error:
+                report['logCaptureError'] = str(error)
             say('正在停止本次测试内核并检查网络恢复……')
             try:
                 api('/api/core/stop', 'POST', timeout=25)

@@ -7,6 +7,9 @@ public class InstalledXrayVersionTests
     {
         await InstalledXrayVersion.Parse("Xray 26.10.21 (Xray, Penetrates Everything.) abc\nhelp").Should().BeEqualTo("26.10.21");
         await InstalledXrayVersion.Parse("Xray 26.10.21-beta.1 (Xray)").Should().BeEqualTo("26.10.21-beta.1");
+        await InstalledXrayVersion.Parse("Xray 26.10.21 (Xray) 1b1647c-v2raym-darwin-bind1").Should().BeEqualTo("26.10.21（修复版 M1）");
+        await InstalledXrayVersion.Parse("Xray 26.10.21 (Xray) 1b1647c-v2raym-darwin-bind2 (go1.27.3 darwin/arm64)").Should().BeEqualTo("26.10.21（修复版 M2）");
+        await InstalledXrayVersion.Parse("Xray 26.10.21 (Xray) 1b1647c-v2raym-darwin-bind20").Should().BeEqualTo("26.10.21");
         await (InstalledXrayVersion.Parse("download failed 26.10.21") is null).Should().BeTrue();
         await (InstalledXrayVersion.Parse(null) is null).Should().BeTrue();
     }

@@ -9,13 +9,13 @@ final class TrustedCoreStoreTests: XCTestCase {
         addTeardownBlock { try? FileManager.default.removeItem(at: path) }
         return path
     }
-    private func seed(_ root: URL, _ token: String, _ data: Data) throws {
+    private func seed(_ root: URL, _ token: String, _ data: Data, version: String = "Xray 1.0.0") throws {
         let kind = root.appendingPathComponent("xray")
         try FileManager.default.createDirectory(at: kind, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let stage = kind.appendingPathComponent("stage-" + token)
         try FileManager.default.createDirectory(at: stage, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
         let manifest: [String: Any] = ["kind": "xray", "token": token, "releaseURL": "official-fixture", "packageSHA256": "fixture",
-            "executableSHA256": OfficialCorePolicy.hash(data), "version": "Xray 1.0.0", "committed": false]
+            "executableSHA256": OfficialCorePolicy.hash(data), "version": version, "committed": false]
         try data.write(to: stage.appendingPathComponent("core"))
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: stage.appendingPathComponent("core").path)
         try JSONSerialization.data(withJSONObject: manifest).write(to: stage.appendingPathComponent("manifest.json"))
@@ -32,6 +32,19 @@ final class TrustedCoreStoreTests: XCTestCase {
             XCTAssertThrowsError(try OfficialCorePolicy.coordinates(kind: "xray", releaseURL: bad))
         }
         XCTAssertThrowsError(try OfficialCorePolicy.coordinates(kind: "mihomo", releaseURL: good))
+    }
+    func testAffectedVerifiedCacheDefersToSignedBundleButTamperingStillFails() throws {
+        let root = try root(), store = TrustedCoreStore(root: root, owner: getuid()), token = UUID().uuidString
+        try seed(root, token, Data("affected".utf8), version: "Xray 26.10.21 (Xray) 1b1647c")
+        _ = try store.transition(action: "update-activate", kind: "xray", token: token)
+        _ = try store.transition(action: "update-finish", kind: "xray", token: token)
+        XCTAssertNil(try store.source("xray"))
+        XCTAssertTrue(OfficialCorePolicy.hasKnownDarwinBindingBug("Xray 26.10.21 (Xray) 1b1647c"))
+        XCTAssertFalse(OfficialCorePolicy.hasKnownDarwinBindingBug("Xray 26.10.21 (Xray) 1b1647c-v2raym-darwin-bind1"))
+        XCTAssertFalse(OfficialCorePolicy.hasKnownDarwinBindingBug("Xray 26.10.21 (Xray) 1b1647c-v2raym-darwin-bind2"))
+        XCTAssertTrue(OfficialCorePolicy.hasKnownDarwinBindingBug("Xray 26.10.21 (Xray) 1b1647c-v2raym-darwin-bind20"))
+        try Data("tampered".utf8).write(to: root.appendingPathComponent("xray/current/core"))
+        XCTAssertThrowsError(try store.source("xray"))
     }
     func testOfficialDigestIsRequiredAndTamperedPackagesAreRejected() throws {
         let data = Data("approved-package".utf8), url = "https://github.com/XTLS/Xray-core/releases/download/v1/x.zip"

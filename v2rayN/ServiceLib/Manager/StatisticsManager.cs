@@ -23,8 +23,11 @@ public class StatisticsManager
             await InitData();
 
             _statisticsXray = new StatisticsXrayService(config, UpdateServerStatHandler);
+            await _statisticsXray.StartAsync();
         }
     }
+
+    public void ResetSample() => _statisticsXray?.ResetSample();
 
     public void Close()
     {

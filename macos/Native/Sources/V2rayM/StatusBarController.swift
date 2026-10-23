@@ -22,6 +22,7 @@ import V2rayMKit
             button.setAccessibilityIdentifier("v2rayM.statusItem")
         }
         let menu = NSMenu(title: "v2rayM"); menu.delegate = self; menu.autoenablesItems = false
+        menu.font = NSFont(name: AppFont.postScriptName, size: 13) ?? .menuFont(ofSize: 13)
         item.menu = menu
         refreshAppearance()
         appearanceTask = Task { @MainActor [weak self] in
@@ -37,7 +38,7 @@ import V2rayMKit
         let state = DashboardStatus.resolve(ready: current.ready, updating: current.moduleUpdateActive,
             busy: current.busy, recovery: current.proxyNeedsRecovery, state: current.status,
             tunRunning: current.tun?.isRunning == true, systemProxy: current.systemProxyEnabled,
-            lastRefresh: current.lastStatusRefresh, now: Date())
+            lastRefresh: current.lastStatusRefresh, now: Date(), reconnecting: current.networkRecovery.active)
         let mode = MenuBarMode(state)
         if mode != lastMode {
             item.button?.image = MenuBarIcon.image(for: mode)
@@ -50,28 +51,20 @@ import V2rayMKit
     func menuNeedsUpdate(_ menu: NSMenu) {
         refreshAppearance()
         menu.removeAllItems()
-        let open = NSMenuItem(title: "显示 v2rayM", action: #selector(showWindow), keyEquivalent: "")
+        let open = NSMenuItem(title: "显示主页", action: #selector(showWindow), keyEquivalent: "")
         open.target = self; menu.addItem(open)
         let current = model()
-        let state = NSMenuItem(title: current?.proxyDescription ?? "代理已关闭", action: nil, keyEquivalent: "")
-        state.isEnabled = false; menu.addItem(state)
-        menu.addItem(.separator())
-        let system = NSMenuItem(title: "系统代理", action: #selector(toggleSystemProxy), keyEquivalent: "")
+        let system = NSMenuItem(title: "代理模式", action: #selector(toggleSystemProxy), keyEquivalent: "")
         system.target = self
         system.state = systemIsRunning(current) ? .on : .off
         system.isEnabled = canSwitch(current)
         menu.addItem(system)
-        let tun = NSMenuItem(title: "TUN 模式", action: #selector(toggleTunMode), keyEquivalent: "")
+        let tun = NSMenuItem(title: "tun模式", action: #selector(toggleTunMode), keyEquivalent: "")
         tun.target = self
         tun.state = current?.tun?.isRunning == true ? .on : .off
         tun.isEnabled = canSwitch(current) && current?.tun != nil
         menu.addItem(tun)
-        if let error = current?.error {
-            let failure = NSMenuItem(title: "操作未完成：" + String(error.prefix(70)), action: nil, keyEquivalent: "")
-            failure.isEnabled = false; failure.toolTip = error; menu.addItem(failure)
-        }
-        menu.addItem(.separator())
-        let quit = NSMenuItem(title: "退出 v2rayM", action: #selector(quitApp), keyEquivalent: "q")
+        let quit = NSMenuItem(title: "退出", action: #selector(quitApp), keyEquivalent: "q")
         quit.target = self; menu.addItem(quit)
     }
     private func canSwitch(_ current: AppModel?) -> Bool {

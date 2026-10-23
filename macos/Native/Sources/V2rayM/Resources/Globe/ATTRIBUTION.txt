@@ -1,0 +1,23 @@
+Earth imagery
+NASA/Goddard Space Flight Center Scientific Visualization Studio.
+Blue Marble Next Generation: Reto Stöckli (NASA/GSFC), NASA Earth Observatory.
+https://svs.gsfc.nasa.gov/3615/
+https://svs.gsfc.nasa.gov/vis/a000000/a003600/a003615/flat_earth_Largest_still.0330.jpg
+Earth image downsampled to 4096 pixels wide for runtime memory use.
+Black Marble 2016: NASA Earth Observatory.
+https://eoimages.gsfc.nasa.gov/images/imagerecords/144000/144898/BlackMarble_2016_01deg.jpg
+
+IP geolocation
+IP Geolocation by DB-IP: https://db-ip.com
+DB-IP City Lite, October 2026. Creative Commons Attribution 4.0 International.
+https://creativecommons.org/licenses/by/4.0/
+https://db-ip.com/db/download/ip-to-city-lite
+Source: https://download.db-ip.com/free/dbip-city-lite-2026-10.csv.gz
+Transformed by scripts/prepare-globe-geo.py into sorted binary range tables and JSON locations.
+Reduced accuracy dataset: coordinates are estimates, not physical packet routes.
+
+Cartoon map coastlines: Natural Earth, public domain.
+https://www.naturalearthdata.com/about/terms-of-use/
+Source: nvkelso/natural-earth-vector/geojson/ne_110m_land.geojson
+Git blob SHA: 04811d72fff2701ec67587e30ad8942675b511e3
+land-polygons.json retains the source polygon coordinates (properties omitted).

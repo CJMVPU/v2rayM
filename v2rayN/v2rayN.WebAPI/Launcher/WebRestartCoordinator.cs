@@ -328,5 +328,7 @@ public sealed class NativeWebRestartCoordinator
             : health.CoreProcessIds is { Count: 0 };
     }
 
-    private static TimeSpan Min(TimeSpan left, TimeSpan right) => left < right ? left : right;
+    // Elapsed can cross the deadline between the loop condition and this call.
+    private static TimeSpan Min(TimeSpan left, TimeSpan right) => right <= TimeSpan.Zero
+        ? TimeSpan.Zero : left < right ? left : right;
 }

@@ -224,7 +224,7 @@ public partial class UpdateService(Config config, Func<bool, string, Task> updat
 
             tagName = lastUrl?.Split("/tag/").LastOrDefault();
         }
-        return new UpdateResult(true, new SemanticVersion(tagName));
+        return new UpdateResult(true, new SemanticVersion(tagName)) { ReleaseTag = tagName };
     }
 
     [GeneratedRegex(@"v?(?<version>\d+\.\d+\.\d+(?:-[0-9a-zA-Z.-]+)?(?:\+[0-9a-zA-Z.-]+)?)", RegexOptions.IgnoreCase)]
@@ -301,7 +301,8 @@ public partial class UpdateService(Config config, Func<bool, string, Task> updat
 
             if (curVersion >= version && !version.Equals(new SemanticVersion(0, 0, 0)))
             {
-                if (!synchronizeInstalled) return new UpdateResult(false, message);
+                if (!synchronizeInstalled) return new UpdateResult(false, message)
+                { Version = result.Version, ReleaseTag = result.ReleaseTag };
                 // The privileged store may still hold a bundled older executable. Fetch the
                 // installed version's official package without downgrading a newer install.
                 var installedTag = curVersion.ToStandardVersionString("v");

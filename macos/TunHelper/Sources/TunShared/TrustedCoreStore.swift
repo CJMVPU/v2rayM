@@ -20,6 +20,9 @@ public struct OfficialCoreRelease: Decodable {
 }
 
 public enum OfficialCorePolicy {
+    public static func hasKnownDarwinBindingBug(_ version: String) -> Bool {
+        version.hasPrefix("Xray 26.10.21 ") && version.range(of: #"(?:^|\s)\S*-v2raym-darwin-bind[12](?:\s|$)"#, options: .regularExpression) == nil
+    }
     public static func coordinates(kind: String, releaseURL: String) throws -> (repository: String, tag: String, name: String) {
         let repository: String
         switch kind { case "xray": repository = "XTLS/Xray-core"
@@ -214,6 +217,7 @@ public final class TrustedCoreStore {
             _ = try tool("/usr/bin/codesign", ["--verify", "--strict", executable.path])
             let version = String(decoding: try tool(executable.path, ["version"]), as: UTF8.self)
             guard version.contains("Xray"), version.count < 8192 else { throw HelperFailure("official_version_invalid") }
+            guard !OfficialCorePolicy.hasKnownDarwinBindingBug(version) else { throw HelperFailure("xray_darwin_binding_update_unsafe") }
             let manifest = Manifest(kind: kind, token: token, releaseURL: releaseURL, packageSHA256: digest,
                 executableSHA256: OfficialCorePolicy.hash(binary), version: version, committed: false)
             let manifestURL = stage.appendingPathComponent("manifest.json")
@@ -271,6 +275,9 @@ public final class TrustedCoreStore {
         let manifest = try read(current), executable = current.appendingPathComponent("core")
         try regularFile(executable, maxSize: 256 * 1024 * 1024)
         guard manifest.kind == kind, OfficialCorePolicy.hash(try Data(contentsOf: executable)) == manifest.executableSHA256 else { throw HelperFailure("installed_core_digest_mismatch") }
+        // An authenticated but affected old cache must not override the app's signed fix.
+        // Validate the cache first, then let LaunchPolicy verify the bundled private copy.
+        if OfficialCorePolicy.hasKnownDarwinBindingBug(manifest.version) { return nil }
         return VerifiedCoreSource(url: executable, sha256: manifest.executableSHA256)
     }
     public func handle(_ request: HelperRequest) -> HelperResponse {

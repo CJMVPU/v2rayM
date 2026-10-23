@@ -628,7 +628,10 @@ public sealed partial class V2rayRuntime
             GetUpdatePreRelease(coreType.ToString(), preRelease),
             useProxy ?? Config.CheckUpdateItem.UpdateViaProxy,
             cancellationToken, synchronizeInstalled: synchronizePrivileged && _macTunLauncher.SupportsTrustedUpdate(coreType));
-        return new CoreUpdateCheckResult(result, IsUpToDateResult(coreType, result.Msg));
+        var repairDecision = OperatingSystem.IsMacOS() && coreType == ECoreType.Xray
+            ? NativeTunCoreCompatibility.ApplyRepairUpdatePolicy(await _installedXrayVersion.ReadIdentityAsync(_xrayPath), result)
+            : null;
+        return new CoreUpdateCheckResult(result, repairDecision ?? IsUpToDateResult(coreType, result.Msg));
     }
 
     private async Task RunCoreUpdateAsync(ECoreType coreType, bool preRelease, bool useProxy)
@@ -1048,6 +1051,9 @@ public sealed partial class V2rayRuntime
         {
             throw new InvalidDataException($"The staged {coreType} executable did not pass its version check.");
         }
+        if (OperatingSystem.IsMacOS() && coreType == ECoreType.Xray
+            && NativeTunCoreCompatibility.HasKnownDarwinBindingBug(versionOutput!))
+            throw new InvalidDataException("此 Xray 26.10.21 存在已确认的 macOS TUN 网卡绑定缺陷；保留当前修复版，等待后续内核版本。");
         return versionOutput!.Trim();
     }
 

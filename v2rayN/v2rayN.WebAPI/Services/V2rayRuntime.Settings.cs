@@ -266,7 +266,7 @@ public sealed partial class V2rayRuntime
         if (statisticsChanged)
         {
             StatisticsManager.Instance.Close();
-            _latestTraffic = null;
+            _trafficWindow.Clear();
             if (Config.GuiItem.EnableStatistics || Config.GuiItem.DisplayRealTimeSpeed)
             {
                 try
@@ -390,7 +390,7 @@ public sealed partial class V2rayRuntime
         if (statisticsChanged)
         {
             StatisticsManager.Instance.Close();
-            _latestTraffic = null;
+            _trafficWindow.Clear();
             if (Config.GuiItem.EnableStatistics || Config.GuiItem.DisplayRealTimeSpeed)
             {
                 await StatisticsManager.Instance.Init(Config, OnStatisticsUpdateAsync);
@@ -1311,7 +1311,7 @@ public sealed partial class V2rayRuntime
     public async Task<OperationView> ClearStatisticsAsync()
     {
         await _mutations.RunAsync(() => StatisticsManager.Instance.ClearAllServerStatistics());
-        _latestTraffic = null;
+        _trafficWindow.Clear();
         _events.Publish("traffic", null!);
         _events.Publish("profiles-changed", new { subscriptionId = Config.SubIndexId });
         return OperationView.Ok(ApiMessageKeys.CommonDeleted);

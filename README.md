@@ -2,7 +2,11 @@
 
 基于 [v2rayN](https://github.com/2dust/v2rayN) 的原生 macOS 代理客户端，使用 **SwiftUI + Xray**，保留上游 fork 关联与提交历史。共享业务继续复用 `ServiceLib` 和 `v2rayN.WebAPI`，已移除 WPF/Avalonia 桌面界面，以及 sing-box、Mihomo 等其他内核的运行、配置生成和更新入口。
 
-当前本机开发版本为 **0.1.17**（build `0.1.17.1`）。本项目尚未提供经过 Developer ID 签名和 Apple 公证的正式发行包；本地开发 DMG 的使用范围见[签名与分发](#签名与分发)。
+当前开发版本为 **0.2.4**。本项目尚未提供经过 Developer ID 签名和 Apple 公证的正式发行包；本地开发 DMG 的使用范围见[签名与分发](#签名与分发)。
+
+本轮包含 Darwin 出口绑定修复、5 秒采样与一分钟均速、主页精简及修复版更新保护；已通过隔离回环验证，真实 TUN 联网验收需单独进行。
+
+应用版本统一从 `VERSION` 读取，固定为三段且每段一位数字，显示版本与构建号一致，不添加第四段。依次递增如 `0.2.0` → `0.2.1`，末段到 `9` 后进位为 `0.3.0`，中段到 `9` 后进位为 `1.0.0`。该规则仅用于 v2rayM；Xray 保留真实上游版本号和修复标记。
 
 ## 功能
 
@@ -74,12 +78,26 @@ bash scripts/fetch-macos-cores.sh osx-arm64 /tmp/v2raym-native-cores
 
 下载脚本从官方 `2dust/v2rayN-core-bin` 提取 **Xray、许可证和 Geo 数据**，不打包其他内核。可通过 `CORE_BUNDLE_REF` 固定上游提交。目标下载目录和 `.app` 路径必须尚不存在。
 
+Xray 26.10.21 的 Darwin 双栈出口绑定存在已复现缺陷。该版本需要先使用 Go 1.27.3
+构建本仓库的最小补丁，再将结果用于打包（构建脚本校验固定源码摘要）：
+
+```sh
+python3 scripts/build-macos-xray.py --output /tmp/v2raym-patched-xray
+cp /tmp/v2raym-patched-xray/{xray,LICENSE,SOURCE.txt} /tmp/v2raym-native-cores/xray/
+```
+
+补丁、隔离验证及更新兼容边界见 [Darwin 出口绑定修复](docs/xray-darwin-binding-fix.md)。
+修复版仍基于相同的 26.10.21 源码，主页版本显示为 `26.10.21（修复版 M2）`。
+M2 同时包含[进程查询诊断修复](docs/xray-process-lookup-fix.md)，保留原有路由行为和真正的查询错误。
+点击更新遇到同版本时提示“已安装同版本修复版，无需更新”；遇到更高版本时等待兼容验证，
+由用户要求检查后再放行，避免新版本覆盖尚未被上游替代的本地修复。
+
 使用本机有效签名身份构建可供 TUN 开发测试的包；将示例身份替换为自己的代码签名身份：
 
 ```sh
 CORE_BIN_DIR=/tmp/v2raym-native-cores \
 SIGN_IDENTITY='Apple Development: YOUR_SIGNING_IDENTITY' \
-APP_VERSION=0.1.17 APP_BUILD=0.1.17.1 \
+APP_VERSION=0.2.4 APP_BUILD=0.2.4 \
   bash scripts/package-macos-app.sh \
   /tmp/v2raym-native-backend /tmp/v2rayM.app
 
@@ -90,6 +108,8 @@ bash scripts/package-macos-dmg.sh \
 不设置 `SIGN_IDENTITY` 时使用 ad-hoc 签名，可用于普通代理和隔离回环开发检查；**不能以此代替 TUN helper 所需的 Apple 团队签名**。TUN 授权不提供未签名绕过。DMG 包含应用、Applications 入口和中文安装说明。
 
 内核更新先下载和校验，再替换正在使用的版本并重启，成功后清理旧版本。特权 TUN 内核由 helper 独立核对官方 GitHub 发布资产摘要，保存在 root 专用目录；失败或中断时保留恢复路径。具体边界见 [TUN helper 接入](docs/macos-tun-helper.md)。
+
+主页每 5 秒采集一次 Xray 计数器，以最近 60 秒有效样本计算平均速度；运行不足一分钟时按实际采样时长计算。重启、计数器归零及采样中断会重建均速窗口，不清空已保存的累计流量。主页数字使用滚动过渡，并遵循系统“减少动态效果”设置。
 
 ## 验证
 

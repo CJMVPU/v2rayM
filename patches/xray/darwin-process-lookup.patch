@@ -1,0 +1,89 @@
+--- a/common/net/net.go
++++ b/common/net/net.go
+@@ -18,6 +18,10 @@
+ 
+ // consistent with chrome
+ const ChromeH2KeepAlivePeriod = 45 * time.Second
++
++// ErrProcessNotFound means no owner could be identified at lookup time.
++// A queued packet may outlive its socket; this is not a forwarding failure.
++var ErrProcessNotFound = errors.New("process owner unavailable")
+ 
+ var ErrNotLocal = errors.New("the source address is not from local machine.")
+ 
+--- a/common/net/find_process_darwin.go
++++ b/common/net/find_process_darwin.go
+@@ -115,7 +115,7 @@
+ 	}
+ 
+ 	if bestLevel == darwinSocketNoMatch {
+-		return 0, "", "", errors.New("process not found for ", network, " connection from ", srcIP, ":", srcPort, " to ", destIP, ":", destPort)
++		return 0, "", "", errors.New("process not found for ", network, " connection from ", srcIP, ":", srcPort, " to ", destIP, ":", destPort).Base(ErrProcessNotFound)
+ 	}
+ 	if ambiguousBest {
+ 		return 0, "", "", errors.New("ambiguous process match for ", network, " connection from ", srcIP, ":", srcPort, " to ", destIP, ":", destPort)
+--- a/app/router/condition.go
++++ b/app/router/condition.go
+@@ -371,9 +371,7 @@
+ 
+ 	pid, name, absPath, err := net.FindProcess(network, srcIP, uint16(srcPort), dstIP, uint16(dstPort))
+ 	if err != nil {
+-		if err != net.ErrNotLocal {
+-			errors.LogError(context.Background(), "Unables to find local process name: ", err)
+-		}
++		logProcessLookupFailure(err)
+ 		return false
+ 	}
+ 	if m.MatchXraySelf {
+--- /dev/null
++++ b/app/router/process_lookup_log.go
+@@ -0,0 +1,49 @@
++package router
++
++import (
++	"context"
++	stderrors "errors"
++	"sync"
++	"time"
++
++	"github.com/xtls/xray-core/common/errors"
++	"github.com/xtls/xray-core/common/net"
++)
++
++type processLookupMissWindow struct {
++	mu    sync.Mutex
++	last  time.Time
++	count uint64
++}
++
++func (w *processLookupMissWindow) record(now time.Time) uint64 {
++	w.mu.Lock()
++	defer w.mu.Unlock()
++	w.count++
++	if !w.last.IsZero() && now.Sub(w.last) < time.Minute {
++		return 0
++	}
++	count := w.count
++	w.count = 0
++	w.last = now
++	return count
++}
++
++var processLookupMisses processLookupMissWindow
++
++func logProcessLookupFailure(err error) {
++	switch {
++	case stderrors.Is(err, net.ErrNotLocal):
++		return
++	case stderrors.Is(err, net.ErrProcessNotFound):
++		// Keep full per-flow diagnostics in debug logs, and a bounded visible
++		// warning. Never guess an owner or change the rule's no-match result.
++		errors.LogDebug(context.Background(), "Process owner unavailable; continuing routing rules: ", err)
++		if count := processLookupMisses.record(time.Now()); count != 0 {
++			errors.LogWarning(context.Background(), "Process owner unavailable for ", count,
++				" lookup(s) since last report; process rules did not match, continuing remaining routing rules. Further misses are aggregated for 60s; enable debug for each flow.")
++		}
++	default:
++		errors.LogError(context.Background(), "Unable to query local process: ", err)
++	}
++}

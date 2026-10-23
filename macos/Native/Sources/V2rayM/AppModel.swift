@@ -4,6 +4,8 @@ import ServiceManagement
 import V2rayMKit
 
 @MainActor final class AppModel: ObservableObject {
+    let dashboard = GlobeMonitor()
+    @Published var homeRequest = 0
     @Published var lastStatusRefresh: Date?
     @Published var status: RuntimeStatus?
     @Published var profiles: [Profile] = []
@@ -27,6 +29,14 @@ import V2rayMKit
     @Published var tun: MacTunStatus?
     @Published var message: String?
     @Published var error: String?
+    @Published private(set) var networkRecovery = NetworkRecovery()
+    private var lifecycle: NetworkLifecycle?
+    private var sleeping = false
+    private var networkAvailable = true
+    private var networkObserved = false
+    private var restartBaseline: String?
+    private var restartSubmitted = false
+    private var proxyRequested: Bool { systemProxyEnabled || tun?.enabled == true }
     private var polling: Task<Void, Never>?
     private var operation: Task<Void, Never>?
     private var settingsOperation: Task<Void, Error>?
@@ -45,6 +55,17 @@ import V2rayMKit
             ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/v2rayM")
         backend = BackendController(dataDirectory: dataDirectory, port: argument("--api-port").flatMap(Int.init) ?? 19888)
         proxy = SystemProxyController(dataDirectory: dataDirectory)
+        lifecycle = NetworkLifecycle(sleep: { [weak self] asleep in
+            guard let self else { return }
+            self.sleeping = asleep
+            self.beginNetworkRecovery(restart: true)
+        }, change: { [weak self] available in
+            guard let self else { return }
+            let shouldRecover = self.networkObserved || !available
+            self.networkObserved = true
+            self.networkAvailable = available
+            if shouldRecover { self.beginNetworkRecovery(restart: true) }
+        })
     }
     func connect() async {
         guard !connecting, !ready else { return }
@@ -63,23 +84,79 @@ import V2rayMKit
             startPolling()
         } catch { self.error = error.localizedDescription; try? await backend.stop() }
     }
+    private func beginNetworkRecovery(restart: Bool) {
+        guard !shuttingDown, proxyRequested else { return }
+        networkRecovery.begin(restart: restart)
+        restartSubmitted = false
+        lastStatusRefresh = nil
+    }
+    private func attemptNetworkRecovery() async throws {
+        guard let api, networkRecovery.canAttempt(awake: !sleeping, networkAvailable: networkAvailable) else { return }
+        let generation = networkRecovery.generation
+        // Serialize recovery with user mutations and module updates.
+        busy = true
+        defer { busy = false }
+        try await refresh()
+        try Task.checkCancellation()
+        guard generation == networkRecovery.generation, !sleeping, networkAvailable else { return }
+        if networkRecovery.needsRestart {
+            // A timed-out POST may have succeeded. Observe its result before
+            // retrying, rather than blindly restarting the same core again.
+            if restartSubmitted, status?.coreRunning == true, status?.coreStartedAt != restartBaseline {
+                networkRecovery.restarted(generation: generation)
+            } else {
+                try await TunModeChange.checkBeforeConnecting(backend: api)
+                try Task.checkCancellation()
+                guard generation == networkRecovery.generation, !sleeping, networkAvailable else { return }
+                restartBaseline = status?.coreStartedAt
+                restartSubmitted = true
+                if status?.runtimeState == "running" || status?.runtimeState == "faulted" {
+                    try await api.perform("/api/core/restart")
+                } else {
+                    try await api.startTunCore()
+                }
+                networkRecovery.restarted(generation: generation)
+            }
+            try await refresh()
+        }
+        guard generation == networkRecovery.generation, !sleeping, networkAvailable else { return }
+        guard status?.coreRunning == true,
+              systemProxyEnabled || tun?.isRunning == true else {
+            throw ClientFailure("core_start_failed")
+        }
+        networkRecovery.complete(generation: generation)
+    }
     private func startPolling() {
         polling = Task { [weak self] in
             while !Task.isCancelled {
                 do { try await Task.sleep(for: .seconds(2)) } catch { return }
                 guard let self else { return }
-                guard !self.busy else { continue }
+                guard !self.busy, !self.sleeping else { continue }
                 do {
                     guard await self.backend.isRunning else { throw ClientFailure("backend_exited") }
+                    if self.networkRecovery.active && !self.moduleUpdateActive && !RuntimeUpdateActivity.isActive(self.operations) {
+                        try await self.attemptNetworkRecovery()
+                        continue
+                    }
+                    let generation = self.networkRecovery.generation
                     try await self.refresh()
+                    guard generation == self.networkRecovery.generation, !self.sleeping else { continue }
                     if !self.moduleUpdateActive && !RuntimeUpdateActivity.isActive(self.operations)
                         && self.systemProxyEnabled && self.status?.coreRunning != true { try await self.restoreProxy() }
                 } catch {
                     guard !Task.isCancelled else { return }
                     if await self.backend.isRunning, self.moduleUpdateActive || RuntimeUpdateActivity.isActive(self.operations) {
-                        self.moduleUpdateError = "进度暂时无法刷新，将自动重试：" + error.localizedDescription
+                        self.moduleUpdateError = NetworkRecovery.isTransient(error)
+                            ? "正在等待后台恢复，将自动重试"
+                            : "进度暂时无法刷新，将自动重试：" + error.localizedDescription
                         continue
                     }
+                    if await self.backend.isRunning, NetworkRecovery.isTransient(error) {
+                        if !self.networkRecovery.active { self.beginNetworkRecovery(restart: false) }
+                        self.networkRecovery.retry()
+                        continue
+                    }
+                    self.networkRecovery.cancel()
                     if self.systemProxyEnabled { try? await self.restoreProxy() }
                     self.error = error.localizedDescription
                     if !(await self.backend.isRunning) { self.ready = false; self.moduleUpdateActive = false; return }
@@ -120,6 +197,8 @@ import V2rayMKit
         status = snapshot.0; profiles = snapshot.1; lastStatusRefresh = Date()
         routes = snapshot.2; operations = snapshot.3
         tun = snapshot.4
+        let profileID = snapshot.0.coreRunning ? snapshot.0.runningProfileId : snapshot.0.currentProfileId
+        dashboard.update(state: snapshot.0, node: snapshot.1.first { $0.id == profileID }, entries: tail.items)
         if observedGeneration == updateGeneration {
             moduleProgress = snapshot.5
             let targets = moduleScope?.targets ?? moduleTargets
@@ -141,6 +220,10 @@ import V2rayMKit
                     self.systemProxyEnabled = failure.systemProxyEnabled
                     self.proxyNeedsRecovery = await proxy.needsRecovery
                 }
+                if networkRecovery.active && NetworkRecovery.isTransient(error) {
+                    networkRecovery.retry()
+                    return
+                }
                 self.error = error.localizedDescription
                 try? await refresh()
                 if systemProxyEnabled && status?.coreRunning != true { try? await restoreProxy() }
@@ -160,6 +243,7 @@ import V2rayMKit
     }
     private func setProxyMode(_ mode: ProxyMode) {
         run { [self] api in
+            networkRecovery.cancel()
             if mode != .off && proxyNeedsRecovery { throw ClientFailure("proxy_recovery") }
             systemProxyEnabled = try await ProxyModeSwitch.apply(mode, systemProxyEnabled: systemProxyEnabled,
                 hasSelectedProfile: status?.currentProfileId?.isEmpty == false || !profiles.isEmpty,
@@ -259,7 +343,10 @@ import V2rayMKit
     }
     func shutdown() async -> Bool {
         shuttingDown = true
+        networkRecovery.cancel()
+        let pendingPoll = polling
         polling?.cancel(); polling = nil
+        await pendingPoll?.value
         await operation?.value
         try? await settingsOperation?.value
         defer { shuttingDown = false }

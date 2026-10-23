@@ -411,3 +411,7 @@ macos/TunHelper/.swiftpm/
 # Native SwiftUI build state
 macos/Native/.build/
 macos/Native/.swiftpm/
+
+# Generated offline globe lookup tables (rebuild via scripts/prepare-globe-geo.py)
+macos/Native/Sources/V2rayM/Resources/Globe/*.bin
+macos/Native/Sources/V2rayM/Resources/Globe/places.json
