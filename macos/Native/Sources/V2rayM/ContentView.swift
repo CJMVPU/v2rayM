@@ -67,7 +67,7 @@ struct ContentView: View {
     }
     private var titleBar: some View {
         HStack(spacing: 10) {
-            WindowControlButtons().frame(width: 64, height: 28)
+            WindowControlButtons().frame(width: 50, height: 28)
             HStack(spacing: 4) {
                 ForEach(Page.allCases) { item in
                     Button { page = item } label: {
@@ -205,7 +205,7 @@ struct ContentView: View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 1) {
                 settingsSection("通用") { LoginItemSettings().environmentObject(model) }
-                settingsSection("地图展示") { GlobeDisplaySettings() }
+                settingsSection("主页展示") { DashboardDisplaySettings() }
                 settingsSection("代理设置") {
                     HStack(spacing: 12) {
                         Text("路由规则").fixedSize()

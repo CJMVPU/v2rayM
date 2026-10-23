@@ -1,9 +1,9 @@
 import AppKit
 import SwiftUI
 
-/// Two rounded controls centered in the title bar; their actions retain normal macOS
-/// close-to-menu-bar and minimize behavior.
+/// Circular controls share the small title-bar switch's 16-point thumb diameter.
 struct WindowControlButtons: NSViewRepresentable {
+    static let diameter: CGFloat = 16
     func makeNSView(context: Context) -> ControlsView { ControlsView() }
     func updateNSView(_ view: ControlsView, context: Context) {}
 
@@ -12,9 +12,8 @@ struct WindowControlButtons: NSViewRepresentable {
         override var mouseDownCanMoveWindow: Bool { false }
         override init(frame: NSRect) {
             super.init(frame: frame)
-            for (index, role) in [RecessedButton.Role.close, .minimize].enumerated() {
-                let button = RecessedButton(role: role)
-                button.frame = NSRect(x: index * 34, y: 0, width: 28, height: 28)
+            for role in [RoundButton.Role.close, .minimize] {
+                let button = RoundButton(role: role)
                 button.target = self
                 button.action = role == .close ? #selector(closeWindow) : #selector(minimizeWindow)
                 addSubview(button)
@@ -24,14 +23,14 @@ struct WindowControlButtons: NSViewRepresentable {
         override func layout() {
             super.layout()
             for (index, button) in subviews.enumerated() {
-                button.frame = NSRect(x: CGFloat(index) * 34, y: (bounds.height - 28) / 2, width: 28, height: 28)
+                button.frame = NSRect(x: CGFloat(index) * 26, y: (bounds.height - 24) / 2, width: 24, height: 24)
             }
         }
         @objc private func closeWindow() { window?.performClose(nil) }
         @objc private func minimizeWindow() { window?.miniaturize(nil) }
     }
 
-    final class RecessedButton: NSButton {
+    final class RoundButton: NSButton {
         enum Role { case close, minimize }
         private let role: Role
         private var hovered = false
@@ -57,39 +56,24 @@ struct WindowControlButtons: NSViewRepresentable {
         override func mouseEntered(with event: NSEvent) { hovered = true; needsDisplay = true }
         override func mouseExited(with event: NSEvent) { hovered = false; needsDisplay = true }
         override func draw(_ dirtyRect: NSRect) {
-            let rect = bounds.insetBy(dx: 1.5, dy: 2)
-            let shape = NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6)
-            let base = role == .close ? NSColor(calibratedRed: 0.80, green: 0.53, blue: 0.55, alpha: 1)
-                                      : NSColor(calibratedRed: 0.87, green: 0.78, blue: 0.50, alpha: 1)
-            let tone = !isEnabled ? NSColor(calibratedWhite: 0.26, alpha: 1)
-                       : isHighlighted ? base.blended(withFraction: 0.25, of: .black)!
-                       : hovered ? base.blended(withFraction: 0.15, of: .white)! : base
-            NSGradient(colors: [tone.blended(withFraction: 0.25, of: .black)!, tone])?.draw(in: shape, angle: 90)
-            NSGraphicsContext.saveGraphicsState()
-            shape.addClip()
-            NSColor.black.withAlphaComponent(0.45).setStroke()
-            shape.lineWidth = 3; shape.stroke()
-            NSGraphicsContext.restoreGraphicsState()
-            let lip = NSBezierPath()
-            lip.move(to: NSPoint(x: rect.minX + 5, y: rect.maxY - 0.6))
-            lip.line(to: NSPoint(x: rect.maxX - 5, y: rect.maxY - 0.6))
-            NSColor.white.withAlphaComponent(0.3).setStroke(); lip.lineWidth = 0.8; lip.stroke()
-            let strength: CGFloat = isEnabled ? 0.9 : 0.3
+            let rect = NSRect(x: bounds.midX - diameter / 2, y: bounds.midY - diameter / 2, width: diameter, height: diameter)
+            let highlight: NSColor = role == .close ? .systemRed : .systemYellow
+            let base = !isEnabled ? NSColor(calibratedWhite: 0.28, alpha: 1)
+                : hovered || isHighlighted ? highlight : NSColor(calibratedWhite: 0.66, alpha: 1)
+            (isHighlighted && isEnabled ? base.blended(withFraction: 0.18, of: .black)! : base).setFill()
+            NSBezierPath(ovalIn: rect).fill()
+            // Normal state is a quiet gray circle; hover reveals the action symbol.
+            guard isEnabled && (hovered || isHighlighted) else { return }
             let symbol = NSBezierPath()
             let x = rect.midX, y = rect.midY
             if role == .close {
-                symbol.move(to: NSPoint(x: x - 3.5, y: y - 3.5)); symbol.line(to: NSPoint(x: x + 3.5, y: y + 3.5))
-                symbol.move(to: NSPoint(x: x + 3.5, y: y - 3.5)); symbol.line(to: NSPoint(x: x - 3.5, y: y + 3.5))
+                symbol.move(to: NSPoint(x: x - 2.5, y: y - 2.5)); symbol.line(to: NSPoint(x: x + 2.5, y: y + 2.5))
+                symbol.move(to: NSPoint(x: x + 2.5, y: y - 2.5)); symbol.line(to: NSPoint(x: x - 2.5, y: y + 2.5))
             } else {
-                symbol.move(to: NSPoint(x: x - 4.5, y: y)); symbol.line(to: NSPoint(x: x + 4.5, y: y))
+                symbol.move(to: NSPoint(x: x - 3, y: y)); symbol.line(to: NSPoint(x: x + 3, y: y))
             }
-            let highlight = symbol.copy() as! NSBezierPath
-            var transform = AffineTransform(); transform.translate(x: 0, y: 1)
-            highlight.transform(using: transform)
-            NSColor(calibratedWhite: 0.75, alpha: strength).setStroke()
-            highlight.lineWidth = 1.6; highlight.stroke()
-            NSColor(calibratedWhite: 0.015, alpha: 1).setStroke()
-            symbol.lineWidth = 1.5; symbol.lineCapStyle = .round; symbol.stroke()
+            NSColor(calibratedWhite: 0.12, alpha: 1).setStroke()
+            symbol.lineWidth = 1.2; symbol.lineCapStyle = .round; symbol.stroke()
         }
     }
 }

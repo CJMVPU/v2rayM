@@ -2,8 +2,8 @@ import SwiftUI
 import V2rayMKit
 
 enum DashboardTheme {
-    static let background = Color(red: 0.018, green: 0.042, blue: 0.075)
-    static let panel = Color(red: 0.035, green: 0.065, blue: 0.105)
+    static let background = Color(nsColor: .controlBackgroundColor)
+    static let panel = Color(nsColor: .windowBackgroundColor)
     static let line = Color(red: 0.16, green: 0.26, blue: 0.36)
     static let muted = Color(red: 0.57, green: 0.65, blue: 0.77)
     static let cyan = Color(red: 0.02, green: 0.83, blue: 0.96)
@@ -19,7 +19,6 @@ private struct DashboardContent: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject var monitor: GlobeMonitor
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @AppStorage("globe.originCity") private var originCity = "上海"
     @State private var alpn = ""
     private var node: Profile? {
         let id = model.status?.coreRunning == true ? model.status?.runningProfileId : model.status?.currentProfileId
@@ -46,32 +45,17 @@ private struct DashboardContent: View {
                 tunRunning: model.tun?.isRunning == true, systemProxy: model.systemProxyEnabled,
                 lastRefresh: model.lastStatusRefresh, now: context.date, reconnecting: model.networkRecovery.active)
             let live = state.active || state == .local
-            let rates = live ? model.status?.traffic?.rates(at: context.date) : nil
+            let rates = live && model.status?.trafficEnabled == true ? model.status?.traffic?.rates(at: context.date) : nil
             VStack(spacing: 0) {
                 GeometryReader { geometry in
                     HStack(spacing: 0) {
-                        ZStack(alignment: .topLeading) {
-                            PacificMap(origin: GlobeOrigin.place(originCity), node: monitor.nodePlace,
-                                       connections: monitor.connections, active: live,
-                                       upload: rates?[0] ?? 0, download: rates?[1] ?? 0, reduceMotion: reduceMotion)
-                            if state == .recovering {
-                                Label("尝试恢复代理", systemImage: "arrow.triangle.2.circlepath")
-                                    .font(AppFont.size(14)).foregroundStyle(.orange)
-                                    .padding(10).background(DashboardTheme.background.opacity(0.9), in: Capsule())
-                                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                                    .padding(.bottom, 16)
-                            }
-                            if !model.ready {
-                                VStack(spacing: 10) {
-                                    Text(model.connecting ? "正在连接本地服务" : "本地服务离线").foregroundStyle(DashboardTheme.muted)
-                                    if !model.connecting {
-                                        Button("重新连接") { Task { await model.connect() } }
-                                    }
-                                }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom).padding(.bottom, 16)
-                            }
-                        }.frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                            .padding(12)
+                        ConnectionDashboard(state: state, city: monitor.nodePlace?.displayCity ?? "位置未知",
+                            nodeName: nodeName, node: node, startedAt: model.status?.coreStartedAt,
+                            coreRunning: model.status?.coreRunning == true, rates: rates,
+                            trend: model.trafficTrend, trafficEnabled: model.status?.trafficEnabled,
+                            now: context.date, connecting: model.connecting,
+                            reconnect: { Task { await model.connect() } })
+                            .frame(maxWidth: .infinity, maxHeight: .infinity).padding(12)
                         VStack(spacing: 12) {
                             nodeCard(state: state, now: context.date)
                             trafficCard(rates: rates, state: state)

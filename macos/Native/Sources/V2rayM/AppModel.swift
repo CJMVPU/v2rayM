@@ -8,6 +8,7 @@ import V2rayMKit
     @Published var homeRequest = 0
     @Published var lastStatusRefresh: Date?
     @Published var status: RuntimeStatus?
+    @Published private(set) var trafficTrend = TrafficTrend()
     @Published var profiles: [Profile] = []
     @Published var logs: [LogEntry] = []
     @Published var routes: [RoutingProfile] = []
@@ -194,7 +195,9 @@ import V2rayMKit
         async let updates: [ModuleUpdateProgress] = api.value("/api/core-updates/progress")
         async let tunnel: MacTunStatus = api.tunStatus()
         let snapshot = try await (state, nodes, routing, tasks, tunnel, updates)
-        status = snapshot.0; profiles = snapshot.1; lastStatusRefresh = Date()
+        let refreshedAt = Date()
+        status = snapshot.0; profiles = snapshot.1; lastStatusRefresh = refreshedAt
+        trafficTrend.record(snapshot.0, now: refreshedAt)
         routes = snapshot.2; operations = snapshot.3
         tun = snapshot.4
         let profileID = snapshot.0.coreRunning ? snapshot.0.runningProfileId : snapshot.0.currentProfileId

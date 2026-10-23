@@ -1,6 +1,9 @@
-# Native map dashboard
+# Historical native map dashboard
 
-The homepage is native SwiftUI with an AppKit/Core Graphics flat Pacific map. It uses real status,
+As of 0.3.0, the homepage uses the [connection dashboard](connection-dashboard.md).
+The map below describes the previous design; its resources and renderer are retained.
+
+The previous homepage is native SwiftUI with an AppKit/Core Graphics flat Pacific map. It uses real status,
 profile, traffic and Xray access-log data. It contains no demo traffic or fabricated
 destinations. Window size remains 860 × 600.
 
