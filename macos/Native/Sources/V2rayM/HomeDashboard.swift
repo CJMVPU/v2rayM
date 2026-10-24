@@ -160,18 +160,7 @@ private struct DashboardContent: View {
                 } else {
                     VStack(spacing: 0) {
                         ForEach(Array(monitor.connections.prefix(5))) { connection in
-                            HStack(spacing: 8) {
-                                Circle().fill(connection.isProxy ? DashboardTheme.cyan : connection.route == "direct" ? .green : .orange)
-                                    .frame(width: 6, height: 6)
-                                Text(connection.host).font(AppFont.caption).lineLimit(1).truncationMode(.middle)
-                                Spacer(minLength: 4)
-                                Text(connection.routeTitle).font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
-                            }.frame(height: geometry.size.height / 5)
-                                .overlay(alignment: .top) { rule }
-                                .help(connection.host + ":\(connection.port) · " + connection.routeTitle
-                                    + (connection.place.map { " · " + $0.displayCity + "（IP/DNS 估计）" } ?? " · 位置未知"))
-                                .transition(.asymmetric(insertion: .move(edge: .top).combined(with: .opacity),
-                                                       removal: .opacity))
+                            recentConnectionRow(connection, height: geometry.size.height / 5)
                         }
                     }.animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: Array(monitor.connections.prefix(5).map(\.id)))
                 }
@@ -179,6 +168,21 @@ private struct DashboardContent: View {
         }.padding(14).frame(maxHeight: .infinity).dashboardPanel()
     }
 
+    private func recentConnectionRow(_ connection: GlobeConnection, height: CGFloat) -> some View {
+        let color: Color = connection.isProxy ? DashboardTheme.cyan : connection.route == "direct" ? .green : .orange
+        let location: String = connection.place.map { " · " + $0.displayCity + "（IP/DNS 估计）" } ?? " · 位置未知"
+        let tooltip: String = connection.host + ":\(connection.port) · " + connection.routeTitle + location
+        return HStack(spacing: 8) {
+            Circle().fill(color).frame(width: 6, height: 6)
+            Text(connection.host).font(AppFont.caption).lineLimit(1).truncationMode(.middle)
+            Spacer(minLength: 4)
+            Text(connection.routeTitle).font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
+        }.frame(height: height)
+            .overlay(alignment: .top) { rule }
+            .help(tooltip)
+            .transition(.asymmetric(insertion: .move(edge: .top).combined(with: .opacity),
+                                   removal: .opacity))
+    }
 }
 
 private extension View {
