@@ -14,10 +14,20 @@ using v2rayN.WebAPI.Services;
 namespace v2rayN.WebAPI.MacOS;
 
 internal sealed record MacHelperResponse(bool Success, string Code, string State, int ProtocolVersion = 0,
-    int? Pid = null, string? ExecutablePath = null, string[]? Logs = null, bool Forced = false, string? UpdateToken = null);
+    int? Pid = null, string? ExecutablePath = null, string[]? Logs = null, bool Forced = false, string? UpdateToken = null, string? CoreVersion = null, string? VerifiedSHA256 = null, bool? PreviousVersionPresent = null);
 
-internal sealed partial class MacTunCoreLauncher(string? bridgePath) : IPrivilegedCoreLauncher
+internal sealed partial class MacTunCoreLauncher : IPrivilegedCoreLauncher
 {
+    private readonly string? bridgePath;
+    private readonly MacHelperProbe _probe;
+    internal MacTunCoreLauncher(string? bridgePath)
+    {
+        this.bridgePath = bridgePath;
+        _probe = new MacHelperProbe(ProbeCoreAsync);
+    }
+    internal Task<MacHelperResponse> ProbeCachedAsync() => _probe.ReadAsync();
+    internal void InvalidateProbe() => _probe.Invalidate();
+    public Task<MacHelperResponse> ProbeAsync() => _probe.ReadAsync(fresh: true);
     internal static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly ConcurrentDictionary<int, MacTunProcess> _processes = new();
     private readonly ConcurrentQueue<string> _cleanupFailures = new();
@@ -31,7 +41,7 @@ internal sealed partial class MacTunCoreLauncher(string? bridgePath) : IPrivileg
         return new(bridge is not null && File.Exists(bridge) ? bridge : null);
     }
 
-    public async Task<MacHelperResponse> ProbeAsync()
+    private async Task<MacHelperResponse> ProbeCoreAsync()
     {
         if (bridgePath is null) return new(false, "signed_app_bundle_required", "unavailable");
         using var process = new Process { StartInfo = BridgeStartInfo(bridgePath, "status") };
@@ -44,7 +54,7 @@ internal sealed partial class MacTunCoreLauncher(string? bridgePath) : IPrivileg
             await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
             var line = (await output).Split('\n', StringSplitOptions.RemoveEmptyEntries).LastOrDefault();
             var response = line is null ? null : JsonSerializer.Deserialize<MacHelperResponse>(line, JsonOptions);
-            if (response is null || response.ProtocolVersion != 2) return new(false, "helper_protocol_mismatch", "unavailable");
+            if (response is null || response.ProtocolVersion != MacHelperContract.Version) return new(false, "helper_protocol_mismatch", "unavailable");
             return response;
         }
         catch (Exception exception) when (exception is TimeoutException or JsonException)
@@ -65,7 +75,7 @@ internal sealed partial class MacTunCoreLauncher(string? bridgePath) : IPrivileg
             _ => throw new InvalidOperationException("mac_tun_core_not_supported"),
         };
         var request = BuildRequest(kind, configPath);
-        var process = await MacTunProcess.StartAsync(bridgePath, request, log, failure => _cleanupFailures.Enqueue(failure));
+        var process = await MacTunProcess.StartAsync(bridgePath, request, log, failure => { _cleanupFailures.Enqueue(failure); InvalidateProbe(); });
         _processes[process.Id] = process;
         return process;
     }
@@ -93,8 +103,9 @@ internal sealed partial class MacTunCoreLauncher(string? bridgePath) : IPrivileg
 
     internal static string BuildRequest(string kind, string configPath)
     {
+        if (kind != "xray") throw new IOException("mac_tun_core_not_supported");
         var bytes = File.ReadAllBytes(configPath);
-        if (bytes.Length > 4 * 1024 * 1024) throw new IOException("mac_tun_config_too_large");
+        if (bytes.Length > MacHelperContract.ConfigBytes) throw new IOException("mac_tun_config_too_large");
         var config = JsonNode.Parse(bytes) ?? throw new IOException("mac_tun_config_invalid");
         var resources = new Dictionary<string, byte[]>(StringComparer.Ordinal);
         var paths = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -103,9 +114,9 @@ internal sealed partial class MacTunCoreLauncher(string? bridgePath) : IPrivileg
             if (paths.ContainsKey(original)) return;
             var file = Path.GetFullPath(original, Path.GetDirectoryName(configPath)!);
             var info = new FileInfo(file);
-            if (!info.Exists || info.Length > 32 * 1024 * 1024) throw new IOException("mac_tun_resource_missing_or_too_large");
+            if (!info.Exists || info.Length > MacHelperContract.ResourceBytes) throw new IOException("mac_tun_resource_missing_or_too_large");
             var extension = Path.GetExtension(file).ToLowerInvariant();
-            if (!new[] { ".dat", ".srs", ".pem", ".crt", ".key" }.Contains(extension)) throw new IOException("mac_tun_resource_type_not_supported");
+            if (!MacHelperContract.ResourceExtensions.Contains(extension.TrimStart('.'))) throw new IOException("mac_tun_resource_type_not_supported");
             var name = fixedName ?? "resource_" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(file)))[..24] + extension;
             resources[name] = File.ReadAllBytes(file); paths[original] = name;
         }
@@ -137,7 +148,7 @@ internal sealed partial class MacTunCoreLauncher(string? bridgePath) : IPrivileg
                 AddFile(path, name);
             }
         }
-        if (resources.Count > 128 || resources.Values.Sum(value => (long)value.Length) > 64 * 1024 * 1024)
+        if (resources.Count > MacHelperContract.ResourceCount || resources.Values.Sum(value => (long)value.Length) > MacHelperContract.ResourcesBytes)
             throw new IOException("mac_tun_resources_too_large");
         return JsonSerializer.Serialize(new { action = "start", core = kind, config = bytes, resources, paths, configureSystemDNS = kind == "xray" }, JsonOptions);
     }

@@ -1,34 +1,18 @@
-name: macOS backend validation
+name: macOS product validation
 
 on:
   workflow_dispatch:
   push:
     branches: [master, main, 'codex/**']
-    paths:
-      - 'v2rayN/**'
-      - 'macos/**'
-      - 'scripts/*macos*'
-      - '.github/workflows/macos-backend.yml'
-      - 'global.json'
-      - 'AGENTS.md'
-      - 'docs/upstream-merge-policy.md'
-      - 'scripts/check-macos-product-boundaries.py'
+    paths: ['v2rayN/**', 'macos/**', 'scripts/**', 'contracts/**', 'patches/xray/**', 'VERSION', 'global.json', 'AGENTS.md', 'docs/upstream-merge-policy.md', '.github/workflows/macos-backend.yml']
   pull_request:
-    paths:
-      - 'v2rayN/**'
-      - 'macos/**'
-      - 'scripts/*macos*'
-      - '.github/workflows/macos-backend.yml'
-      - 'global.json'
-      - 'AGENTS.md'
-      - 'docs/upstream-merge-policy.md'
-      - 'scripts/check-macos-product-boundaries.py'
+    paths: ['v2rayN/**', 'macos/**', 'scripts/**', 'contracts/**', 'patches/xray/**', 'VERSION', 'global.json', 'AGENTS.md', 'docs/upstream-merge-policy.md', '.github/workflows/macos-backend.yml']
 
 permissions:
   contents: read
 
 jobs:
-  backend:
+  validate:
     runs-on: macos-latest
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: '1'
@@ -41,89 +25,67 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.x'
-
-      - name: Check product boundaries
-        run: python3 scripts/check-macos-product-boundaries.py
-
-      - name: Build backend solution
-        run: dotnet build v2rayN/v2rayN.slnx --configuration Release
-
-      - name: Test native helper without installing a system service
-        run: swift test --package-path macos/TunHelper --scratch-path "$RUNNER_TEMP/v2raym-swift-tests"
-
-      - name: Publish both macOS architectures
-        shell: bash
+      - name: Check product boundaries and language contract
         run: |
-          for rid in osx-arm64 osx-x64; do
-            dotnet publish v2rayN/v2rayN.WebAPI/v2rayN.WebAPI.csproj \
-              --configuration Release --runtime "$rid" --self-contained true \
-              -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true \
-              -p:WebRepository="$GITHUB_REPOSITORY" -p:WebCommit="$GITHUB_SHA" \
-              --output "$RUNNER_TEMP/v2raym-backend/$rid"
-          done
-
-      - name: Smoke test native host architecture
-        shell: bash
+          python3 scripts/check-macos-product-boundaries.py
+          python3 scripts/generate-helper-contract.py --check
+          python3 scripts/test-macos-build-manifest.py
+      - name: Verify backend and shared proxy logic before packaging
         run: |
-          case "$(uname -m)" in
-            arm64) rid=osx-arm64 ;;
-            x86_64) rid=osx-x64 ;;
-            *) echo 'Unsupported macOS runner architecture' >&2; exit 1 ;;
-          esac
-          python3 scripts/smoke-macos-backend.py "$RUNNER_TEMP/v2raym-backend/$rid"
-
-      - name: Upload backend validation artifacts
+          dotnet test --project v2rayN/ServiceLib.Tests --configuration Release
+          dotnet test --project v2rayN/v2rayN.WebAPI/Tests --configuration Release
+      - name: Prepare pinned offline city data
+        run: python3 scripts/prepare-macos-geo.py
+      - name: Test native client and signed-helper policies without installing services
+        run: |
+          swift test --package-path macos/TunHelper --scratch-path "$RUNNER_TEMP/helper-tests"
+          swift test --package-path macos/Native --scratch-path "$RUNNER_TEMP/native-tests"
+      - name: Upload reproducible Geo outputs for product build
         uses: actions/upload-artifact@v7
         with:
-          name: macos-backend
-          path: ${{ runner.temp }}/v2raym-backend
-          if-no-files-found: error
+          name: macos-geodata
+          path: macos/Native/Sources/V2rayM/Resources/Globe
 
-      - name: Package ad-hoc helper integration artifact
-        shell: bash
-        run: |
-          case "$(uname -m)" in
-            arm64) rid=osx-arm64 ;;
-            x86_64) rid=osx-x64 ;;
-          esac
-          bash scripts/package-macos-helper.sh "$RUNNER_TEMP/v2raym-backend/$rid" "$RUNNER_TEMP/V2rayM-Helper-Development.app"
-
-      - name: Archive helper development artifact
-        run: ditto -c -k --keepParent "$RUNNER_TEMP/V2rayM-Helper-Development.app" "$RUNNER_TEMP/V2rayM-Helper-Development.zip"
-
-      - name: Smoke test bundle discovery without authorizing a helper
-        run: python3 scripts/smoke-macos-backend.py --app-bundle "$RUNNER_TEMP/V2rayM-Helper-Development.app"
-
-      - uses: actions/upload-artifact@v7
+  product:
+    needs: validate
+    runs-on: macos-latest
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_GENERATE_ASPNET_CERTIFICATE: 'false'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
         with:
-          name: macos-helper-development
-          path: ${{ runner.temp }}/V2rayM-Helper-Development.zip
-
-      - name: Test native SwiftUI client and proxy recovery
-        run: swift test --package-path macos/Native --scratch-path "$RUNNER_TEMP/v2raym-native-tests" --configuration release
-
-      - name: Package and exercise native client with real cores and local fixtures
+          dotnet-version: '10.x'
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+      - name: Read reviewed Go toolchain version
+        id: toolchain
+        run: echo "version=$(python3 -c 'import json; print(json.load(open("contracts/macos-build-inputs.json"))["goVersion"])')" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ steps.toolchain.outputs.version }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: macos-geodata
+          path: macos/Native/Sources/V2rayM/Resources/Globe
+      - name: Prepare pinned core data and verified Darwin repair
         shell: bash
         run: |
-          case "$(uname -m)" in
-            arm64) rid=osx-arm64 ;;
-            x86_64) rid=osx-x64 ;;
-          esac
+          case "$(uname -m)" in arm64) rid=osx-arm64 ;; x86_64) rid=osx-x64 ;; *) exit 1 ;; esac
           bash scripts/fetch-macos-cores.sh "$rid" "$RUNNER_TEMP/native-cores"
-          CORE_BIN_DIR="$RUNNER_TEMP/native-cores" NATIVE_SCRATCH_PATH="$RUNNER_TEMP/v2raym-native-tests" \
-            bash scripts/package-macos-app.sh "$RUNNER_TEMP/v2raym-backend/$rid" "$RUNNER_TEMP/V2rayM.app"
-          native_bin="$(swift build --package-path macos/Native --scratch-path "$RUNNER_TEMP/v2raym-native-tests" --configuration release --show-bin-path)"
-          python3 scripts/smoke-macos-app.py "$RUNNER_TEMP/V2rayM.app" "$native_bin/V2rayMCheck"
-          ditto -c -k --keepParent "$RUNNER_TEMP/V2rayM.app" "$RUNNER_TEMP/V2rayM-Native-Development.zip"
-
+          python3 scripts/build-macos-xray.py --output "$RUNNER_TEMP/repaired-xray"
+          cp "$RUNNER_TEMP/repaired-xray/"{xray,LICENSE,SOURCE.txt} "$RUNNER_TEMP/native-cores/xray/"
+      - name: Build one source-consistent native product and exercise loopback traffic
+        run: python3 scripts/build-macos-product.py --output "$RUNNER_TEMP/product" --core-bin "$RUNNER_TEMP/native-cores"
+      - name: Archive verified development product
+        run: ditto -c -k --keepParent "$RUNNER_TEMP/product/v2rayM.app" "$RUNNER_TEMP/v2rayM-development.zip"
       - uses: actions/upload-artifact@v7
         with:
           name: macos-native-development
-          path: ${{ runner.temp }}/V2rayM-Native-Development.zip
-
-      - name: Test ServiceLib
-        run: dotnet test --project v2rayN/ServiceLib.Tests --configuration Release --no-restore
-
-      # Keep platform compatibility failures visible; do not skip the macOS lock test.
-      - name: Test WebAPI
-        run: dotnet test --project v2rayN/v2rayN.WebAPI/Tests --configuration Release --no-restore
+          path: |
+            ${{ runner.temp }}/v2rayM-development.zip
+            ${{ runner.temp }}/product/verification.json
+            ${{ runner.temp }}/product/source-snapshot.json
+            ${{ runner.temp }}/product/product-manifest.json

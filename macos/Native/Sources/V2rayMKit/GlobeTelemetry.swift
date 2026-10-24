@@ -25,11 +25,11 @@ public struct GlobePlace: Codable, Equatable, Sendable {
 public struct GlobeGeoDatabase: Sendable {
     private let ipv4: Data
     private let ipv6: Data
-    private let places: [GlobePlace]
+    private let places: GlobePlaceTable
     public init(directory: URL) throws {
         ipv4 = try Data(contentsOf: directory.appendingPathComponent("ipv4.bin"), options: .mappedIfSafe)
         ipv6 = try Data(contentsOf: directory.appendingPathComponent("ipv6.bin"), options: .mappedIfSafe)
-        places = try JSONDecoder().decode([GlobePlace].self, from: Data(contentsOf: directory.appendingPathComponent("places.json")))
+        places = try GlobePlaceTable(url: directory.appendingPathComponent("places.bin"))
         guard ipv4.count % 12 == 0, ipv6.count % 36 == 0 else { throw CocoaError(.fileReadCorruptFile) }
     }
     public func lookup(_ ip: String) -> GlobePlace? {
@@ -47,8 +47,7 @@ public struct GlobeGeoDatabase: Sendable {
         let offset = (low - 1) * stride
         guard !data[(offset + width)..<(offset + 2 * width)].lexicographicallyPrecedes(bytes) else { return nil }
         let index = data[(offset + 2 * width)..<(offset + stride)].reduce(0) { ($0 << 8) | Int($1) }
-        guard places.indices.contains(index) else { return nil }
-        return places[index]
+        return places.place(at: index)
     }
     public static func addressBytes(_ ip: String) -> [UInt8]? {
         var v4 = in_addr(), v6 = in6_addr()
@@ -96,22 +95,5 @@ public struct GlobeConnection: Identifiable, Equatable, Sendable {
         let host = String(value[..<colon]).trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
         guard !host.isEmpty, host.count <= 253, route != "dns" else { return nil }
         return Self(host: host, port: port, route: String(route), timestamp: DashboardStatus.date(entry.timestamp) ?? .distantPast)
-    }
-}
-
-public struct TrafficPeakWindow {
-    private var samples: [(date: Date, up: Double, down: Double)] = []
-    private var lastStamp: String?
-    public init() {}
-    public mutating func append(_ traffic: RuntimeTraffic?, now: Date) {
-        samples.removeAll { now.timeIntervalSince($0.date) >= 300 || $0.date > now.addingTimeInterval(2) }
-        guard let traffic, traffic.sampledAt != lastStamp, let rates = traffic.rates(at: now) else { return }
-        lastStamp = traffic.sampledAt
-        samples.append((now, rates[0], rates[1]))
-    }
-    public func fractions(up: Double, down: Double, now: Date) -> (Double, Double) {
-        let valid = samples.filter { now.timeIntervalSince($0.date) < 300 && $0.date <= now.addingTimeInterval(2) }
-        let peakUp = max(up, valid.map(\.up).max() ?? 0), peakDown = max(down, valid.map(\.down).max() ?? 0)
-        return (peakUp > 0 ? min(1, max(0, up / peakUp)) : 0, peakDown > 0 ? min(1, max(0, down / peakDown)) : 0)
     }
 }

@@ -11,7 +11,7 @@ final class SessionEndpoint: NSObject, TunHelperProtocol {
     func request(_ data: Data, withReply reply: @escaping (Data) -> Void) {
         queue.async {
             let response: HelperResponse
-            if data.count <= 100 * 1024 * 1024,
+            if data.count <= HelperContract.wireBytes,
                let request = try? JSONDecoder().decode(HelperRequest.self, from: data), request.action.hasPrefix("update-") {
                 response = self.updates.handle(request)
             } else { response = self.session.handle(data) }

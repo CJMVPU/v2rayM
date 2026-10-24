@@ -1,6 +1,6 @@
 import Foundation
 
-public enum ProxyMode { case off, system, tun }
+public enum ProxyMode: Equatable, Sendable { case off, system, tun }
 public struct ProxyConnection {
     public var running: Bool
     public var port: Int?

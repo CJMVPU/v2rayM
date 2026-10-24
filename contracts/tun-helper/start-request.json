@@ -1,0 +1,1 @@
+{"action":"start","core":"xray","config":"eyJpbmJvdW5kcyI6W119","resources":{"certificate.pem":"Y2VydA=="},"paths":{"/fixture/certificate.pem":"certificate.pem"},"configureSystemDNS":true}

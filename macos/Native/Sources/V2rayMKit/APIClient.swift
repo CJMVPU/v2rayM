@@ -58,17 +58,21 @@ public actor APIClient {
         return result.token
     }
     private func request<T: Decodable>(_ path: String, method: String = "GET", body: Data? = nil) async throws -> APIEnvelope<T> {
+        try JSONDecoder().decode(APIEnvelope<T>.self, from: await encodedResponse(path, method: method, body: body))
+    }
+    public func encodedResponse(_ path: String, method: String, body: Data?) async throws -> Data {
         if token == nil { try await login() }
         var (data, response) = try await raw(path, method: method, body: body)
         if response.statusCode == 401 {
             token = nil; try await login()
             (data, response) = try await raw(path, method: method, body: body)
         }
-        let envelope = try JSONDecoder().decode(APIEnvelope<T>.self, from: data)
+        struct Result: Decodable { let success: Bool; let code: String? }
+        let envelope = try JSONDecoder().decode(Result.self, from: data)
         guard (200..<300).contains(response.statusCode), envelope.success else {
             throw ClientFailure(envelope.code ?? "http_\(response.statusCode)")
         }
-        return envelope
+        return data
     }
     private func raw(_ path: String, method: String = "GET", body: Data? = nil,
                      authenticated: Bool = true) async throws -> (Data, HTTPURLResponse) {

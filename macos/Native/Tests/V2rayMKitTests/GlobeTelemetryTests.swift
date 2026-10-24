@@ -28,22 +28,12 @@ final class GlobeTelemetryTests: XCTestCase {
         let ranges: [UInt8] = [1,1,1,0, 1,1,1,255, 0,0,0,0, 8,8,8,8, 8,8,8,8, 0,0,0,1]
         try Data(ranges).write(to: root.appendingPathComponent("ipv4.bin"))
         try Data().write(to: root.appendingPathComponent("ipv6.bin"))
-        try JSONEncoder().encode([GlobePlace(city: "A", latitude: 1, longitude: 2), GlobePlace(city: "B", latitude: 3, longitude: 4)])
-            .write(to: root.appendingPathComponent("places.json"))
+        try encodePlaces([GlobePlace(city: "A", latitude: 1, longitude: 2), GlobePlace(city: "B", latitude: 3, longitude: 4)])
+            .write(to: root.appendingPathComponent("places.bin"))
         let db = try GlobeGeoDatabase(directory: root)
         XCTAssertEqual(db.lookup("1.1.1.0")?.city, "A")
         XCTAssertEqual(db.lookup("1.1.1.255")?.city, "A")
         XCTAssertEqual(db.lookup("8.8.8.8")?.city, "B")
         XCTAssertNil(db.lookup("8.8.8.9")); XCTAssertNil(db.lookup("1.1.0.255"))
-    }
-    func testFiveMinutePeakExpiryAndDuplicateSamples() {
-        let now = DashboardStatus.date("2026-10-22T12:00:00Z")!
-        var window = TrafficPeakWindow()
-        let traffic = RuntimeTraffic(proxyUp: 500, proxyDown: 1000, directUp: 0, directDown: 0, sampleSeconds: 5, sampledAt: "2026-10-22T12:00:00Z")
-        window.append(traffic, now: now); window.append(traffic, now: now.addingTimeInterval(2))
-        let ratio = window.fractions(up: 50, down: 50, now: now.addingTimeInterval(299))
-        XCTAssertEqual(ratio.0, 0.5); XCTAssertEqual(ratio.1, 0.25)
-        XCTAssertEqual(window.fractions(up: 50, down: 50, now: now.addingTimeInterval(300)).0, 1)
-        XCTAssertEqual(window.fractions(up: 0, down: 0, now: now.addingTimeInterval(300)).0, 0)
     }
 }

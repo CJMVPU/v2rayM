@@ -48,7 +48,7 @@ struct ConnectionDashboard: View {
                         badge("内核", value: "Xray")
                     }.padding(.horizontal, 12).padding(.top, 26)
                     activityRing(diameter: diameter)
-                        .position(x: geometry.size.width / 2, y: inset + diameter / 2 - 10)
+                        .position(x: geometry.size.width / 2, y: inset + diameter / 2 - 20)
                     HStack {
                         badge("协议", value: node?.protocol.uppercased() ?? "—")
                         Spacer()
@@ -83,14 +83,7 @@ struct ConnectionDashboard: View {
             .animation(animate ? .easeInOut(duration: 1.2) : nil, value: upload)
             .animation(animate ? .easeInOut(duration: 1.2) : nil, value: download)
             .accessibilityHidden(true)
-            Circle().fill(DashboardTheme.panel.opacity(0.65)).padding(26)
-            Circle().fill(Color.primary.opacity(discHovered ? 0.045 : 0)).padding(26)
-            Circle().strokeBorder(
-                LinearGradient(colors: [DashboardTheme.cyan, DashboardTheme.purple],
-                               startPoint: .topLeading, endPoint: .bottomTrailing)
-                    .opacity(discHovered ? 0.35 : 0), lineWidth: 1)
-                .padding(26)
-                .shadow(color: DashboardTheme.cyan.opacity(discHovered ? 0.12 : 0), radius: 10)
+            DashboardDiscSurface(hovered: discHovered).padding(26)
             VStack(spacing: 9) {
                 Image(systemName: running ? "shield.lefthalf.filled" : state == .recovering ? "arrow.triangle.2.circlepath" : "shield")
                     .font(.system(size: 22)).foregroundStyle(statusColor)
@@ -118,6 +111,22 @@ struct ConnectionDashboard: View {
                 .stroke(color, style: StrokeStyle(lineWidth: 5, lineCap: .round))
                 .rotationEffect(.degrees(90))
         }.frame(width: max(0, diameter - 4), height: max(0, diameter - 4))
+    }
+}
+
+/// Hover changes only the surface, preserving ring geometry and hit testing.
+struct DashboardDiscSurface: View {
+    let hovered: Bool
+    var body: some View {
+        ZStack {
+            Circle().fill(DashboardTheme.panel.opacity(0.65))
+            Circle().fill(Color.primary.opacity(hovered ? 0.13 : 0))
+            Circle().strokeBorder(
+                LinearGradient(colors: [DashboardTheme.cyan, DashboardTheme.purple],
+                               startPoint: .topLeading, endPoint: .bottomTrailing)
+                    .opacity(hovered ? 0.85 : 0), lineWidth: 2)
+                .shadow(color: DashboardTheme.cyan.opacity(hovered ? 0.32 : 0), radius: 14)
+        }
     }
 }
 

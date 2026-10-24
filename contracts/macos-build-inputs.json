@@ -1,0 +1,19 @@
+{
+  "coreBundleCommit": "dd13a61184af1981545fe5f34a1283286959e51d",
+  "goVersion": "1.27.3",
+  "geolocation": {
+    "file": "dbip-city-lite-2026-10.csv.gz",
+    "sourceURL": "https://download.db-ip.com/free/dbip-city-lite-2026-10.csv.gz",
+    "sha256": "d0a4d9446c1e5b826b95f99ed3b3ce151b9844df0044fe223a636cde26c75f2a"
+  },
+  "xray": {
+    "version": "26.10.21",
+    "revision": "1b1647cd9ddf0abc34b981d4611fc03bcac1ca74",
+    "sourceSHA256": "8458a0a7a53d0bb1ecdb1be522126745ffa4ade6fcf2aa56f6fea7c6a3ddf480",
+    "buildMarker": "1b1647c-v2raym-darwin-bind2",
+    "patches": {
+      "darwin-bound-interface.patch": "60e1450aa1bed9d4cfcf077195cef6c0d0b700f56119842611d24e0b646c7eb8",
+      "darwin-process-lookup.patch": "6cc29cf712da02ac2b7f33a9b602a43f0a59f44abe9bcbe696f7aa5bd76973c5"
+    }
+  }
+}

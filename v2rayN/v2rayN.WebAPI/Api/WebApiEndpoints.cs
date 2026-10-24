@@ -23,7 +23,7 @@ public static class WebApiEndpoints
         app.MapGet("/api/status", async (V2rayRuntime runtime) => ApiReplies.Ok(await runtime.GetStatusAsync(), "status.loaded"));
         app.MapGet("/api/operations", async (V2rayRuntime runtime) => ApiReplies.Ok(await runtime.GetRunningOperationsAsync(), "operations.loaded"));
         app.MapGet("/api/macos/tun/settings", (V2rayRuntime runtime) => ApiReplies.Ok(runtime.GetMacNativeTunSettings(), "macos.tun.settings.loaded"));
-        app.MapGet("/api/macos/tun", async (V2rayRuntime runtime) => ApiReplies.Ok(await runtime.GetMacTunStatusAsync(), "macos.tun.loaded"));
+        app.MapGet("/api/macos/tun", async (V2rayRuntime runtime, bool? fresh) => ApiReplies.Ok(await runtime.GetMacTunStatusAsync(fresh ?? false), "macos.tun.loaded"));
         app.MapPut("/api/macos/tun", async (MacTunInput input, V2rayRuntime runtime) => ApiReplies.Operation(await runtime.SetMacTunAsync(input)));
         app.MapGet("/api/logs", (int? limit, string? filter, V2rayRuntime runtime) =>
             ApiReplies.Ok(runtime.GetRecentLogs(limit ?? 200, filter), "logs.loaded"));

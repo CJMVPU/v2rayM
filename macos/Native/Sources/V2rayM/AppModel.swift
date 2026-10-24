@@ -22,6 +22,7 @@ import V2rayMKit
     private var logCursor: Int64 = 0
     private var updateStarting = false
     private var updateGeneration = 0
+    private var mutationGeneration: Int { connection.revision }
     @Published var ready = false
     @Published var busy = false
     @Published var connecting = false
@@ -30,33 +31,46 @@ import V2rayMKit
     @Published var tun: MacTunStatus?
     @Published var message: String?
     @Published var error: String?
-    @Published private(set) var networkRecovery = NetworkRecovery()
-    private var lifecycle: NetworkLifecycle?
+    @Published private(set) var connection = ConnectionCoordinator()
+    @Published private(set) var observationErrors: [String: String] = [:]
+    var networkRecovery: NetworkRecovery { connection.recovery }
+    var desiredMode: ProxyMode { connection.desiredMode }
+    private let lifecycle: any NetworkEvents
+    private let clock: any NativeClock
+    private let checkTunnel: @Sendable () async throws -> Void
+    private let observations: ObservationScheduler
+    private var pendingDisconnect = false
+    private var recoveringInFlight = false
     private var sleeping = false
     private var networkAvailable = true
     private var networkObserved = false
     private var restartBaseline: String?
     private var restartSubmitted = false
-    private var proxyRequested: Bool { systemProxyEnabled || tun?.enabled == true }
+    private var proxyRequested: Bool { connection.requested }
     private var polling: Task<Void, Never>?
     private var operation: Task<Void, Never>?
     private var settingsOperation: Task<Void, Error>?
     private var shuttingDown = false
-    private var api: APIClient?
-    let backend: BackendController
-    let proxy: SystemProxyController
+    private var api: (any NativeAPI)?
+    let backend: any NativeBackend
+    let proxy: any NativeProxy
     let dataDirectory: URL
-    init() {
+    init(backend: (any NativeBackend)? = nil, proxy: (any NativeProxy)? = nil,
+         clock: any NativeClock = SystemNativeClock(), network: (any NetworkEvents)? = nil,
+         dataDirectory: URL? = nil, checkTunnel: @escaping @Sendable () async throws -> Void = { try await TunnelConflict.check() }) {
         let arguments = CommandLine.arguments
         func argument(_ name: String) -> String? {
             guard let index = arguments.firstIndex(of: name), index + 1 < arguments.count else { return nil }
             return arguments[index + 1]
         }
-        dataDirectory = argument("--data-directory").map { URL(fileURLWithPath: $0, isDirectory: true) }
+        self.dataDirectory = dataDirectory ?? argument("--data-directory").map { URL(fileURLWithPath: $0, isDirectory: true) }
             ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/v2rayM")
-        backend = BackendController(dataDirectory: dataDirectory, port: argument("--api-port").flatMap(Int.init) ?? 19888)
-        proxy = SystemProxyController(dataDirectory: dataDirectory)
-        lifecycle = NetworkLifecycle(sleep: { [weak self] asleep in
+        self.backend = backend ?? BackendController(dataDirectory: self.dataDirectory, port: argument("--api-port").flatMap(Int.init) ?? 19888)
+        self.proxy = proxy ?? SystemProxyController(dataDirectory: self.dataDirectory)
+        self.checkTunnel = checkTunnel
+        self.clock = clock; observations = ObservationScheduler(clock: clock)
+        lifecycle = network ?? NetworkLifecycle()
+        lifecycle.observe(sleep: { [weak self] asleep in
             guard let self else { return }
             self.sleeping = asleep
             self.beginNetworkRecovery(restart: true)
@@ -75,38 +89,50 @@ import V2rayMKit
         do {
             proxyNeedsRecovery = await proxy.needsRecovery
             if proxyNeedsRecovery { message = "检测到上次的代理设置，请点击“恢复系统代理”后继续。" }
-            api = try await backend.start()
+            api = try await backend.startClient()
             logCursor = 0
-            if let initial = try await api?.tunStatus(), initial.enabled && !initial.isRunning {
-                try await api?.setTunEnabled(false)
+            if let initial = try await api?.tunStatus() {
+                tun = initial
+                if initial.enabled && !initial.isRunning { try await api?.setTunEnabled(false); tun = try await api?.tunStatus() }
             }
             try await refresh()
+            connection.restoreIntent(systemProxyEnabled ? .system : tun?.enabled == true ? .tun : .off)
             ready = true
             startPolling()
         } catch { self.error = error.localizedDescription; try? await backend.stop() }
     }
     private func beginNetworkRecovery(restart: Bool) {
         guard !shuttingDown, proxyRequested else { return }
-        networkRecovery.begin(restart: restart)
+        connection.recovery.begin(restart: restart, now: clock.now())
         restartSubmitted = false
         lastStatusRefresh = nil
     }
     private func attemptNetworkRecovery() async throws {
-        guard let api, networkRecovery.canAttempt(awake: !sleeping, networkAvailable: networkAvailable) else { return }
+        guard let api, networkRecovery.canAttempt(awake: !sleeping, networkAvailable: networkAvailable, now: clock.now()) else { return }
         let generation = networkRecovery.generation
         // Serialize recovery with user mutations and module updates.
-        busy = true
-        defer { busy = false }
+        busy = true; recoveringInFlight = true
+        defer {
+            busy = false; recoveringInFlight = false
+            if pendingDisconnect {
+                pendingDisconnect = false
+                setProxyMode(.off)
+            }
+        }
         try await refresh()
+        operations = try await api.value("/api/operations")
+        tun = try await api.freshTunStatus()
         try Task.checkCancellation()
         guard generation == networkRecovery.generation, !sleeping, networkAvailable else { return }
+        guard proxyRequested else { connection.recovery.cancel(); return }
+        guard !moduleUpdateActive, !RuntimeUpdateActivity.isActive(operations) else { return }
         if networkRecovery.needsRestart {
             // A timed-out POST may have succeeded. Observe its result before
             // retrying, rather than blindly restarting the same core again.
             if restartSubmitted, status?.coreRunning == true, status?.coreStartedAt != restartBaseline {
-                networkRecovery.restarted(generation: generation)
+                connection.recovery.restarted(generation: generation)
             } else {
-                try await TunModeChange.checkBeforeConnecting(backend: api)
+                try await TunModeChange.checkBeforeConnecting(backend: api, checkOtherTunnel: checkTunnel)
                 try Task.checkCancellation()
                 guard generation == networkRecovery.generation, !sleeping, networkAvailable else { return }
                 restartBaseline = status?.coreStartedAt
@@ -116,122 +142,194 @@ import V2rayMKit
                 } else {
                     try await api.startTunCore()
                 }
-                networkRecovery.restarted(generation: generation)
+                connection.recovery.restarted(generation: generation)
             }
             try await refresh()
+            tun = try await api.freshTunStatus()
         }
         guard generation == networkRecovery.generation, !sleeping, networkAvailable else { return }
         guard status?.coreRunning == true,
               systemProxyEnabled || tun?.isRunning == true else {
             throw ClientFailure("core_start_failed")
         }
-        networkRecovery.complete(generation: generation)
+        try await synchronizeProxyPort()
+        connection.recovery.complete(generation: generation)
     }
     private func startPolling() {
-        polling = Task { [weak self] in
+        polling?.cancel()
+        polling = Task { [weak self, clock] in
             while !Task.isCancelled {
-                do { try await Task.sleep(for: .seconds(2)) } catch { return }
+                do { try await clock.sleep(seconds: 2) } catch { return }
                 guard let self else { return }
-                guard !self.busy, !self.sleeping else { continue }
-                do {
-                    guard await self.backend.isRunning else { throw ClientFailure("backend_exited") }
-                    if self.networkRecovery.active && !self.moduleUpdateActive && !RuntimeUpdateActivity.isActive(self.operations) {
-                        try await self.attemptNetworkRecovery()
-                        continue
-                    }
-                    let generation = self.networkRecovery.generation
-                    try await self.refresh()
-                    guard generation == self.networkRecovery.generation, !self.sleeping else { continue }
-                    if !self.moduleUpdateActive && !RuntimeUpdateActivity.isActive(self.operations)
-                        && self.systemProxyEnabled && self.status?.coreRunning != true { try await self.restoreProxy() }
-                } catch {
-                    guard !Task.isCancelled else { return }
-                    if await self.backend.isRunning, self.moduleUpdateActive || RuntimeUpdateActivity.isActive(self.operations) {
-                        self.moduleUpdateError = NetworkRecovery.isTransient(error)
-                            ? "正在等待后台恢复，将自动重试"
-                            : "进度暂时无法刷新，将自动重试：" + error.localizedDescription
-                        continue
-                    }
-                    if await self.backend.isRunning, NetworkRecovery.isTransient(error) {
-                        if !self.networkRecovery.active { self.beginNetworkRecovery(restart: false) }
-                        self.networkRecovery.retry()
-                        continue
-                    }
-                    self.networkRecovery.cancel()
-                    if self.systemProxyEnabled { try? await self.restoreProxy() }
-                    self.error = error.localizedDescription
-                    if !(await self.backend.isRunning) { self.ready = false; self.moduleUpdateActive = false; return }
-                }
+                await self.pollOnce()
+                if !self.ready { return }
             }
         }
     }
-    func refresh() async throws {
-        guard let api else { return }
-        let tail: LogTail = try await api.value("/api/logs/tail?after=\(logCursor)&limit=10000")
-        logBuffer.append(tail.items); logCursor = tail.latestSequence; logs = logBuffer.entries
-        let observedGeneration = updateGeneration
-        let observesStartedRun = !updateStarting
+    /// A failed observation is not a command to disconnect. Only an owned
+    /// backend exit or a fresh terminal runtime state permits proxy cleanup.
+    func pollOnce() async {
+        guard !busy, !sleeping, !shuttingDown else { return }
+        let revision = mutationGeneration, generation = networkRecovery.generation
+        let backendRunning = await backend.isRunning
+        guard !busy, connection.isCurrent(revision: revision, recoveryGeneration: generation) else { return }
+        if !backendRunning {
+            busy = true; defer { busy = false }
+            connection.recovery.cancel(); observations.cancel()
+            if systemProxyEnabled { try? await restoreProxy() }
+            ready = false; moduleUpdateActive = false
+            error = ClientFailure("backend_exited").localizedDescription
+            return
+        }
+        do {
+            if networkRecovery.active && !moduleUpdateActive {
+                try await attemptNetworkRecovery()
+                return
+            }
+            try await refresh(forceMetadata: false)
+            guard !busy, !sleeping, connection.isCurrent(revision: revision, recoveryGeneration: generation) else { return }
+            if !moduleUpdateActive && !RuntimeUpdateActivity.isActive(operations) && systemProxyEnabled,
+               let status, observationErrors["operations"] == nil {
+                busy = true; defer { busy = false }
+                if ConnectionCoordinator.shouldDetachSystemProxy(status), let api {
+                    let active: [String] = try await api.value("/api/operations")
+                    guard connection.isCurrent(revision: revision, recoveryGeneration: generation),
+                          !RuntimeUpdateActivity.isActive(active) else { return }
+                    try await restoreProxy()
+                } else if status.coreRunning { try await synchronizeProxyPort() }
+            }
+        } catch {
+            guard !Task.isCancelled, !busy, !sleeping,
+                  connection.isCurrent(revision: revision, recoveryGeneration: generation) else { return }
+            observationErrors["runtime"] = error.localizedDescription
+            if moduleUpdateActive || RuntimeUpdateActivity.isActive(operations) {
+                moduleUpdateError = "正在等待后台恢复，将自动重试"
+            } else if NetworkRecovery.isTransient(error), proxyRequested {
+                if !networkRecovery.active { beginNetworkRecovery(restart: false) }
+                connection.recovery.retry(now: clock.now())
+            } else if networkRecovery.active {
+                connection.recovery.retry(now: clock.now())
+            }
+        }
+    }
+    @discardableResult func refresh(forceMetadata: Bool = true) async throws -> Bool {
+        guard let api, !shuttingDown else { return false }
+        let revision = mutationGeneration, generation = networkRecovery.generation
         if moduleUpdateActive {
-            // Updating rules or checking the helper can temporarily block other runtime
-            // reads. Poll the independent progress endpoints so the bars keep moving.
             async let updates: [ModuleUpdateProgress] = api.value("/api/core-updates/progress")
             async let tasks: [String] = api.value("/api/operations")
             let snapshot = try await (updates, tasks)
-            guard observedGeneration == updateGeneration else { return }
+            guard connection.isCurrent(revision: revision, recoveryGeneration: generation) else { return false }
             moduleProgress = snapshot.0; operations = snapshot.1; moduleUpdateError = nil
-            let targets = moduleScope?.targets ?? moduleTargets
-            if observesStartedRun && !updateStarting
-                && !operations.contains(where: { $0.hasPrefix("core-update") || $0 == "geo-update" })
-                && targets.allSatisfy({ id in moduleProgress.contains(where: { $0.coreType == id && $0.isComplete }) }) {
-                moduleUpdateActive = false
-            }
-            return
+            finishModuleObservation()
+            scheduleObservations(api: api, force: forceMetadata)
+            return false
         }
-        // Publish a coherent snapshot; a failed refresh never replaces the last good list with empty data.
-        async let state: RuntimeStatus = api.value("/api/status")
-        async let nodes: [Profile] = api.value("/api/profiles?subscriptionId=")
-        async let routing: [RoutingProfile] = api.value("/api/settings/routing-profiles")
-        async let tasks: [String] = api.value("/api/operations")
-        async let updates: [ModuleUpdateProgress] = api.value("/api/core-updates/progress")
-        async let tunnel: MacTunStatus = api.tunStatus()
-        let snapshot = try await (state, nodes, routing, tasks, tunnel, updates)
-        let refreshedAt = Date()
-        status = snapshot.0; profiles = snapshot.1; lastStatusRefresh = refreshedAt
-        trafficTrend.record(snapshot.0, now: refreshedAt)
-        routes = snapshot.2; operations = snapshot.3
-        tun = snapshot.4
-        let profileID = snapshot.0.coreRunning ? snapshot.0.runningProfileId : snapshot.0.currentProfileId
-        dashboard.update(state: snapshot.0, node: snapshot.1.first { $0.id == profileID }, entries: tail.items)
-        if observedGeneration == updateGeneration {
-            moduleProgress = snapshot.5
-            let targets = moduleScope?.targets ?? moduleTargets
-            if moduleUpdateActive && observesStartedRun && !updateStarting
-                && !operations.contains(where: { $0.hasPrefix("core-update") || $0 == "geo-update" })
-                && targets.allSatisfy({ id in moduleProgress.contains(where: { $0.coreType == id && $0.isComplete }) }) {
-                moduleUpdateActive = false
-            }
+        // Runtime publication does not await node lists, logs, helper probes,
+        // routes, or update history. Their failures retain their last good data.
+        let state: RuntimeStatus = try await api.value("/api/status")
+        guard connection.isCurrent(revision: revision, recoveryGeneration: generation) else { return false }
+        let now = clock.now()
+        status = state; lastStatusRefresh = now; observationErrors["runtime"] = nil
+        trafficTrend.record(state, now: now)
+        scheduleObservations(api: api, force: forceMetadata)
+        return true
+    }
+    private func finishModuleObservation() {
+        let targets = moduleScope?.targets ?? moduleTargets
+        if moduleUpdateActive && !updateStarting && !RuntimeUpdateActivity.isActive(operations)
+            && targets.allSatisfy({ id in moduleProgress.contains { $0.coreType == id && $0.isComplete } }) {
+            moduleUpdateActive = false
         }
     }
-    func run(_ action: @escaping (APIClient) async throws -> Void, success: String? = nil) {
+    private func scheduleObservations(api: any NativeAPI, force: Bool) {
+        let revision = mutationGeneration, generation = networkRecovery.generation
+        func schedule(_ topic: String, interval: Double, work: @escaping @MainActor () async throws -> Void) {
+            observations.schedule(topic, interval: interval, force: force) { [weak self] in
+                do { try await work() }
+                catch {
+                    guard let self, !Task.isCancelled,
+                          self.connection.isCurrent(revision: revision, recoveryGeneration: generation) else { return }
+                    self.observationErrors[topic] = error.localizedDescription
+                }
+            }
+        }
+        func current() -> Bool { !Task.isCancelled && connection.isCurrent(revision: revision, recoveryGeneration: generation) }
+        schedule("logs", interval: 2) { [self] in
+            let tail: LogTail = try await api.value("/api/logs/tail?after=\(logCursor)&limit=10000")
+            guard current() else { return }
+            logBuffer.append(tail.items); logCursor = tail.latestSequence; logs = logBuffer.entries
+            observationErrors["logs"] = nil
+            if let state = status {
+                let id = state.coreRunning ? state.runningProfileId : state.currentProfileId
+                dashboard.update(state: state, node: profiles.first { $0.id == id }, entries: tail.items)
+            }
+        }
+        schedule("profiles", interval: 5) { [self] in
+            let value: [Profile] = try await api.value("/api/profiles?subscriptionId=")
+            guard current() else { return }
+            profiles = value; observationErrors["profiles"] = nil
+            if let state = status {
+                let id = state.coreRunning ? state.runningProfileId : state.currentProfileId
+                dashboard.update(state: state, node: profiles.first { $0.id == id }, entries: [])
+            }
+        }
+        schedule("routes", interval: 30) { [self] in
+            let value: [RoutingProfile] = try await api.value("/api/settings/routing-profiles")
+            guard current() else { return }
+            routes = value; observationErrors["routes"] = nil
+        }
+        schedule("tun", interval: 2) { [self] in
+            let value = try await api.tunStatus()
+            guard current() else { return }
+            tun = value; observationErrors["tun"] = nil
+        }
+        schedule("operations", interval: 2) { [self] in
+            let value: [String] = try await api.value("/api/operations")
+            guard current() else { return }
+            operations = value; observationErrors["operations"] = nil
+        }
+        schedule("updates", interval: 15) { [self] in
+            let value: [ModuleUpdateProgress] = try await api.value("/api/core-updates/progress")
+            guard current() else { return }
+            moduleProgress = value; observationErrors["updates"] = nil
+        }
+    }
+    func waitForObservations() async { await observations.waitUntilIdle() }
+    func waitForOperation() async { await operation?.value }
+    func canToggle(_ mode: ProxyMode) -> Bool {
+        ready && !moduleUpdateActive && !shuttingDown &&
+            (!busy || (recoveringInFlight && networkRecovery.active && desiredMode == mode))
+    }
+    func run(_ action: @escaping (any NativeAPI) async throws -> Void, success: String? = nil) {
         guard ready, !busy, !moduleUpdateActive, !shuttingDown, let api else { return }
+        connection.invalidateObservations()
         busy = true; error = nil; message = nil
         operation = Task {
             defer { busy = false }
-            do { try await action(api); try await refresh(); message = success }
+            do {
+                try await action(api)
+                if await observeAfterCommand() { try await synchronizeProxyPort() }
+                message = success
+            }
             catch {
                 if let failure = error as? ProxyModeFailure {
                     self.systemProxyEnabled = failure.systemProxyEnabled
                     self.proxyNeedsRecovery = await proxy.needsRecovery
                 }
                 if networkRecovery.active && NetworkRecovery.isTransient(error) {
-                    networkRecovery.retry()
+                    connection.recovery.retry(now: clock.now())
                     return
                 }
                 self.error = error.localizedDescription
-                try? await refresh()
-                if systemProxyEnabled && status?.coreRunning != true { try? await restoreProxy() }
+                if await observeAfterCommand(), systemProxyEnabled, let status,
+                   ConnectionCoordinator.shouldDetachSystemProxy(status) { try? await restoreProxy() }
             }
         }
+    }
+    private func observeAfterCommand() async -> Bool {
+        do { return try await refresh() }
+        catch { observationErrors["runtime"] = error.localizedDescription; return false }
     }
     var proxyRunning: Bool { ready && status?.coreRunning == true && (systemProxyEnabled || tun?.isRunning == true) }
     var proxyDescription: String {
@@ -240,24 +338,38 @@ import V2rayMKit
     }
     func select(_ profile: Profile) {
         run({ [self] api in
-            if proxyRunning { try await TunModeChange.checkBeforeConnecting(backend: api) }
+            if proxyRunning { try await TunModeChange.checkBeforeConnecting(backend: api, checkOtherTunnel: checkTunnel) }
             try await api.perform("/api/profiles/\(profile.id)/select?connect=\(proxyRunning ? "true" : "false")")
         }, success: "已选择：\(profile.remarks)")
     }
     private func setProxyMode(_ mode: ProxyMode) {
+        // An in-flight restart may already have reached the backend. Invalidate
+        // its generation now, then stop after it settles so it cannot win later.
+        if mode == .off, recoveringInFlight, networkRecovery.active, !shuttingDown {
+            connection.request(.off); pendingDisconnect = true
+            return
+        }
         run { [self] api in
-            networkRecovery.cancel()
             if mode != .off && proxyNeedsRecovery { throw ClientFailure("proxy_recovery") }
-            systemProxyEnabled = try await ProxyModeSwitch.apply(mode, systemProxyEnabled: systemProxyEnabled,
-                hasSelectedProfile: status?.currentProfileId?.isEmpty == false || !profiles.isEmpty,
-                backend: api, preferences: proxy)
+            let previous = desiredMode
+            connection.request(mode)
+            do {
+                systemProxyEnabled = try await ProxyModeSwitch.apply(mode, systemProxyEnabled: systemProxyEnabled,
+                    hasSelectedProfile: status?.currentProfileId?.isEmpty == false || !profiles.isEmpty,
+                    backend: api, preferences: proxy, checkOtherTunnel: checkTunnel)
+            } catch {
+                connection.restoreIntent(previous)
+                throw error
+            }
             proxyNeedsRecovery = await proxy.needsRecovery
+            do { tun = try await api.tunStatus(); observationErrors["tun"] = nil }
+            catch { observationErrors["tun"] = error.localizedDescription }
         }
     }
     func toggleProxy(_ enabled: Bool) { setProxyMode(enabled ? .system : .off) }
     func toggleTun(_ enabled: Bool) { setProxyMode(enabled ? .tun : .off) }
     func authorizeTun() {
-        run({ _ in
+        run({ [self] api in
             let service = SMAppService.daemon(plistName: "io.github.CJMVPU.v2rayM.tun-helper.plist")
             if service.status != .enabled {
                 do { try service.register() }
@@ -268,11 +380,13 @@ import V2rayMKit
                 throw ClientFailure("tun_approval_required")
             }
             guard service.status == .enabled else { throw ClientFailure("mac_tun_helper_unavailable") }
+            tun = try await api.freshTunStatus()
         }, success: "TUN 后台服务已就绪，可以开启 TUN")
     }
     func openTunApproval() { SMAppService.openSystemSettingsLoginItems() }
     func recoverProxy() {
         guard !busy, !shuttingDown else { return }
+        connection.invalidateObservations()
         busy = true; error = nil
         operation = Task {
             defer { busy = false }
@@ -280,10 +394,28 @@ import V2rayMKit
             catch { self.error = error.localizedDescription }
         }
     }
+    private func synchronizeProxyPort() async throws {
+        guard systemProxyEnabled, status?.coreRunning == true, let port = status?.runningProxyPort else { return }
+        do { try await proxy.rebind(port: port) }
+        catch {
+            systemProxyEnabled = await proxy.isEnabled
+            proxyNeedsRecovery = await proxy.needsRecovery
+            if !systemProxyEnabled && desiredMode == .system { connection.request(.off) }
+            self.error = error.localizedDescription
+            throw error
+        }
+    }
     func restoreProxy() async throws {
-        let changed = try await proxy.restore()
-        systemProxyEnabled = false; proxyNeedsRecovery = false
-        if changed { message = ClientFailure("proxy_changed").localizedDescription }
+        do {
+            let changed = try await proxy.restore()
+            systemProxyEnabled = false; proxyNeedsRecovery = false
+            if desiredMode == .system { connection.request(.off) }
+            if changed { message = ClientFailure("proxy_changed").localizedDescription }
+        } catch {
+            systemProxyEnabled = await proxy.isEnabled
+            proxyNeedsRecovery = await proxy.needsRecovery
+            throw error
+        }
     }
     func importNodes(_ content: String) {
         run({ api in try await api.send("/api/profiles/import", body: ImportInput(content: content)) }, success: "节点已导入")
@@ -296,6 +428,7 @@ import V2rayMKit
     }
     func updateModules(_ scope: ModuleUpdateScope) {
         guard ready, !busy, !moduleUpdateActive, !shuttingDown, let api else { return }
+        connection.invalidateObservations()
         error = nil; message = nil
         moduleScope = scope; moduleUpdateError = nil; moduleProgress = []
         moduleUpdateActive = true; updateStarting = true; updateGeneration += 1
@@ -314,7 +447,8 @@ import V2rayMKit
                 } else {
                     try await api.send("/api/core-updates/batch", body: ["apply": true])
                 }
-                try await refresh()
+                do { try await refresh() }
+                catch { moduleUpdateError = "正在等待后台恢复，将自动重试" }
             } catch {
                 moduleUpdateError = error.localizedDescription
                 moduleUpdateActive = false
@@ -327,6 +461,7 @@ import V2rayMKit
     }
     func settingsWrite(_ path: String, method: String = "PUT", body: SettingsValue? = nil) async throws {
         guard ready, !busy, !moduleUpdateActive, !shuttingDown, let api else { throw ClientFailure("operation_in_progress") }
+        connection.invalidateObservations()
         busy = true
         defer { busy = false }
         do {
@@ -337,16 +472,18 @@ import V2rayMKit
             settingsOperation = task
             defer { settingsOperation = nil }
             try await task.value
-            try await refresh()
+            if await observeAfterCommand() { try await synchronizeProxyPort() }
         } catch {
-            try? await refresh()
-            if systemProxyEnabled && status?.coreRunning != true { try? await restoreProxy() }
+            if await observeAfterCommand(), systemProxyEnabled, let status,
+               ConnectionCoordinator.shouldDetachSystemProxy(status) { try? await restoreProxy() }
             throw error
         }
     }
     func shutdown() async -> Bool {
+        connection.invalidateObservations()
         shuttingDown = true
-        networkRecovery.cancel()
+        connection.recovery.cancel()
+        observations.cancel()
         let pendingPoll = polling
         polling?.cancel(); polling = nil
         await pendingPoll?.value
@@ -364,6 +501,7 @@ import V2rayMKit
                 }
             }
             try await backend.stop(); ready = false; api = nil
+            connection.request(.off)
             return true
         } catch { self.error = error.localizedDescription; if ready { startPolling() }; return false }
     }

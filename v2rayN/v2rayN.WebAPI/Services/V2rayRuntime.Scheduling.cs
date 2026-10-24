@@ -65,7 +65,7 @@ public sealed partial class V2rayRuntime
                     await using var operation = await _operations.EnterOperationAsync(token);
                     await _mutations.RunAsync(async () =>
                     {
-                        await EnsureConfigSaveSucceededAsync(() => ConfigHandler.SaveConfig(Config));
+                        await EnsureConfigSaveSucceededAsync(() => _configStore.SaveAsync());
                         await ProfileExManager.Instance.SaveTo();
                     }, operation.Token);
                 }, cancellationToken);
@@ -150,7 +150,7 @@ public sealed partial class V2rayRuntime
             return;
         }
         Task? task;
-        lock (_updateTaskGate) { task = _geoUpdateTask; }
+        task = _moduleUpdates.GetTask("geo-update");
         if (task is not null) await task.WaitAsync(cancellationToken);
     }
 

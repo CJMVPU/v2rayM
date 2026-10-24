@@ -1,7 +1,7 @@
 namespace ServiceLib.Models.Dto;
 
 [Serializable]
-public partial class ProfileItemModel : ReactiveObject
+public class ProfileItemModel
 {
     public bool IsActive { get; set; }
     public string IndexId { get; set; }
@@ -15,31 +15,23 @@ public partial class ProfileItemModel : ReactiveObject
     public string SubRemarks { get; set; }
     public int Sort { get; set; }
 
-    [Reactive]
-    public partial int Delay { get; set; }
+    public int Delay { get; set; }
 
     public decimal Speed { get; set; }
 
-    [Reactive]
-    public partial string DelayVal { get; set; }
+    public string DelayVal { get; set; }
 
-    [Reactive]
-    public partial string SpeedVal { get; set; }
+    public string SpeedVal { get; set; }
 
-    [Reactive]
-    public partial string IpInfo { get; set; }
+    public string IpInfo { get; set; }
 
-    [Reactive]
-    public partial string TodayUp { get; set; }
+    public string TodayUp { get; set; }
 
-    [Reactive]
-    public partial string TodayDown { get; set; }
+    public string TodayDown { get; set; }
 
-    [Reactive]
-    public partial string TotalUp { get; set; }
+    public string TotalUp { get; set; }
 
-    [Reactive]
-    public partial string TotalDown { get; set; }
+    public string TotalDown { get; set; }
 
     public string GetSummary()
     {

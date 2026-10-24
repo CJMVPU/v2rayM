@@ -3,12 +3,16 @@ import Network
 
 /// Observe physical paths separately so our own utun restart does not trigger
 /// another recovery. No SSIDs or network credentials are read.
-@MainActor final class NetworkLifecycle {
+@MainActor protocol NetworkEvents: AnyObject {
+    func observe(sleep: @escaping @MainActor (Bool) -> Void, change: @escaping @MainActor (Bool) -> Void)
+}
+
+@MainActor final class NetworkLifecycle: NetworkEvents {
     private var monitors: [NWPathMonitor] = []
     private var observers: [NSObjectProtocol] = []
     private var paths: [Int: String] = [:]
     private var signature: String?
-    init(sleep: @escaping @MainActor (Bool) -> Void,
+    func observe(sleep: @escaping @MainActor (Bool) -> Void,
          change: @escaping @MainActor (Bool) -> Void) {
         let center = NSWorkspace.shared.notificationCenter
         for (name, asleep) in [(NSWorkspace.willSleepNotification, true), (NSWorkspace.didWakeNotification, false)] {

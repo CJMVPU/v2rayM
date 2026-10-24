@@ -5,6 +5,24 @@ import V2rayMKit
 @testable import V2rayM
 
 final class ConnectionDashboardRenderingTests: XCTestCase {
+    @MainActor func testDiscHoverSnapshot() throws {
+        guard let output = ProcessInfo.processInfo.environment["V2RAYM_HOVER_RENDER"] else {
+            throw XCTSkip("Set V2RAYM_HOVER_RENDER for an offline hover comparison")
+        }
+        let view = HStack(spacing: 32) {
+            DashboardDiscSurface(hovered: false)
+            DashboardDiscSurface(hovered: true)
+        }.padding(24).frame(width: 700, height: 350)
+            .background(Color(nsColor: .controlBackgroundColor)).environment(\.colorScheme, .dark)
+        let host = NSHostingView(rootView: view)
+        host.frame = CGRect(x: 0, y: 0, width: 700, height: 350)
+        host.appearance = NSAppearance(named: .darkAqua)
+        host.layoutSubtreeIfNeeded()
+        let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: output))
+    }
+
     @MainActor func testDashboardSnapshot() throws {
         guard let output = ProcessInfo.processInfo.environment["V2RAYM_DASHBOARD_RENDER"] else {
             throw XCTSkip("Set V2RAYM_DASHBOARD_RENDER for an offline dashboard snapshot")

@@ -8,6 +8,7 @@ No browsing destinations are sent to a geolocation API at runtime.
 import csv
 import gzip
 import ipaddress
+import hashlib
 import json
 from pathlib import Path
 import struct
@@ -34,5 +35,21 @@ with gzip.open(source, 'rt', encoding='utf-8', newline='') as stream, \
         target = v4 if first.version == 4 else v6
         target.write(first.packed + last.packed + struct.pack('>I', indices[key]))
         counts[first.version] += 1
-(output / 'places.json').write_text(json.dumps(places, ensure_ascii=False, separators=(',', ':')))
+# Header: magic, count, record width. Each 24-byte big-endian record stores
+# UTF-8 payload offset, country/city lengths, latitude and longitude. Readers
+# map the table and decode only the matching place, preserving exact doubles.
+records, strings = bytearray(), bytearray()
+for place in places:
+    country, city = place['country'].encode('utf-8'), place['city'].encode('utf-8')
+    assert len(country) <= 65535 and len(city) <= 65535
+    records.extend(struct.pack('>IHHdd', len(strings), len(country), len(city), place['latitude'], place['longitude']))
+    strings.extend(country + city)
+(output / 'places.bin').write_bytes(b'V2MLOC01' + struct.pack('>II', len(places), 24) + records + strings)
+def digest(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+manifest = dict(formatVersion=1, input=dict(file=source.name,
+    sourceURL='https://download.db-ip.com/free/' + source.name, sha256=digest(source)),
+    outputs={name: dict(sha256=digest(output / name), bytes=(output / name).stat().st_size)
+             for name in ['ipv4.bin', 'ipv6.bin', 'places.bin']})
+(output / 'geodata-manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
 print(json.dumps(dict(ranges=counts, places=len(places), source=source.name)))

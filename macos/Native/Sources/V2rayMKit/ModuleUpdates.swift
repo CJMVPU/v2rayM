@@ -20,7 +20,7 @@ public struct ModuleUpdateProgress: Decodable, Identifiable {
     public var completedFiles: Int?
     public var totalFiles: Int?
     public var awaitingCompatibilityValidation: Bool {
-        isComplete && !success && detail?.hasPrefix("发现上游新版本 ") == true
+        isComplete && !success && (phase == "awaiting-validation" || detail?.hasPrefix("发现上游新版本 ") == true)
     }
     public var downloadFraction: Double? {
         guard let totalBytes, totalBytes > 0, let downloadedBytes else { return nil }
@@ -29,7 +29,7 @@ public struct ModuleUpdateProgress: Decodable, Identifiable {
     public var phaseLabel: String {
         if isComplete && success, let detail,
            ["已安装同版本修复版，无需更新", "已安装较新修复版，无需更新"].contains(detail) { return detail }
-        if awaitingCompatibilityValidation { return "等待兼容验证" }
+        if awaitingCompatibilityValidation { return "等待验证后再替换内核" }
         if isComplete { return success ? "已完成" : "更新失败" }
         switch phase {
         case "queued", "waiting": return "等待更新"

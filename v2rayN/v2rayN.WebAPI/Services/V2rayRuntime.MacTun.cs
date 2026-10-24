@@ -25,9 +25,10 @@ public sealed partial class V2rayRuntime
                 && prefix <= (address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork ? 32 : 128);
         });
 
-    public async Task<MacTunStatus> GetMacTunStatusAsync()
+    public async Task<MacTunStatus> GetMacTunStatusAsync(bool fresh = false)
     {
-        var helper = await _macTunLauncher.ProbeAsync();
+        if (fresh) _macTunLauncher.InvalidateProbe();
+        var helper = fresh ? await _macTunLauncher.ProbeAsync() : await _macTunLauncher.ProbeCachedAsync();
         return new(OperatingSystem.IsMacOS(), helper.Success, helper.Code, helper.Success ? "ready" : helper.State,
             Config.TunModeItem.EnableTun, ["xray"], "helper-verified-xray", GetCoreRuntimeState(),
             _macTunLauncher.CaptureIdentities().Select(identity => identity.ProcessId).ToArray());
@@ -50,7 +51,7 @@ public sealed partial class V2rayRuntime
             await _mutations.RunAsync(async () =>
             {
                 Config.TunModeItem.EnableTun = input.Enabled;
-                await EnsureConfigSaveSucceededAsync(() => ConfigHandler.SaveConfig(Config));
+                await EnsureConfigSaveSucceededAsync(() => _configStore.SaveAsync());
             });
             return await CompleteCoreAffectingChangeAsync("macos-tun", changed, context);
         }

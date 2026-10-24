@@ -36,7 +36,7 @@ struct ModuleUpdatePanel: View {
                         ProgressView(value: progress?.isComplete == true && progress?.success == true ? 1 : progress?.downloadFraction ?? 0)
                             .tint(progress?.isComplete == true && progress?.success == false ? .orange : .accentColor)
                     }
-                    if let progress, progress.isComplete && !progress.success && !progress.awaitingCompatibilityValidation, let detail = progress.detail {
+                    if let progress, progress.isComplete && !progress.success, let detail = progress.detail {
                         Text(detail).font(AppFont.caption).foregroundStyle(.orange).textSelection(.enabled)
                     }
                 }
@@ -44,7 +44,7 @@ struct ModuleUpdatePanel: View {
             if let error = model.moduleUpdateError {
                 Text(error).font(AppFont.caption).foregroundStyle(.orange).textSelection(.enabled)
             }
-            Text("检查最新预发布版；修复版遇同版本会跳过，新版本待兼容验证。允许更新时，失败自动恢复旧版。")
+            Text("检查最新版本（含预发布版）；发现新版本后等待验证，不自动替换 Xray 内核。")
                 .font(AppFont.caption).foregroundStyle(.secondary)
         }.padding(.vertical, 6)
     }

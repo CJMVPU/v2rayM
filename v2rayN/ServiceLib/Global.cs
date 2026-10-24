@@ -26,10 +26,6 @@ public class Global
     public const string DNSV2rayNormalFileName = NamespaceSample + "dns_v2ray_normal";
     public const string ClashMixinYaml = NamespaceSample + "clash_mixin_yaml";
     public const string ClashTunYaml = NamespaceSample + "clash_tun_yaml";
-    public const string LinuxAutostartConfig = NamespaceSample + "linux_autostart_config";
-    public const string PacFileName = NamespaceSample + "pac";
-    public const string ProxySetOSXShellFileName = NamespaceSample + "proxy_set_osx_sh";
-    public const string ProxySetLinuxShellFileName = NamespaceSample + "proxy_set_linux_sh";
     public const string KillAsSudoOSXShellFileName = NamespaceSample + "kill_as_sudo_osx_sh";
     public const string KillAsSudoLinuxShellFileName = NamespaceSample + "kill_as_sudo_linux_sh";
     public const string ChromeRootCertFileName = NamespaceSample + "chrome_roots_pem";
@@ -67,8 +63,6 @@ public class Global
     public const string GeoIPPrefix = "geoip:";
 
     public const string UserEMail = "t@t.tt";
-    public const string AutoRunRegPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
-    public const string AutoRunName = "v2rayNAutoRun";
     public const string SystemProxyExceptionsWindows = "localhost;127.*;10.*;172.16.*;172.17.*;172.18.*;172.19.*;172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;172.25.*;172.26.*;172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;192.168.*";
     public const string SystemProxyExceptionsLinux = "localhost,127.0.0.0/8,::1";
     public const string RoutingRuleComma = "<COMMA>";

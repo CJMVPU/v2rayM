@@ -14,7 +14,6 @@ namespace v2rayN.WebAPI.Services;
 public sealed partial class V2rayRuntime
 {
     private const string WebUpdateProgressFile = "WebAPI-update-progress.json";
-    private Task? _webUpdateTask;
     private string? _latestWebUpdateVersion;
 
     public WebUpdateTargetView GetWebUpdateTarget()
@@ -85,16 +84,9 @@ public sealed partial class V2rayRuntime
             return OperationView.Fail("web_update_not_selected", ApiMessageKeys.CoreUpdateUnsupported);
         }
 
-        lock (_updateTaskGate)
-        {
-            if (IsUpdateRunningLocked())
-            {
-                return OperationView.Fail("core_update_busy", ApiMessageKeys.CoreUpdateBusy);
-            }
-            _webUpdateTask = Task.Run(() => RunWebUpdateAsync(
-                GetUpdatePreRelease(WebUpdateTarget, preRelease),
-                useProxy ?? Config.CheckUpdateItem.UpdateViaProxy));
-        }
+        if (!_moduleUpdates.TryStart("web-update", () => { }, () => RunWebUpdateAsync(
+                GetUpdatePreRelease(WebUpdateTarget, preRelease), useProxy ?? Config.CheckUpdateItem.UpdateViaProxy)))
+            return OperationView.Fail("core_update_busy", ApiMessageKeys.CoreUpdateBusy);
         return OperationView.Ok(ApiMessageKeys.CoreUpdateStarted, new { target = WebUpdateTarget });
     }
 
@@ -167,7 +159,6 @@ public sealed partial class V2rayRuntime
         finally
         {
             CleanupWebUpdateStage(stage);
-            lock (_updateTaskGate) _webUpdateTask = null;
         }
     }
 

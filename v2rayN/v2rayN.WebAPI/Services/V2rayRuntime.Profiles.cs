@@ -46,7 +46,7 @@ public sealed partial class V2rayRuntime
         await _mutations.RunAsync(async () =>
         {
             Config.SubIndexId = subscriptionId ?? string.Empty;
-            await EnsureConfigSaveSucceededAsync(() => ConfigHandler.SaveConfig(Config));
+            await EnsureConfigSaveSucceededAsync(() => _configStore.SaveAsync());
         });
         _events.Publish("profiles-changed", new { subscriptionId = Config.SubIndexId });
         return OperationView.Ok(ApiMessageKeys.CommonCompleted, new { subscriptionId = Config.SubIndexId });
@@ -70,7 +70,7 @@ public sealed partial class V2rayRuntime
             var imported = await ConfigHandler.AddBatchServers(Config, request.Content, groupId, request.IsSubscription);
             if (imported > 0)
             {
-                await EnsureConfigSaveSucceededAsync(() => ConfigHandler.SaveConfig(Config));
+                await EnsureConfigSaveSucceededAsync(() => _configStore.SaveAsync());
             }
             return imported;
         });
@@ -284,7 +284,7 @@ public sealed partial class V2rayRuntime
             if (removesCurrent)
             {
                 _ = await ConfigHandler.GetDefaultServer(Config);
-                await EnsureConfigSaveSucceededAsync(() => ConfigHandler.SaveConfig(Config));
+                await EnsureConfigSaveSucceededAsync(() => _configStore.SaveAsync());
             }
         });
 

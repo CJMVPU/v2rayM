@@ -4,7 +4,7 @@ public enum HelperIdentity {
     public static let app = "io.github.CJMVPU.v2rayM"
     public static let service = app + ".tun-helper"
     public static let plist = service + ".plist"
-    public static let protocolVersion = 2
+    public static let protocolVersion = HelperContract.version
 }
 
 @objc public protocol TunHelperProtocol {

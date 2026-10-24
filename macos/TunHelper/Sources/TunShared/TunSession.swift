@@ -130,7 +130,7 @@ public final class TunSession {
     public func handle(_ data: Data) -> HelperResponse {
         lock.lock(); defer { lock.unlock() }
         do {
-            guard data.count <= 100 * 1024 * 1024 else { throw HelperFailure("request_too_large") }
+            guard data.count <= HelperContract.wireBytes else { throw HelperFailure("request_too_large") }
             let request = try JSONDecoder().decode(HelperRequest.self, from: data)
             refreshExited()
             switch request.action {

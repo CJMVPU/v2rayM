@@ -77,15 +77,20 @@ public actor SystemProxyController {
     private static let managedGroups = [["HTTPEnable", "HTTPProxy", "HTTPPort"],
         ["HTTPSEnable", "HTTPSProxy", "HTTPSPort"], ["SOCKSEnable", "SOCKSProxy", "SOCKSPort"],
         ["ProxyAutoConfigEnable"], ["ProxyAutoDiscoveryEnable"], ["ExceptionsList", "ExcludeSimpleHostnames"]]
+    private var ownedPort: Int?
     private let journalURL: URL
     private let makeStore: () throws -> ProxyPreferencesStore
     public init(dataDirectory: URL, makeStore: @escaping () throws -> ProxyPreferencesStore = { try MacProxyPreferences() }) {
         journalURL = dataDirectory.appendingPathComponent("native-proxy-recovery.plist")
         self.makeStore = makeStore
     }
-    public var needsRecovery: Bool { FileManager.default.fileExists(atPath: journalURL.path) }
+    private var hasJournal: Bool { FileManager.default.fileExists(atPath: journalURL.path) }
+    public var isEnabled: Bool { ownedPort != nil && hasJournal }
+    /// An active session deliberately keeps a journal for normal off/quit.
+    /// Only an unowned or failed transaction needs the recovery UI.
+    public var needsRecovery: Bool { hasJournal && ownedPort == nil }
     public func enable(port: Int) throws {
-        guard !needsRecovery else { throw ClientFailure("proxy_recovery") }
+        guard !hasJournal else { throw ClientFailure("proxy_recovery") }
         guard (1...65535).contains(port) else { throw ClientFailure("invalid_port") }
         let store = try makeStore()
         let original = try store.services()
@@ -100,15 +105,26 @@ public actor SystemProxyController {
         let data = try PropertyListEncoder().encode(records)
         try data.write(to: journalURL, options: [.atomic])
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: journalURL.path)
-        do { try store.apply(changed) }
+        do { try store.apply(changed); ownedPort = port }
         catch {
             // Keep the journal even if apply only partially succeeded. The next off/quit can recover it.
             throw error
         }
     }
+    /// Rebind after a running core changes its listener port. Restore the
+    /// original baseline first; a later change by another app stops the rebind.
+    public func rebind(port: Int) throws {
+        guard (1...65535).contains(port) else { throw ClientFailure("invalid_port") }
+        guard isEnabled else { throw ClientFailure("proxy_recovery") }
+        guard ownedPort != port else { return }
+        let changedElsewhere = try restore()
+        guard !changedElsewhere else { throw ClientFailure("proxy_changed") }
+        try enable(port: port)
+    }
     /// Restore only fields still matching our applied settings. Never erase a later change by another app.
     @discardableResult public func restore() throws -> Bool {
-        guard needsRecovery else { return false }
+        ownedPort = nil
+        guard hasJournal else { return false }
         let records = try PropertyListDecoder().decode([ProxyRecord].self, from: Data(contentsOf: journalURL))
         let store = try makeStore()
         let current = try store.recoveryServices()

@@ -95,11 +95,11 @@ struct ContentView: View {
             if model.proxyNeedsRecovery {
                 Button("恢复代理") { model.recoverProxy() }.disabled(model.busy || model.moduleUpdateActive)
             } else {
-                Toggle("系统代理", isOn: Binding(get: { model.systemProxyEnabled && model.status?.coreRunning == true && model.tun?.isRunning != true }, set: { model.toggleProxy($0) }))
-                    .toggleStyle(.switch).fixedSize().disabled(controlsDisabled)
+                Toggle("系统代理", isOn: Binding(get: { model.desiredMode == .system }, set: { model.toggleProxy($0) }))
+                    .toggleStyle(.switch).fixedSize().disabled(!model.canToggle(.system))
             }
-            Toggle("TUN", isOn: Binding(get: { model.tun?.isRunning == true }, set: { model.toggleTun($0) }))
-                .toggleStyle(.switch).fixedSize().disabled(controlsDisabled || model.tun == nil)
+            Toggle("TUN", isOn: Binding(get: { model.desiredMode == .tun }, set: { model.toggleTun($0) }))
+                .toggleStyle(.switch).fixedSize().disabled(!model.canToggle(.tun) || model.tun == nil)
         }.controlSize(.small).padding(.horizontal, 12).frame(height: 32)
             .overlay {
                 Text("powered by cj")

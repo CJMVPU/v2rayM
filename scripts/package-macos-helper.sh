@@ -6,6 +6,8 @@ backend="${1:?Usage: package-macos-helper.sh <backend-publish-directory> <new-ou
 app="${2:?Specify a new output .app directory}"
 signing_identity="${SIGN_IDENTITY:--}"
 core_bin="${CORE_BIN_DIR:-}"
+export APP_VERSION="$(cat "$repo_root/VERSION")"
+python3 "$repo_root/scripts/macos-build-manifest.py" verify-backend --backend "$backend"
 [[ "$(uname -s)" == Darwin ]] || { echo 'This package requires macOS.' >&2; exit 1; }
 [[ -x "$backend/v2rayN.WebAPI" && "$app" == *.app && ! -e "$app" ]] || {
   echo 'Provide a native backend publish directory and a new .app path.' >&2; exit 1;
@@ -18,21 +20,19 @@ if [[ "$signing_identity" != - ]]; then
   }
 fi
 if [[ -n "$core_bin" ]]; then
-  core_version="$("$core_bin/xray/xray" version)"
-  if [[ "$core_version" == 'Xray 26.10.21 '* && ! "$core_version" =~ v2raym-darwin-bind[12]([[:space:]]|$) ]]; then
-    echo 'Xray 26.10.21 requires the Darwin binding fix. Build with scripts/build-macos-xray.py first.' >&2
-    exit 1
-  fi
+  python3 "$repo_root/scripts/macos-build-manifest.py" verify-core --core-bin "$core_bin"
+
 fi
 build_dir="${SWIFT_SCRATCH_PATH:-${TMPDIR:-/tmp}/v2raym-helper-build-$architecture}"
-swift build --package-path "$repo_root/macos/TunHelper" --scratch-path "$build_dir" \
+swift build --disable-sandbox --package-path "$repo_root/macos/TunHelper" --scratch-path "$build_dir" \
   --configuration release --arch "$architecture"
-swift_bin="$(swift build --package-path "$repo_root/macos/TunHelper" --scratch-path "$build_dir" \
+swift_bin="$(swift build --disable-sandbox --package-path "$repo_root/macos/TunHelper" --scratch-path "$build_dir" \
   --configuration release --arch "$architecture" --show-bin-path)"
 
 python3 - "$backend" "$app" "$core_bin" <<'PY'
 from pathlib import Path
 import plistlib
+import os
 import shutil
 import sys
 
@@ -54,8 +54,8 @@ if sys.argv[3]:
 (app / 'Contents/Library/LaunchDaemons').mkdir(parents=True)
 with (app / 'Contents/Info.plist').open('wb') as output:
     plistlib.dump(dict(CFBundleIdentifier='io.github.CJMVPU.v2rayM', CFBundleName='v2rayM Helper Setup',
-        CFBundleExecutable='V2rayMHelperClient', CFBundlePackageType='APPL', CFBundleVersion='0.1.0',
-        CFBundleShortVersionString='0.1.0', LSMinimumSystemVersion='15.0', LSUIElement=True), output)
+        CFBundleExecutable='V2rayMHelperClient', CFBundlePackageType='APPL', CFBundleVersion=os.environ['APP_VERSION'],
+        CFBundleShortVersionString=os.environ['APP_VERSION'], LSMinimumSystemVersion='15.0', LSUIElement=True), output)
 PY
 cp "$swift_bin/V2rayMHelper" "$swift_bin/V2rayMHelperClient" "$app/Contents/MacOS/"
 cp "$repo_root/macos/Resources/io.github.CJMVPU.v2rayM.tun-helper.plist" "$app/Contents/Library/LaunchDaemons/"

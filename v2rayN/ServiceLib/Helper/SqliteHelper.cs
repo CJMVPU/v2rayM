@@ -23,6 +23,9 @@ public sealed class SQLiteHelper
         return _db.CreateTable<T>();
     }
 
+    /// Execute related table replacements as one rollback-capable SQLite transaction.
+    public Task RunInTransactionAsync(Action<SQLiteConnection> action) => _dbAsync.RunInTransactionAsync(action);
+
     public async Task<int> InsertAllAsync(IEnumerable models)
     {
         return await _dbAsync.InsertAllAsync(models, runInTransaction: true).ConfigureAwait(false);

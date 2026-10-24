@@ -86,15 +86,15 @@ public class MacTunTests
         Directory.CreateDirectory(directory);
         try
         {
-            var rules = Path.Combine(directory, "rules.srs");
+            var rules = Path.Combine(directory, "certificate.pem");
             var config = Path.Combine(directory, "config.json");
             await File.WriteAllBytesAsync(rules, [1, 2, 3]);
             await File.WriteAllTextAsync(config, JsonSerializer.Serialize(new
             {
-                inbounds = new[] { new { type = "tun" } },
-                route = new { rule_set = new[] { new { type = "local", path = rules } } },
+                inbounds = new[] { new { protocol = "tun" } },
+                streamSettings = new { tlsSettings = new { certificates = new[] { new { certificateFile = rules } } } },
             }));
-            using var request = JsonDocument.Parse(MacTunCoreLauncher.BuildRequest("sing_box", config));
+            using var request = JsonDocument.Parse(MacTunCoreLauncher.BuildRequest("xray", config));
             await File.WriteAllBytesAsync(rules, [9]);
             var name = request.RootElement.GetProperty("paths").GetProperty(rules).GetString()!;
             var snapshot = request.RootElement.GetProperty("resources").GetProperty(name).GetBytesFromBase64();

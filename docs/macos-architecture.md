@@ -1,184 +1,73 @@
-# v2rayM macOS 原生客户端架构评估
+# v2rayM macOS 架构（0.3.3）
 
-v2rayM 使用 SwiftUI 构建原生 macOS 界面，继续从 v2rayN 同步共享业务代码。
-当前将 `v2rayN.WebAPI` 作为普通用户权限的本地后端。SwiftUI 首版通过 HTTP 访问并每两秒刷新，后续可接入已有 SSE。
-SwiftUI 不直接调用 C# ViewModel，也不直接读写上游 SQLite 数据库。
+产品只包含 SwiftUI 原生 macOS 客户端和 Xray，保留上游 fork、ServiceLib 与 WebAPI。
+控制链路为 SwiftUI → 本机认证 WebAPI → ServiceLib → Xray；TUN 特权操作通过独立签名 helper。
+后端不以 root 运行。节点数据库、配置和恢复记录使用 v2rayM 独立数据目录。
 
-本评估对应初始上游基线 `66dd7da6`，共享构建版本为 `7.25.6`、目标框架为 .NET 10。
-真实联网代理、系统代理、TUN、签名和公证均需要单独验证。
-当前 helper 接入的实现与验证边界见 [macOS TUN helper 接入](macos-tun-helper.md)。
+## 原生端
 
-## ServiceLib 的复用边界
+`AppModel` 负责展示与用户操作编排，依赖 `NativeAPI`、`NativeBackend`、`NativeProxy`、`NativeClock` 和网络事件接口。
+测试可以注入故障和迟到响应，无需启动真实代理或修改系统网络。
+`ConnectionCoordinator` 保存 off/system/tun 连接意图及操作代数，意图与实际运行状态分离。
+标题栏和菜单栏使用同一个模型；恢复中的连接仍能取消，旧查询不能覆盖后续操作结果。
 
-[`ServiceLib.csproj`](../v2rayN/ServiceLib/ServiceLib.csproj) 是 C# 类库，不引用 WPF、Avalonia 或 GUI 热键项目。
-它包含节点与订阅管理、协议解析、SQLite 持久化、配置生成、路由、DNS、测速、统计及代理内核管理。
-保留这些实现，能让协议和配置的上游修复继续进入本项目。
+关键运行快照独立刷新，`ObservationScheduler` 分别调度日志、节点、路由、helper 状态和更新进度。
+观察失败保留最近数据并记录该主题错误，不作为停止健康代理的依据。
+后端进程退出、明确停止/故障状态与一次 HTTP 查询失败分别处理。
+休眠和网络变化通过恢复状态机退避重试，操作代数阻止取消之后重新连接。
+系统代理设置按配置组保存原值并核对归属；端口变化重新绑定，恢复失败保留日志供重试。
 
-它还依赖 ReactiveUI，并包含 `ViewModels`、界面资源以及平台代码，并非完全与表现层分离。
-例如 [`MainWindowViewModel`](../v2rayN/ServiceLib/ViewModels/MainWindowViewModel.cs) 包含剪贴板、扫码、窗口显示隐藏和设置对话框交互；
-[`AppManager`](../v2rayN/ServiceLib/Manager/AppManager.cs) 使用单例、共享配置和 `IWindowDialog`。
-删除所有 ViewModel 或名字含 `Gui` 的配置会扩大上游差异，并可能破坏共享功能。
-这些兼容结构保留在后端，新的 SwiftUI 界面自行组织状态和交互。
+`APIClient` 仅允许本机 HTTP API，绕过系统代理、拒绝重定向并验证响应 envelope。
+后端启动时校验健康响应 PID；Management Key 交换 Bearer 会话，不写入日志。
+共享后端仍保留 SSE 接口，原生客户端采用轮询，不依赖事件流完整历史。
 
-## WebAPI 已有能力
+## 后端职责与一致性
 
-[`v2rayN.WebAPI.csproj`](../v2rayN/v2rayN.WebAPI/v2rayN.WebAPI.csproj) 直接引用 ServiceLib，没有 GUI 框架依赖。
-[`V2rayRuntime`](../v2rayN/v2rayN.WebAPI/Services/V2rayRuntime.cs) 自行初始化 AppManager、内核和统计，并使用
-[`HeadlessWindowDialog`](../v2rayN/v2rayN.WebAPI/Adapters/HeadlessWindowDialog.cs) 满足对话框接口。
-它使用自己的任务调度、写操作串行化和退出清理，不需要启动桌面 ViewModel。
+`V2rayRuntime` 仍是 API 门面和共享业务组合入口。以下服务承担独立职责：
 
-| 功能 | 现有 API | SwiftUI 侧工作 |
-| --- | --- | --- |
-| 节点和分组 | `/api/profiles`、`/api/profile-groups`，包含编辑、导入导出、选择和排序 | 列表、编辑表单、导入入口 |
-| 订阅 | `/api/subscriptions`，含更新及后台调度 | 订阅管理、更新进度 |
-| 内核运行 | `/api/core/start`、`stop`、`restart`，`/api/status` | 连接状态、错误与运行配置显示 |
-| 路由和 DNS | `/api/settings/routing-profiles`、`/api/settings/dns/*` | 原生设置页面 |
-| 测速和统计 | `/api/speedtests`、节点计数及 SSE | 进度、结果、流量展示 |
-| 日志和后台任务 | `/api/logs/page`、`/api/operations`、`/api/events` | 日志查看、任务状态与重连 |
-| 内核和规则文件更新 | `/api/core-updates/*`、`/api/core/geo/update` | 根据返回的支持状态展示操作 |
-| 备份和恢复 | `/api/backup/*`、WebDAV | 原生文件选择器；macOS 恢复重启流程仍需补齐 |
-| 编辑器选项 | `/api/editor-options` 及 DNS 选项接口 | 动态读取，避免复制上游枚举 |
+- `CoreLifecycleService`：运行快照、受管进程、健康监测及停止确认。
+- `CoreSettingsTransaction`：停止、应用、重启与失败恢复的设置事务编排。
+- `IRuntimeConfigStore`：当前配置、保存、快照与恢复；ServiceLib 适配器封装原有单例。
+- `ModuleUpdateCoordinator`：更新任务准入、任务生命周期、进度和更新决策。
+- `RuntimeExecutionContext`：统一操作租约、核心锁、写入门及区域预设锁的归属。
 
-接口和 DTO 的依据是 [`WebApiEndpoints.cs`](../v2rayN/v2rayN.WebAPI/Api/WebApiEndpoints.cs)、
-[`ApiModels.cs`](../v2rayN/v2rayN.WebAPI/Contracts/ApiModels.cs) 及上游的
-[`FEATURE-MAP.md`](../v2rayN/v2rayN.WebAPI/FEATURE-MAP.md)。
-功能表表示已有代码接口，真实内核能力取决于目标架构的内核文件及 macOS 实测。
+配置恢复涉及 SQLite 和 JSON，不能假装是一个数据库事务。
+路由、DNS、完整配置模板在同一 SQLite 事务内恢复；跨文件恢复先持久化私有权限的 journal，
+成功才删除。保存失败保留 journal，下次初始化或重试先重放，不能覆盖未完成的恢复意图。
+旧节点 ID、配置字段和共享 API 保留；不支持的节点明确失败，不删除用户数据。
 
-## 必须补齐的 macOS 能力
+更新决策区分 current、available、awaiting-validation、failed，单项与批量更新使用同一规则。
+发布入口使用严格版本解析，历史数据仍可使用原有宽容解析。
+Xray 从正式及预发布版本中选择最新版本；发现高于已安装版本的候选时等待兼容验证，不直接替换。
 
-### 系统代理
+## helper 权限与契约
 
-WebAPI 没有系统代理设置接口。
-ServiceLib 的 [`ProxySettingOSX`](../v2rayN/ServiceLib/Handler/SysProxy/ProxySettingOSX.cs) 和
-[`proxy_set_osx_sh`](../v2rayN/ServiceLib/Sample/proxy_set_osx_sh) 可作为行为参考，脚本通过 `networksetup` 修改网络服务。
-现有清理行为是关闭代理，不能直接视为恢复用户原有代理设置。
+helper 通过调用者签名认证、受限路径和启动策略控制特权 Xray；保留可信更新、回滚及路由/DNS 恢复。
+跨 Swift/C# 的协议常量由 `contracts/` 生成，golden fixture 校验两端编码；生成文件漂移会令检查失败。
+无 Xray 用途的 SRS 白名单已移除。
 
-建议由 macOS 系统集成层处理权限、网络服务变化和原设置快照，开启前记录配置，关闭或异常恢复时只恢复本应用拥有的修改。
-启动和停止代理内核不等于系统代理已经设置成功，GUI 应分别显示两者状态。
+状态探测合并并发请求，成功缓存 30 秒、失败缓存 2 秒，状态变化使缓存失效。
+启动及更新等关键预检查使用实时探测，不能以展示缓存绕过授权或可用性检查。
 
-### TUN
+## 精简与定位资源
 
-[`CoreLaunchPreflight`](../v2rayN/v2rayN.WebAPI/Services/CoreLaunchPreflight.cs) 保留无头默认 TUN 拒绝策略；macOS 主机通过独立策略检查 helper 可用性、生成配置及内核类型后才放行。
-已实现 helper 的授权接入入口、进程归属和停止逻辑；真实路由与 DNS 清理仍需签名后的系统验证。
+Profile DTO 使用普通属性，不再引入 ReactiveUI。旧窗口适配器、二维码、扫码、旧自动启动、
+无订阅者的界面事件总线及其无调用系统代理/PAC 路径移除。
+原生系统代理仍由 `SystemProxyController` 管理。
+旧地图渲染器和纹理移除，节点城市与近期连接定位保留。
 
-当前选用特权 helper 配合上游 Xray/sing-box 内核，SwiftUI 经普通用户后端控制。Network Extension 是保留的替代路线。
-[`SMAppService`](https://developer.apple.com/documentation/servicemanagement) 可用于管理额外的服务程序；
-[`NEPacketTunnelProvider`](https://developer.apple.com/documentation/networkextension/nepackettunnelprovider) 需要对应 Network Extension entitlement。
-Network Extension 是单独的实现路线，不能直接将现有 CLI 内核放入扩展就当作已经完成。
-普通 WebAPI 不应整体以 root 权限运行。
+离线定位保留 IPv4/IPv6 区间，城市表改为带版本的 `places.bin`，使用内存映射和按需字符串解码。
+边界、偏移、UTF-8 与坐标异常返回未知位置；保留 DB-IP 许可归属。
+输入及生成文件摘要通过 `geodata-manifest.json` 与构建输入锁校验，干净检出可以重新生成。
 
-### Clash 和桌面交互
+## 构建和验收
 
-现有 API 不开放 Clash 策略组与连接管理。若首版需要，应在后端提供窄接口，复用上游对应服务；
-SwiftUI 不直接保存和操作第二份 Clash 控制器凭据。
-菜单栏、原生菜单、通知、剪贴板、文件选择、快捷键和登录启动归 SwiftUI/AppKit 与 macOS 集成层所有。
+`scripts/build-macos-product.py` 是一致构建入口：检查边界和契约、验证定位资源、记录源码快照、
+编译后端及原生/helper、嵌套签名、核对 manifest、执行隔离回环验证。
+来源记录包含版本、commit、源码摘要、工具链及组件摘要；低层打包入口也验证后端来源，避免新 UI 混装旧后端。
+Xray 保留固定源码及 Darwin 修复标识。macOS 产品 CI 与独立 WebAPI 手动发布分开。
 
-### 进程生命周期和应用更新
-
-SwiftUI 可在初期启动打包进应用的 WebAPI 子进程，传入 `--foreground --no-open`。
-关闭窗口、退出应用和停止连接是三个不同动作，需要明确产品行为。
-正常退出必须给后端足够的清理时间；GUI 崩溃、后端崩溃和系统重启后的代理恢复也必须单独设计。
-
-WebAPI 的 `--stop`、后台启动及恢复重启的原生支持主要面向 Linux/Windows。
-[`WebRestartCoordinator.cs`](../v2rayN/v2rayN.WebAPI/Launcher/WebRestartCoordinator.cs) 和
-[`V2rayRuntime.Backup.cs`](../v2rayN/v2rayN.WebAPI/Services/V2rayRuntime.Backup.cs) 中的重启支持不包含 macOS。
-[`WebUpdatePackageStager`](../v2rayN/v2rayN.WebAPI/Services/WebUpdatePackageStager.cs) 也没有 macOS 自更新包格式支持。
-备份恢复接口的存在不代表恢复后自动重启已适配完成；客户端需要识别相关能力与错误。
-
-v2rayM 应将 GUI 与随包后端作为一个应用版本更新，代理内核和规则文件保留独立更新策略。
-初期不启用 API 自更新，避免后端脱离已签名应用的版本与签名边界。
-
-## SwiftUI 与后端的接口约定
-
-当前实现采用以下目录，客户端功能和开发打包步骤见 [README](../README.md#swiftui-原生客户端)：
-
-```text
-macos/
-  Native/Sources/V2rayM/       SwiftUI 界面及展示状态
-  Native/Sources/V2rayMKit/    HTTP、DTO、会话、系统代理与后端生命周期
-  Native/Sources/V2rayMCheck/  临时数据和本机测试节点的集成检查
-  TunHelper/                  独立的特权 helper
-v2rayN/
-  ServiceLib/         尽量跟随上游
-  v2rayN.WebAPI/      复用上游 API，新增接口集中维护
-```
-
-HTTP 使用 `URLSession`，所有后端写操作通过 API 完成。
-成功和失败响应主要使用 `{ success, code, messageKey, data }`；HTTP 状态码、错误 code 和操作是否异步完成都需要处理。
-登录等部分接口的响应字段不同，应按实际 DTO 解码。
-
-Management Key 通过 `/api/auth/login` 交换会话 token，普通请求使用 Bearer 会话。
-SSE 按现有协议申请短期单次 ticket；重连时重新申请，不复用已消费 ticket，不把 token 写入日志。
-[`EventHub`](../v2rayN/v2rayN.WebAPI/Services/EventHub.cs) 的订阅缓冲最多 256 条且会丢弃最旧事件，没有事件重放协议。
-连接重建后必须重新读取状态、任务和列表，不能把 SSE 当成完整历史。
-
-后端只绑定 `127.0.0.1`，使用独立密钥；本机监听不意味着可以免认证。
-启动时确认健康响应中的实例 PID 属于应用启动的进程，避免端口碰撞连接到其他实例。
-初期使用明确配置的端口并在冲突时失败；自动选端口需要由后端提供可靠的握手信息，不能把“先探测空闲端口”当作无竞争的分配机制。
-启动后读取 `/api/status` 的构建身份和 capabilities；能力字符串仍需结合平台支持判断，例如当前通用列表包含自更新，但 macOS 没有相应安装能力。
-
-## 数据目录和发布边界
-
-上游 [`Utils.StartupPath`](../v2rayN/ServiceLib/Common/Utils.cs) 默认使用程序目录，启用 `V2RAYN_LOCAL_APPLICATION_DATA_V2` 后使用
-`.NET LocalApplicationData/v2rayN`。
-原上游通过 `XDG_DATA_HOME` 间接设置目录，在 macOS 上不能实现预期隔离。
-当前 [`Program.PrepareDataScope`](../v2rayN/v2rayN.WebAPI/Program.cs) 和 ServiceLib 路径入口已适配 `V2RAYM_DATA_HOME`，默认使用 `~/Library/Application Support/v2rayM/`，并兼容 `V2RAYN_DATA_HOME`。
-
-正式数据建议放在 `~/Library/Application Support/v2rayM/`，UI 偏好放入本应用 UserDefaults，密钥放入 Keychain。
-首次迁移旧 v2rayN 数据应复制并保留回退来源，两个运行实例不能共用同一套 SQLite 文件。
-冒烟检查使用可写的临时程序副本并清除继承的数据目录配置，不接触真实配置。
-
-macOS 分发需要分别处理 `osx-arm64` 和 `osx-x64` 后端与代理内核，签名嵌套可执行文件、打包 SwiftUI 应用并验证公证。
-现有上游 `publish-native.sh` 只接受 Linux RID，旧 macOS DMG 脚本打包的是 Avalonia 应用。
-本 fork 移除旧桌面打包，使用独立的 macOS 后端与 SwiftUI 构建验证。当前可生成 ad-hoc 原生应用包；Developer ID 签名、公证与正式发布仍待验证。
-
-## 本次删除与保留范围
-
-移除 WPF GUI `v2rayN/v2rayN`、共用 Avalonia GUI `v2rayN/v2rayN.Desktop`、仅供后者引用的 GlobalHotKeys 子模块，
-以及原桌面 Windows、Linux、macOS 构建和安装包脚本。
-解决方案和集中包版本同时清理 GUI 引用。
-
-保留 ServiceLib、UDP 测试库、单元测试、WebAPI 及其后台运行和跨平台测试。
-AmazTool 是上游更新辅助程序，虽然新 SwiftUI 应用不会直接用它，暂时保留以免扩大共享更新代码的删除范围。
-共享库里的 Windows/Linux 平台分支和 `GuiItem` 等兼容名称继续保留。
-
-## 上游同步方式
-
-保留 GitHub fork 关系及完整历史。共享代码路径保持不变，把新增 SwiftUI 与 macOS 服务集中到自己的目录。
-每次同步在临时分支合并上游提交，检查 API 合约、配置迁移、项目与包依赖，以及上游修改已删除 GUI 文件产生的冲突。
-不要用整仓 `ours` 合并、全局忽略冲突或手工复制几个后端目录来代替合并。
-
-删除旧 GUI 会形成长期的删除差异。上游 GUI 改动仍可从历史对照；当它同时修改共享逻辑时，需要判断是否也要为 SwiftUI 补功能。
-同步后构建两个解决方案入口，运行 ServiceLib/WebAPI 测试，构建两种 macOS 后端，并在对应架构实机验证。
-
-## 实施顺序
-
-1. 完成本次 GUI 清理，构建保留的后端并验证隔离启动、认证、只读 API、SSE 与退出。
-2. 补齐 macOS 数据目录、后端启动握手和退出协议，再实现 SwiftUI 最小闭环：节点列表、选择、连接状态和日志。
-3. 使用测试节点验证 Xray/sing-box 启停、订阅、测速、路由、DNS 和断线恢复。
-4. 实现可回退的系统代理集成、菜单栏与登录启动；按首版需求补 Clash 接口。
-5. 单独完成 TUN 授权、路由/DNS 恢复、签名、公证和应用更新，再决定正式分发。
-
-## 验证记录与接入前问题
-
-2026 年 10 月 20 日在 Apple Silicon Mac 上，清理后的 `.slnx` 和 `.sln` 后端解决方案构建成功，均为 0 警告、0 错误。
-ServiceLib 的 136 项测试全部通过。WebAPI 首轮 387 项测试通过 385 项；复查通过 386 项，仍有 1 项失败。
-
-`osx-arm64` 和 `osx-x64` 独立后端均发布成功，并检查了各自 Mach-O 架构。
-ARM64 通过临时副本中的真实启动、实例 PID、未认证拒绝、登录、只读节点/订阅/编辑选项/任务接口、SSE 心跳、单次 ticket、会话注销和正常退出验证。
-Intel 构建尚未在 Intel 实机运行；本次未提供真实节点或内核文件，也未验证实际代理流量。
-系统代理、TUN 和用户现有配置均未在这些检查中修改。
-
-稳定失败的是 `WebLauncherTests.InstanceLockOwnerCanBeReadWhileAnotherProcessHoldsTheLock`。
-[`WebInstanceLock`](../v2rayN/v2rayN.WebAPI/Launcher/WebInstanceLock.cs) 在 macOS 上使用 `FileShare.None`，持锁时通过另一文件句柄读取 PID 返回空。
-当前已将 macOS 纳入 Unix flock 实现，该测试已通过。
-
-首轮额外失败的 `NativeWebUpdateHelperTests.PermanentFileOperationFailuresSurfaceTheOperationAndCauseAfterRetries`
-使用 120ms 重试窗口，复查通过；计时敏感性仍需留意，不能据此认定 macOS 自更新已可使用。
-清理提交 `23d3624a` 保留了共享 C# 实现；后续 helper 接入集中修改可选启动适配、macOS 路径、实例锁和独立 API，未绕过失败测试。
-
-
-2026 年 10 月 20 日原生首版补充验证：SwiftUI Release 构建、应用包深层签名校验和 6 项原生测试通过。
-使用独立数据目录与真实 Xray，经本机 HTTP/SOCKS 服务验证订阅增改删更新、节点导入/选择/删除、两个节点的真实代理流量、内核停止、认证恢复与后端退出。
-图形界面实际打开并连接后端，导入/订阅表单及设置中的内核、路由数据已检查。
-自动测试未修改系统代理；首次管理员授权和真实系统代理切换仍需人工验收。TUN 状态不因普通代理验证通过而改变。
+测试、构建、签名、安装、真实网络验收和公证是不同结果。
+隔离测试不改系统代理、不注册 helper，也不证明真实 TUN、休眠或 Wi-Fi 恢复已通过实机验收。
+版本规则、操作命令见 [README](../README.md)；本轮验收见 [架构改造记录](audits/2026-10-24-architecture-refactor.md)。
+上游导入必须先阅读 [合并规则](upstream-merge-policy.md)，不能恢复其他内核或桌面 GUI。

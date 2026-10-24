@@ -244,7 +244,7 @@ public sealed partial class V2rayRuntime
                     }
                 }
                 Config.RoutingBasicItem.DomainStrategy = input.DomainStrategy!;
-                await EnsureConfigSaveSucceededAsync(() => ConfigHandler.SaveConfig(Config));
+                await EnsureConfigSaveSucceededAsync(() => _configStore.SaveAsync());
             });
         }
         catch (Exception exception)
@@ -252,7 +252,7 @@ public sealed partial class V2rayRuntime
             RestoreConfigValues(Config, oldConfig);
             try
             {
-                await _mutations.RunAsync(() => EnsureConfigSaveSucceededAsync(() => ConfigHandler.SaveConfig(Config)));
+                await _mutations.RunAsync(() => EnsureConfigSaveSucceededAsync(() => _configStore.SaveAsync()));
             }
             catch (Exception rollbackException)
             {
@@ -304,7 +304,7 @@ public sealed partial class V2rayRuntime
         await _mutations.RunAsync(async () =>
         {
             ApplyInboundSettings(Config.Inbound[0], input);
-            await EnsureConfigSaveSucceededAsync(() => ConfigHandler.SaveConfig(Config));
+            await EnsureConfigSaveSucceededAsync(() => _configStore.SaveAsync());
         });
 
         return await CompleteCoreAffectingChangeAsync("inbound", fingerprint != GetCoreConfigurationFingerprint(), applyContext);
@@ -358,7 +358,7 @@ public sealed partial class V2rayRuntime
             Config.Fragment4RayItem.Lengths = fragmentLengths.ToList();
             Config.Fragment4RayItem.Delays = fragmentDelays.ToList();
             Config.Fragment4RayItem.MaxSplit = input.FragmentMaxSplit;
-            await EnsureConfigSaveSucceededAsync(() => ConfigHandler.SaveConfig(Config));
+            await EnsureConfigSaveSucceededAsync(() => _configStore.SaveAsync());
         });
 
         return await CompleteCoreAffectingChangeAsync("core", fingerprint != GetCoreConfigurationFingerprint(), applyContext);
@@ -384,7 +384,7 @@ public sealed partial class V2rayRuntime
             Config.ConstItem.GeoSourceUrl = input.GeoSourceUrl;
             Config.ConstItem.RouteRulesTemplateSourceUrl = input.RouteRulesTemplateSourceUrl;
             Config.ConstItem.SubConvertUrl = input.SubConvertUrl;
-            await EnsureConfigSaveSucceededAsync(() => ConfigHandler.SaveConfig(Config));
+            await EnsureConfigSaveSucceededAsync(() => _configStore.SaveAsync());
         });
 
         if (statisticsChanged)
@@ -417,7 +417,7 @@ public sealed partial class V2rayRuntime
             Config.SpeedTestItem.MixedConcurrencyCount = Math.Max(input.MixedConcurrencyCount, Global.SpeedTestConcurrencyCountMin);
             Config.SpeedTestItem.IPAPIUrl = input.IPAPIUrl;
             Config.SpeedTestItem.UdpTestTarget = input.UdpTestTarget;
-            await EnsureConfigSaveSucceededAsync(() => ConfigHandler.SaveConfig(Config));
+            await EnsureConfigSaveSucceededAsync(() => _configStore.SaveAsync());
         });
         _events.Publish("settings-changed", new { section = "speedtest", restartRequired = false });
         return OperationView.Ok(ApiMessageKeys.SpeedTestSettingsSaved);
@@ -445,7 +445,7 @@ public sealed partial class V2rayRuntime
                     item.CoreType = mapping.CoreType;
                 }
             }
-            await EnsureConfigSaveSucceededAsync(() => ConfigHandler.SaveConfig(Config));
+            await EnsureConfigSaveSucceededAsync(() => _configStore.SaveAsync());
         });
         return await CompleteCoreAffectingChangeAsync("core-types", fingerprint != GetCoreConfigurationFingerprint(), applyContext);
     }
@@ -475,7 +475,7 @@ public sealed partial class V2rayRuntime
         await _mutations.RunAsync(async () =>
         {
             Config.RoutingBasicItem.DomainStrategy = input.DomainStrategy!;
-            await EnsureConfigSaveSucceededAsync(() => ConfigHandler.SaveConfig(Config));
+            await EnsureConfigSaveSucceededAsync(() => _configStore.SaveAsync());
         });
         return await CompleteCoreAffectingChangeAsync("routing", fingerprint != GetCoreConfigurationFingerprint(), applyContext);
     }
@@ -490,7 +490,7 @@ public sealed partial class V2rayRuntime
         await _mutations.RunAsync(async () =>
         {
             Config.SimpleDNSItem = input;
-            await EnsureConfigSaveSucceededAsync(() => ConfigHandler.SaveConfig(Config));
+            await EnsureConfigSaveSucceededAsync(() => _configStore.SaveAsync());
         });
         return await CompleteCoreAffectingChangeAsync("dns", fingerprint != GetCoreConfigurationFingerprint(), applyContext);
     }
@@ -685,7 +685,7 @@ public sealed partial class V2rayRuntime
                 else
                 {
                     Config.RoutingBasicItem.RoutingIndexId = string.Empty;
-                    await EnsureConfigSaveSucceededAsync(() => ConfigHandler.SaveConfig(Config));
+                    await EnsureConfigSaveSucceededAsync(() => _configStore.SaveAsync());
                 }
             }
             return (Removed: true, AffectsCore: item.IsActive);
@@ -1134,7 +1134,7 @@ public sealed partial class V2rayRuntime
                             }
 
                             token.ThrowIfCancellationRequested();
-                            await EnsureConfigSaveSucceededAsync(() => ConfigHandler.SaveConfig(Config));
+                            await EnsureConfigSaveSucceededAsync(() => _configStore.SaveAsync());
                             token.ThrowIfCancellationRequested();
                         }, token),
                         () => RestoreRegionalPresetSnapshotAsync(applyContext));
@@ -1247,25 +1247,7 @@ public sealed partial class V2rayRuntime
     {
         try
         {
-            await _mutations.RunAsync(async () =>
-            {
-                RestoreConfigValues(Config, context.OldConfig);
-                await EnsureConfigSaveSucceededAsync(() => ConfigHandler.SaveConfig(Config));
-
-                await SQLiteHelper.Instance.DeleteAllAsync<RoutingItem>();
-                if (context.OldRoutingItems.Length > 0
-                    && await SQLiteHelper.Instance.InsertAllAsync(context.OldRoutingItems) != context.OldRoutingItems.Length)
-                {
-                    throw new IOException("Routing profiles could not be restored from the regional preset snapshot.");
-                }
-                await SQLiteHelper.Instance.DeleteAllAsync<DNSItem>();
-                if (context.OldDnsItems.Length > 0
-                    && await SQLiteHelper.Instance.InsertAllAsync(context.OldDnsItems) != context.OldDnsItems.Length)
-                {
-                    throw new IOException("DNS profiles could not be restored from the regional preset snapshot.");
-                }
-                AppManager.Instance.Reset();
-            });
+            await _settingsTransaction.RestoreAsync(context);
             return true;
         }
         catch (Exception exception)
@@ -1468,36 +1450,8 @@ public sealed partial class V2rayRuntime
         return OperationView.Ok(restarted ? ApiMessageKeys.CoreRestarted : successMessageKey, resultData);
     }
 
-    private async Task<CoreSettingsApplyContext> BeginCoreSettingsApplyAsync(CancellationToken cancellationToken = default)
-    {
-        await _coreGate.WaitAsync(cancellationToken);
-        try
-        {
-            var oldConfig = JsonUtils.DeepCopy(Config)
-                ?? throw new InvalidOperationException("The current configuration could not be copied for a Core settings apply.");
-            var oldRuntime = CurrentCoreRuntime;
-            var hasActiveChild = HasTrackedCoreProcesses;
-            var action = CoreSettingsApplyPolicy.Decide(oldRuntime.State, hasActiveChild, changed: false);
-            var failure = action switch
-            {
-                CoreSettingsApplyAction.Busy => OperationView.Fail("core_runtime_busy", ApiMessageKeys.CoreRuntimeBusy,
-                    new { runtimeState = oldRuntime.State.ToString().ToLowerInvariant() }),
-                CoreSettingsApplyAction.Inconsistent => OperationView.Fail("core_runtime_faulted", ApiMessageKeys.SettingsCoreApplyFailed,
-                    new { runtimeState = oldRuntime.State.ToString().ToLowerInvariant(), processIds = GetActiveCoreProcessIds() }),
-                _ => null,
-            };
-            var oldRoutingItems = failure is null ? await AppManager.Instance.RoutingItems() ?? [] : [];
-            var oldDnsItems = failure is null ? await AppManager.Instance.DNSItems() ?? [] : [];
-            var oldFullConfigTemplates = failure is null ? await AppManager.Instance.FullConfigTemplateItem() ?? [] : [];
-            return new CoreSettingsApplyContext(_coreGate, oldConfig, oldRuntime, hasActiveChild,
-                oldRoutingItems.ToArray(), oldDnsItems.ToArray(), oldFullConfigTemplates.ToArray(), failure);
-        }
-        catch
-        {
-            _coreGate.Release();
-            throw;
-        }
-    }
+    private Task<CoreSettingsApplyContext> BeginCoreSettingsApplyAsync(CancellationToken cancellationToken = default) =>
+        _settingsTransaction.BeginAsync(() => CurrentCoreRuntime, () => HasTrackedCoreProcesses, cancellationToken);
 
     private async Task<CoreSettingsRollbackResult> RollBackCoreSettingsAsync(
         CoreSettingsApplyContext context,
@@ -1521,22 +1475,8 @@ public sealed partial class V2rayRuntime
 
         try
         {
-            RestoreConfigValues(Config, context.OldConfig);
-            await _mutations.RunAsync(() => EnsureConfigSaveSucceededAsync(() => ConfigHandler.SaveConfig(Config)));
+            await _settingsTransaction.RestoreAsync(context);
             configRestored = true;
-            await _mutations.RunAsync(async () =>
-            {
-                await SQLiteHelper.Instance.DeleteAllAsync<RoutingItem>();
-                if (await SQLiteHelper.Instance.InsertAllAsync(context.OldRoutingItems) != context.OldRoutingItems.Length)
-                    throw new IOException("Routing profiles could not be restored from the settings snapshot.");
-                await SQLiteHelper.Instance.DeleteAllAsync<DNSItem>();
-                if (await SQLiteHelper.Instance.InsertAllAsync(context.OldDnsItems) != context.OldDnsItems.Length)
-                    throw new IOException("DNS profiles could not be restored from the settings snapshot.");
-                await SQLiteHelper.Instance.DeleteAllAsync<FullConfigTemplateItem>();
-                if (await SQLiteHelper.Instance.InsertAllAsync(context.OldFullConfigTemplates) != context.OldFullConfigTemplates.Length)
-                    throw new IOException("Core templates could not be restored from the settings snapshot.");
-            });
-            AppManager.Instance.Reset();
 
             var current = CurrentCoreRuntime;
             if (context.HadActiveChild
@@ -1704,43 +1644,7 @@ public sealed partial class V2rayRuntime
         Config.Fragment4RayItem.MaxSplit = input.FragmentMaxSplit;
     }
 
-    private static void RestoreConfigValues(Config target, Config snapshot)
-    {
-        foreach (var property in typeof(Config).GetProperties(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public))
-        {
-            if (property.CanRead && property.CanWrite)
-            {
-                property.SetValue(target, property.GetValue(snapshot));
-            }
-        }
-    }
-
-    private sealed class CoreSettingsApplyContext(
-        SemaphoreSlim gate,
-        Config oldConfig,
-        CoreRuntimeSnapshot oldRuntime,
-        bool hadActiveChild,
-        RoutingItem[] oldRoutingItems,
-        DNSItem[] oldDnsItems,
-        FullConfigTemplateItem[] oldFullConfigTemplates,
-        OperationView? failure) : IAsyncDisposable
-    {
-        private int _disposed;
-
-        public Config OldConfig { get; } = oldConfig;
-        public CoreRuntimeSnapshot OldRuntime { get; } = oldRuntime;
-        public bool HadActiveChild { get; } = hadActiveChild;
-        public RoutingItem[] OldRoutingItems { get; } = oldRoutingItems;
-        public DNSItem[] OldDnsItems { get; } = oldDnsItems;
-        public FullConfigTemplateItem[] OldFullConfigTemplates { get; } = oldFullConfigTemplates;
-        public OperationView? Failure { get; } = failure;
-
-        public ValueTask DisposeAsync()
-        {
-            if (Interlocked.Exchange(ref _disposed, 1) == 0) gate.Release();
-            return ValueTask.CompletedTask;
-        }
-    }
+    private static void RestoreConfigValues(Config target, Config snapshot) => ServiceLibRuntimeConfigStore.CopyValues(target, snapshot);
 
     private sealed record CoreSettingsRollbackResult(bool RolledBack, bool OldRuntimeRestored, bool ConfigRestored, string? Detail);
 

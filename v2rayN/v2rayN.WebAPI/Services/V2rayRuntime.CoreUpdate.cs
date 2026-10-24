@@ -23,15 +23,11 @@ public sealed partial class V2rayRuntime
 
     internal static List<string>? NormalizeWebUpdateTargets(IEnumerable<string>? targets) =>
         targets?.Select(NormalizeWebUpdateTarget).Distinct(StringComparer.Ordinal).ToList();
-    private readonly object _updateTaskGate = new();
     private readonly GeoFilesUpdateGate _geoUpdateGate = new();
-    private readonly ConcurrentDictionary<ECoreType, Task> _coreUpdateTasks = new();
-    private readonly ConcurrentDictionary<string, CoreUpdateProgressView> _updateProgress = new(StringComparer.Ordinal);
-    private Task? _geoUpdateTask;
-    private Task? _coreUpdateBatchTask;
+    private ConcurrentDictionary<string, CoreUpdateProgressView> _updateProgress => _moduleUpdates.Progress;
 
     internal bool GetUpdatePreRelease(string target, bool? preRelease = null) =>
-        preRelease ?? (Config.CheckUpdateItem.CheckPreReleaseCoreTypes?.Contains(target, StringComparer.Ordinal) ?? false);
+        (OperatingSystem.IsMacOS() && target == "Xray") || (preRelease ?? (Config.CheckUpdateItem.CheckPreReleaseCoreTypes?.Contains(target, StringComparer.Ordinal) ?? false));
 
     public CoreUpdateSettingsView GetCoreUpdateSettings()
     {
@@ -120,7 +116,7 @@ public sealed partial class V2rayRuntime
                 .Distinct(StringComparer.Ordinal)
                 .ToList();
             Config.CheckUpdateItem.UpdateViaProxy = input.UseProxy;
-            await EnsureConfigSaveSucceededAsync(() => ConfigHandler.SaveConfig(Config));
+            await EnsureConfigSaveSucceededAsync(() => _configStore.SaveAsync());
         });
 
         return OperationView.Ok(ApiMessageKeys.CoreUpdateSettingsSaved);
@@ -141,7 +137,13 @@ public sealed partial class V2rayRuntime
 
         var checkedUpdate = await CheckCoreUpdateResultAsync(coreType, preRelease, useProxy, cancellationToken);
         var result = checkedUpdate.Result;
-        if (result.Success && result.Version is not null)
+        if (checkedUpdate.AwaitingValidation)
+        {
+            return ApiEnvelope<CoreUpdateCheckView>.Ok(
+                new CoreUpdateCheckView(true, result.VersionLabel, Detail: result.Msg, AwaitingCompatibilityValidation: true),
+                ApiMessageKeys.CoreUpdateAvailable);
+        }
+        if (checkedUpdate.CanStage)
         {
             return ApiEnvelope<CoreUpdateCheckView>.Ok(
                 new CoreUpdateCheckView(true, result.VersionLabel),
@@ -174,26 +176,14 @@ public sealed partial class V2rayRuntime
             return OperationView.Fail("core_update_unsupported", ApiMessageKeys.CoreUpdateUnsupported);
         }
 
-        lock (_updateTaskGate)
-        {
-            if (IsUpdateRunningLocked())
-            {
-                return OperationView.Fail("core_update_busy", ApiMessageKeys.CoreUpdateBusy);
-            }
-
-            var selected = Config.CheckUpdateItem.SelectedCoreTypes;
-            if (selected is not null && !selected.Contains(coreType.ToString(), StringComparer.Ordinal))
-            {
-                return OperationView.Fail("core_update_not_selected", ApiMessageKeys.CoreUpdateUnsupported);
-            }
-
-            PublishCoreUpdateProgress(coreType, "queued", false, false, IsCoreTypeRunning(coreType), null, null);
-            var task = Task.Run(() => RunCoreUpdateAsync(
-                coreType,
-                GetUpdatePreRelease(coreType.ToString(), preRelease),
-                useProxy ?? Config.CheckUpdateItem.UpdateViaProxy));
-            _coreUpdateTasks[coreType] = task;
-        }
+        var selected = Config.CheckUpdateItem.SelectedCoreTypes;
+        if (selected is not null && !selected.Contains(coreType.ToString(), StringComparer.Ordinal))
+            return OperationView.Fail("core_update_not_selected", ApiMessageKeys.CoreUpdateUnsupported);
+        if (!_moduleUpdates.TryStart(GetCoreUpdateOperationName(coreType),
+            () => PublishCoreUpdateProgress(coreType, "queued", false, false, IsCoreTypeRunning(coreType), null, null),
+            () => RunCoreUpdateAsync(coreType, GetUpdatePreRelease(coreType.ToString(), preRelease),
+                useProxy ?? Config.CheckUpdateItem.UpdateViaProxy)))
+            return OperationView.Fail("core_update_busy", ApiMessageKeys.CoreUpdateBusy);
 
         return OperationView.Ok(ApiMessageKeys.CoreUpdateStarted, new { coreType = coreType.ToString() });
     }
@@ -221,23 +211,14 @@ public sealed partial class V2rayRuntime
             return OperationView.Fail("core_update_batch_empty", ApiMessageKeys.CommonInvalidInput);
         }
 
-        lock (_updateTaskGate)
-        {
-            if (IsUpdateRunningLocked())
+        if (!_moduleUpdates.TryStart("core-update-batch", () =>
             {
-                return OperationView.Fail("core_update_busy", ApiMessageKeys.CoreUpdateBusy);
-            }
-
-            foreach (var target in targets)
-                PublishCoreUpdateProgress(target, "queued", false, false, IsCoreTypeRunning(target), null, null, batch: true);
-            if (includeGeoFiles) PublishGeoUpdateProgress("queued", false, false, null, batch: true);
-            _coreUpdateBatchTask = Task.Run(() => RunSelectedCoreUpdateBatchAsync(
-                targets,
-                includeGeoFiles,
-                includeWeb,
-                apply,
-                Config.CheckUpdateItem.UpdateViaProxy));
-        }
+                foreach (var target in targets)
+                    PublishCoreUpdateProgress(target, "queued", false, false, IsCoreTypeRunning(target), null, null, batch: true);
+                if (includeGeoFiles) PublishGeoUpdateProgress("queued", false, false, null, batch: true);
+            }, () => RunSelectedCoreUpdateBatchAsync(targets, includeGeoFiles, includeWeb, apply,
+                Config.CheckUpdateItem.UpdateViaProxy)))
+            return OperationView.Fail("core_update_busy", ApiMessageKeys.CoreUpdateBusy);
 
         var targetNames = targets.Select(coreType => coreType.ToString()).ToList();
         if (includeGeoFiles) targetNames.Add(GeoFilesUpdateTarget);
@@ -254,49 +235,14 @@ public sealed partial class V2rayRuntime
             return OperationView.Fail("geo_update_not_selected", ApiMessageKeys.GeoUpdateNotSelected);
         }
 
-        lock (_updateTaskGate)
-        {
-            if (IsUpdateRunningLocked())
-            {
-                return OperationView.Fail("geo_update_busy", ApiMessageKeys.GeoUpdateBusy);
-            }
-
-            var proxy = useProxy ?? Config.CheckUpdateItem.UpdateViaProxy;
-            PublishGeoUpdateProgress("queued", false, false, null);
-            _geoUpdateTask = Task.Run(() => RunGeoUpdateAsync(proxy, scope));
-        }
+        var proxy = useProxy ?? Config.CheckUpdateItem.UpdateViaProxy;
+        if (!_moduleUpdates.TryStart("geo-update", () => PublishGeoUpdateProgress("queued", false, false, null),
+                () => RunGeoUpdateAsync(proxy, scope)))
+            return OperationView.Fail("geo_update_busy", ApiMessageKeys.GeoUpdateBusy);
         return OperationView.Ok(ApiMessageKeys.GeoUpdateStarted);
     }
 
-    internal IReadOnlyList<string> GetRunningCoreUpdateOperations()
-    {
-        lock (_updateTaskGate)
-        {
-            var operations = _coreUpdateTasks
-                .Where(pair => !pair.Value.IsCompleted)
-                .Select(pair => GetCoreUpdateOperationName(pair.Key))
-                .ToList();
-            if (_geoUpdateTask is { IsCompleted: false })
-            {
-                operations.Add("geo-update");
-            }
-            if (_webUpdateTask is { IsCompleted: false })
-            {
-                operations.Add("web-update");
-            }
-            if (_coreUpdateBatchTask is { IsCompleted: false })
-            {
-                operations.Add("core-update-batch");
-            }
-            return operations;
-        }
-    }
-
-    private bool IsUpdateRunningLocked() =>
-        _coreUpdateTasks.Values.Any(task => !task.IsCompleted)
-        || _geoUpdateTask is { IsCompleted: false }
-        || _webUpdateTask is { IsCompleted: false }
-        || _coreUpdateBatchTask is { IsCompleted: false };
+    internal IReadOnlyList<string> GetRunningCoreUpdateOperations() => _moduleUpdates.RunningOperations();
 
     private async Task RunSelectedCoreUpdateBatchAsync(
         IReadOnlyList<ECoreType> coreTypes,
@@ -328,24 +274,32 @@ public sealed partial class V2rayRuntime
                 PublishCoreUpdateProgress(coreType, "checking", false, false, wasRunning, null, null, batch: true);
                 var checkedUpdate = await CheckCoreUpdateResultAsync(coreType, null, useProxy, token, synchronizePrivileged: apply);
                 var check = checkedUpdate.Result;
+                if (checkedUpdate.AwaitingValidation)
+                {
+                    overallSuccess = false;
+                    checks.Add(new CoreUpdateBatchCheck(coreType, checkedUpdate));
+                    PublishCoreUpdateProgress(coreType, "awaiting-validation", true, false, wasRunning,
+                        check.VersionLabel, check.Msg, batch: true);
+                    continue;
+                }
                 if (checkedUpdate.IsUpToDate)
                 {
-                    checks.Add(new CoreUpdateBatchCheck(coreType, check, IsUpToDate: true));
+                    checks.Add(new CoreUpdateBatchCheck(coreType, checkedUpdate));
                     PublishCoreUpdateProgress(coreType, "completed", true, true, wasRunning,
                         check.VersionLabel, check.Msg ?? "Already up to date.", batch: true);
                     continue;
                 }
 
-                if (!check.Success || check.Version is null || string.IsNullOrWhiteSpace(check.Url))
+                if (!checkedUpdate.CanStage)
                 {
                     overallSuccess = false;
                     PublishCoreUpdateProgress(coreType, "failed", true, false, wasRunning, null, check.Msg, batch: true);
                     AddLog("update", $"Batch update check failed for {coreType}: {check.Msg}");
-                    checks.Add(new CoreUpdateBatchCheck(coreType, check, IsUpToDate: false, CheckFailed: true));
+                    checks.Add(new CoreUpdateBatchCheck(coreType, checkedUpdate));
                     continue;
                 }
 
-                checks.Add(new CoreUpdateBatchCheck(coreType, check, IsUpToDate: false));
+                checks.Add(new CoreUpdateBatchCheck(coreType, checkedUpdate));
                 if (!apply)
                 {
                     PublishCoreUpdateProgress(coreType, "completed", true, true, wasRunning,
@@ -404,7 +358,7 @@ public sealed partial class V2rayRuntime
             if (checks.Any(item => item.CheckFailed) || webCheck is { Error: { Length: > 0 } })
             {
                 overallSuccess = false;
-                foreach (var item in checks.Where(item => !item.CheckFailed && !item.IsUpToDate))
+                foreach (var item in checks.Where(item => !item.CheckFailed && !item.IsUpToDate && !item.AwaitingValidation))
                 {
                     PublishCoreUpdateProgress(item.CoreType, "failed", true, false, IsCoreTypeRunning(item.CoreType),
                         item.Check.VersionLabel, "No targets were installed because at least one selected update check failed.", batch: true);
@@ -422,7 +376,7 @@ public sealed partial class V2rayRuntime
                 return;
             }
 
-            var targetsToStage = checks.Where(item => !item.IsUpToDate).ToArray();
+            var targetsToStage = checks.Where(item => !item.IsUpToDate && !item.AwaitingValidation).ToArray();
             var unsupportedTargets = targetsToStage.Where(item => !CanInstallCoreUpdate(item.CoreType)).ToArray();
             if (unsupportedTargets.Length > 0)
             {
@@ -576,10 +530,6 @@ public sealed partial class V2rayRuntime
                 await DiscardPrivilegedStageAsync(stage);
                 CleanupCoreUpdateStage(stage);
             }
-            lock (_updateTaskGate)
-            {
-                _coreUpdateBatchTask = null;
-            }
         }
     }
 
@@ -629,9 +579,9 @@ public sealed partial class V2rayRuntime
             useProxy ?? Config.CheckUpdateItem.UpdateViaProxy,
             cancellationToken, synchronizeInstalled: synchronizePrivileged && _macTunLauncher.SupportsTrustedUpdate(coreType));
         var repairDecision = OperatingSystem.IsMacOS() && coreType == ECoreType.Xray
-            ? NativeTunCoreCompatibility.ApplyRepairUpdatePolicy(await _installedXrayVersion.ReadIdentityAsync(_xrayPath), result)
+            ? NativeTunCoreCompatibility.ApplyUpdatePolicy(await _installedXrayVersion.ReadIdentityAsync(_xrayPath), result)
             : null;
-        return new CoreUpdateCheckResult(result, repairDecision ?? IsUpToDateResult(coreType, result.Msg));
+        return ModuleUpdateCoordinator.Classify(result, repairDecision ?? IsUpToDateResult(coreType, result.Msg));
     }
 
     private async Task RunCoreUpdateAsync(ECoreType coreType, bool preRelease, bool useProxy)
@@ -647,11 +597,11 @@ public sealed partial class V2rayRuntime
                     PublishCoreUpdateProgress(coreType, "checking", isComplete: false, success: false, wasRunning, null, null);
                     var checkedUpdate = await CheckCoreUpdateResultAsync(coreType, preRelease, useProxy, operation.Token, synchronizePrivileged: true);
                     var check = checkedUpdate.Result;
-                    if (checkedUpdate.IsUpToDate)
+                    if (checkedUpdate.IsUpToDate || checkedUpdate.AwaitingValidation)
                     {
                         return new CoreUpdatePrepareResult(null, check);
                     }
-                    if (!check.Success || check.Version is null || string.IsNullOrWhiteSpace(check.Url))
+                    if (!checkedUpdate.CanStage)
                     {
                         throw new InvalidOperationException(check.Msg ?? $"Could not check {coreType} updates.");
                     }
@@ -663,7 +613,9 @@ public sealed partial class V2rayRuntime
                 {
                     if (prepared.Stage is null)
                     {
-                        return new CoreUpdateApplyResult(true, false, wasRunning, prepared.Check.Msg ?? "Already up to date.", prepared.Check.VersionLabel);
+                        return new CoreUpdateApplyResult(!prepared.Check.AwaitingCompatibilityValidation, false, wasRunning,
+                            prepared.Check.Msg ?? "Already up to date.", prepared.Check.VersionLabel,
+                            AwaitingValidation: prepared.Check.AwaitingCompatibilityValidation);
                     }
 
                     await using var maintenance = await _operations.EnterExclusiveAsync(
@@ -674,13 +626,13 @@ public sealed partial class V2rayRuntime
 
             PublishCoreUpdateProgress(
                 coreType,
-                "completed",
+                result.AwaitingValidation ? "awaiting-validation" : "completed",
                 isComplete: true,
                 success: result.Success,
                 result.CoreWasRunning,
                 result.Version ?? stage?.VersionOutput,
                 result.Detail);
-            if (!result.Success)
+            if (!result.Success && !result.AwaitingValidation)
             {
                 AddLog("update", $"{coreType} update failed: {result.Detail}");
             }
@@ -698,10 +650,6 @@ public sealed partial class V2rayRuntime
         {
             if (stage is not null) await DiscardPrivilegedStageAsync(stage);
             CleanupCoreUpdateStage(stage);
-            lock (_updateTaskGate)
-            {
-                _coreUpdateTasks.TryRemove(coreType, out _);
-            }
         }
     }
 
@@ -1231,13 +1179,6 @@ public sealed partial class V2rayRuntime
             AddLog("update", $"GeoFiles update failed: {exception.Message}");
             PublishGeoUpdateProgress("failed", isComplete: true, success: false, exception.Message);
         }
-        finally
-        {
-            lock (_updateTaskGate)
-            {
-                _geoUpdateTask = null;
-            }
-        }
     }
 
     private async Task ApplyGeoFilesUpdateAsync(
@@ -1345,7 +1286,7 @@ public sealed partial class V2rayRuntime
         }
         _updateProgress[coreType.ToString()] = progress;
         _events.Publish("core-update-progress", progress);
-        if (coreType == ECoreType.Xray && isComplete)
+        if (coreType == ECoreType.Xray && isComplete && phase != "awaiting-validation")
         {
             _events.Publish("xray-update-completed", success
                 ? OperationView.Ok(ApiMessageKeys.XrayUpdateCompleted, new { version, coreRestarted = coreWasRunning })
@@ -1402,10 +1343,15 @@ public sealed partial class V2rayRuntime
     }
 
     internal sealed record CoreUpdateStage(ECoreType CoreType, string InstallPath, string ArchivePath, string PackagePath, string VersionOutput, string? PrivilegedToken = null);
-    private sealed record CoreUpdateCheckResult(UpdateResult Result, bool IsUpToDate);
-    private sealed record CoreUpdateBatchCheck(ECoreType CoreType, UpdateResult Check, bool IsUpToDate, bool CheckFailed = false);
+    private sealed record CoreUpdateBatchCheck(ECoreType CoreType, CoreUpdateCheckResult Result)
+    {
+        public UpdateResult Check => Result.Result;
+        public bool IsUpToDate => Result.IsUpToDate;
+        public bool CheckFailed => Result.Decision == UpdateCheckDecision.Failed;
+        public bool AwaitingValidation => Result.AwaitingValidation;
+    }
     private sealed record CoreUpdatePrepareResult(CoreUpdateStage? Stage, UpdateResult Check);
-    private sealed record CoreUpdateApplyResult(bool Success, bool RolledBack, bool CoreWasRunning, string Detail, string? Version = null);
+    private sealed record CoreUpdateApplyResult(bool Success, bool RolledBack, bool CoreWasRunning, string Detail, string? Version = null, bool AwaitingValidation = false);
 }
 
 internal static class CoreUpdateRuntimePolicy

@@ -2,20 +2,20 @@
 
 基于 [v2rayN](https://github.com/2dust/v2rayN) 的原生 macOS 代理客户端，使用 **SwiftUI + Xray**，保留上游 fork 关联与提交历史。共享业务继续复用 `ServiceLib` 和 `v2rayN.WebAPI`，已移除 WPF/Avalonia 桌面界面，以及 sing-box、Mihomo 等其他内核的运行、配置生成和更新入口。
 
-当前开发版本为 **0.2.4**。本项目尚未提供经过 Developer ID 签名和 Apple 公证的正式发行包；本地开发 DMG 的使用范围见[签名与分发](#签名与分发)。
+当前开发版本为 **0.3.3**。本项目尚未提供经过 Developer ID 签名和 Apple 公证的正式发行包；本地开发 DMG 的使用范围见[签名与分发](#签名与分发)。
 
-本轮包含 Darwin 出口绑定修复、5 秒采样与一分钟均速、主页精简及修复版更新保护；已通过隔离回环验证，真实 TUN 联网验收需单独进行。
+0.3.3 包含连接观察与控制隔离、可测试的连接意图协调、后端事务与生命周期分离、helper 契约和缓存、定位数据优化及统一来源校验构建。保留 Darwin M2 修复、5 秒采样与一分钟均速，以及新内核等待验证的更新保护。真实 TUN 联网验收需单独进行。
 
 应用版本统一从 `VERSION` 读取，固定为三段且每段一位数字，显示版本与构建号一致，不添加第四段。依次递增如 `0.2.0` → `0.2.1`，末段到 `9` 后进位为 `0.3.0`，中段到 `9` 后进位为 `1.0.0`。该规则仅用于 v2rayM；Xray 保留真实上游版本号和修复标记。
 
 ## 功能
 
-- **原生主页**：环形连接状态、近 5 分钟的代理均速趋势、代理上下行速率、节点累计流量、节点信息、实际安装的 Xray 版本及 TUN 服务状态。青紫短弧表示上传／下载活动，不代表完成度；没有有效采样时显示 `—`，断采时曲线留空。详见 [连接仪表盘](docs/connection-dashboard.md)。
+- **原生主页**：环形连接状态、近 5 分钟的代理均速趋势、代理上下行速率、节点累计流量、节点信息、实际安装的 Xray 版本及 TUN 服务状态。青紫填充圆环表示上传／下载活动，不代表完成度；没有有效采样时显示 `—`，断采时曲线留空。详见 [连接仪表盘](docs/connection-dashboard.md)。
 - **节点管理**：导入、编辑、选择当前节点、删除与延迟测试。表格固定显示节点、协议、传输、TLS、服务器和延迟；“配置节点”固定显示，未选中时禁用。编辑保留未暴露的字段。
 - **互斥代理模式**：标题栏和菜单栏均可快捷开启系统代理或 TUN；开启一个会关闭另一个并连接当前节点，关闭当前模式即停止代理。模式切换失败时尝试恢复原模式。
 - **Xray 原生 TUN**：直接由 Xray 接入虚拟网卡，不使用 sing-box 或 SOCKS 转 TUN 前置进程。签名 helper 负责特权启动及路由、DNS 的配置与恢复。
 - **参数、路由与 DNS 设置**：适配 Xray 和原生 TUN；MTU 支持预设及自定义值，范围为 1280–65535。已有规则和未展示的参数在编辑时保留。
-- **内核与规则更新**：仅更新 Xray 和 GeoIP/GeoSite DAT 数据，支持分别更新及全部更新。Xray 默认优先选择最新可用预发布版，进度和结果留在设置页面。
+- **内核与规则更新**：仅更新 Xray 和 GeoIP/GeoSite DAT 数据，支持分别更新及全部更新。Xray 从正式版和预发布版中按版本号选择最新可用发布，避免最新版本转正后退回旧预发布版；发现更高版本时提示“等待验证后再替换内核”，不自动下载替换。进度和结果留在设置页面。
 - **连续日志**：最多保留 10,000 行并限制总字符容量，超限淘汰最旧记录；模式切换和空刷新不会清空。支持横向、纵向滚动，隐藏滚动条。
 - **菜单栏 V 图标**：未启用时采用系统模板色，系统代理为蓝色，TUN 为绿色，切换或异常为橙色。可显示主窗口、切换模式及安全退出；关闭窗口后继续在后台运行。
 - **紧凑固定窗口**：860 × 600，默认进入主页，使用随包附带的 LXGWWenKaiMono Medium 字体。提示悬浮显示，不挤压页面布局；无侧栏、订阅页面或单独连接按钮。
@@ -63,20 +63,13 @@ TUN 测试前先手动关闭其他软件的 TUN/VPN；检测到测试路由仍�
 
 需要 macOS 15 或以上、Xcode 命令行工具、.NET 10 SDK、Python 3。后端无需 Node.js、Avalonia 或 WPF。以下构建 Apple Silicon 版本；Intel 后端目标为 `osx-x64`，原生包应在相应架构的 Mac 上构建和验证。
 
-先检查产品边界并发布后端：
+先取得固定版本的内核数据：
 
 ```sh
-python3 scripts/check-macos-product-boundaries.py
-
-dotnet publish v2rayN/v2rayN.WebAPI/v2rayN.WebAPI.csproj \
-  --configuration Release --runtime osx-arm64 --self-contained true \
-  -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true \
-  --output /tmp/v2raym-native-backend
-
 bash scripts/fetch-macos-cores.sh osx-arm64 /tmp/v2raym-native-cores
 ```
 
-下载脚本从官方 `2dust/v2rayN-core-bin` 提取 **Xray、许可证和 Geo 数据**，不打包其他内核。可通过 `CORE_BUNDLE_REF` 固定上游提交。目标下载目录和 `.app` 路径必须尚不存在。
+下载脚本从官方 `2dust/v2rayN-core-bin` 提取 **Xray、许可证和 Geo 数据**，不打包其他内核。默认提交锁定在 `contracts/macos-build-inputs.json`。目标下载目录和 `.app` 路径必须尚不存在。
 
 Xray 26.10.21 的 Darwin 双栈出口绑定存在已复现缺陷。该版本需要先使用 Go 1.27.3
 构建本仓库的最小补丁，再将结果用于打包（构建脚本校验固定源码摘要）：
@@ -95,19 +88,20 @@ M2 同时包含[进程查询诊断修复](docs/xray-process-lookup-fix.md)，保
 使用本机有效签名身份构建可供 TUN 开发测试的包；将示例身份替换为自己的代码签名身份：
 
 ```sh
-CORE_BIN_DIR=/tmp/v2raym-native-cores \
 SIGN_IDENTITY='Apple Development: YOUR_SIGNING_IDENTITY' \
-APP_VERSION=0.2.4 APP_BUILD=0.2.4 \
-  bash scripts/package-macos-app.sh \
-  /tmp/v2raym-native-backend /tmp/v2rayM.app
+  python3 scripts/build-macos-product.py \
+  --output /tmp/v2raym-product \
+  --core-bin /tmp/v2raym-native-cores
 
 bash scripts/package-macos-dmg.sh \
-  /tmp/v2rayM.app /tmp/v2rayM-macos-arm64-local.dmg
+  /tmp/v2raym-product/v2rayM.app /tmp/v2rayM-macos-arm64-local.dmg
 ```
+
+统一入口自动读取 `VERSION`、核对源码与组件摘要、生成 `product-manifest.json` 并执行隔离回环检查。Geo 数据缺失时根据固定输入及摘要重新生成；源码变化后必须重新构建整包。低层打包脚本拒绝没有来源凭据或源码不匹配的后端。
 
 不设置 `SIGN_IDENTITY` 时使用 ad-hoc 签名，可用于普通代理和隔离回环开发检查；**不能以此代替 TUN helper 所需的 Apple 团队签名**。TUN 授权不提供未签名绕过。DMG 包含应用、Applications 入口和中文安装说明。
 
-内核更新先下载和校验，再替换正在使用的版本并重启，成功后清理旧版本。特权 TUN 内核由 helper 独立核对官方 GitHub 发布资产摘要，保存在 root 专用目录；失败或中断时保留恢复路径。具体边界见 [TUN helper 接入](docs/macos-tun-helper.md)。
+获准兼容的内核更新先下载和校验，再替换正在使用的版本并重启，成功后清理旧版本；更高版本当前等待验证。特权 TUN 内核由 helper 独立核对官方 GitHub 发布资产摘要，保存在 root 专用目录；失败或中断时保留恢复路径。具体边界见 [TUN helper 接入](docs/macos-tun-helper.md)。
 
 主页每 5 秒采集一次 Xray 计数器，以最近 60 秒有效样本计算平均速度；运行不足一分钟时按实际采样时长计算。重启、计数器归零及采样中断会重建均速窗口，不清空已保存的累计流量。主页数字使用滚动过渡，并遵循系统“减少动态效果”设置。
 
@@ -127,7 +121,7 @@ python3 scripts/smoke-macos-app.py /tmp/v2rayM.app "$native_bin/V2rayMCheck"
 
 隔离集成检查使用临时数据库、本机 HTTP/SOCKS 测试服务和真实 Xray，验证认证、节点、代理转发、日志、流量、版本读取和正常退出。系统代理恢复的故障/重试测试使用内存配置，不改本机系统代理。helper 单元测试不注册系统服务。
 
-GitHub Actions 的 [macOS 验证流程](.github/workflows/macos-backend.yml) 构建两种后端架构，并在 runner 原生架构上执行冒烟检查；CI 产物是开发验证包，不是公证发行包。
+GitHub Actions 的 [macOS 验证流程](.github/workflows/macos-backend.yml) 先运行共享后端、原生和 helper 测试，再在 runner 原生架构上构建并执行冒烟检查；CI 产物是开发验证包，不是公证发行包。
 
 本机验证记录分开保存：
 
@@ -149,7 +143,7 @@ GitHub Actions 的 [macOS 验证流程](.github/workflows/macos-backend.yml) 构
 
 合并上游前必须阅读 [合并规则](docs/upstream-merge-policy.md) 和 [AGENTS.md](AGENTS.md)。保留有价值的 Xray、安全及共享业务修复，不能整批恢复其他内核、兼容生成器、旧桌面 GUI 或其发布流程。遇到修改/删除冲突逐项审查，合并后执行产品边界检查及相关回归验证。
 
-共享后端继续保留跨平台构建能力；它不代表本项目提供 Windows/Linux 桌面应用。架构演进背景见 [原生客户端架构评估](docs/macos-architecture.md)，其中历史多内核方案不构成当前产品要求。
+共享后端继续保留跨平台构建能力；它不代表本项目提供 Windows/Linux 桌面应用。当前职责边界与恢复策略见 [原生客户端架构](docs/macos-architecture.md)。
 
 ## 许可证
 

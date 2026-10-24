@@ -30,6 +30,13 @@ for name in ('scripts/fetch-macos-cores.sh', 'scripts/package-macos-app.sh'):
 registry = (ROOT / 'v2rayN/ServiceLib/Manager/CoreInfoManager.cs').read_text()
 if set(re.findall(r'CoreType = ECoreType\.(\w+)', registry)) - {'Xray', 'v2rayN'}:
     ERRORS.append('CoreInfoManager: unsupported executable registration')
+# Desktop-only packages have no place in the headless product dependency graph.
+retired_packages = {'reactiveui', 'reactiveui.sourcegenerators', 'qrcoder', 'zxing.net.bindings.skiasharp', 'taskscheduler'}
+for project in (ROOT / 'v2rayN').rglob('*.csproj'):
+    if set(project.parts) & {'obj', 'bin', 'Tests', '.build'}: continue
+    for package in re.findall(r'<PackageReference\s+Include="([^"]+)"', project.read_text()):
+        if package.lower() in retired_packages:
+            ERRORS.append(f'{project.relative_to(ROOT)}: retired desktop package {package}')
 if ERRORS:
     print('\n'.join(ERRORS))
     sys.exit(1)

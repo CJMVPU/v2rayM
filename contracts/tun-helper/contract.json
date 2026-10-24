@@ -1,0 +1,7 @@
+{
+  "protocolVersion": 2,
+  "actions": ["status", "start", "stop", "update-stage", "update-activate", "update-rollback", "update-finish", "update-discard", "update-status"],
+  "resourceExtensions": ["dat", "pem", "crt", "key"],
+  "limits": {"configBytes": 4194304, "resourceBytes": 33554432, "resourcesBytes": 67108864, "resourceCount": 128, "wireBytes": 104857600},
+  "responseFields": ["success", "code", "state", "protocolVersion", "pid", "executablePath", "updateToken", "logs", "coreVersion", "verifiedSHA256", "previousVersionPresent", "forced"]
+}

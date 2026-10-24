@@ -177,7 +177,7 @@ public partial class UpdateService(Config config, Func<bool, string, Task> updat
         var tagName = string.Empty;
         if (preRelease || coreInfo?.LockedMaxVersion != null)
         {
-            var url = coreInfo?.ReleaseApiUrl;
+            var url = coreInfo?.ReleaseApiUrl + "?per_page=100";
             var result = await downloadHandle.TryDownloadString(url, blProxy, Global.AppName, cancellationToken);
             if (result.IsNullOrEmpty())
             {
@@ -185,33 +185,10 @@ public partial class UpdateService(Config config, Func<bool, string, Task> updat
             }
 
             var gitHubReleases = JsonUtils.Deserialize<List<GitHubRelease>>(result);
-            var published = gitHubReleases?.Where(r => !r.Draft && r.Assets is { Count: > 0 }).ToList();
-            // Keep GitHub's
-            // release order and prefer the newest available prerelease over stable.
-            var gitHubRelease = preRelease
-                ? published?.FirstOrDefault(r => r.Prerelease) ?? published?.FirstOrDefault()
-                : published?.FirstOrDefault(r => !r.Prerelease);
+            var gitHubRelease = CoreReleaseSelection.Select(gitHubReleases, preRelease, coreInfo?.LockedMaxVersion);
             tagName = gitHubRelease?.TagName;
             if (string.IsNullOrWhiteSpace(tagName)) return new UpdateResult(false, "No published release with assets is available.");
-            //var body = gitHubRelease?.Body;
 
-            if (coreInfo?.LockedMaxVersion != null)
-            {
-                var lockedMaxVersion = coreInfo.LockedMaxVersion;
-                var remoteVersion = new SemanticVersion(tagName);
-                if (remoteVersion > lockedMaxVersion)
-                {
-                    var fallbackRelease = gitHubReleases?
-                        .Where(r => preRelease || !r.Prerelease)
-                        .Select(r => new { Release = r, IsValid = SemanticVersion.TryParse(r.TagName, out var v), Version = v })
-                        .Where(x => x.IsValid && x.Version <= coreInfo.LockedMaxVersion)
-                        .MaxBy(x => x.Version)?
-                        .Release;
-
-                    gitHubRelease = fallbackRelease;
-                    tagName = gitHubRelease?.TagName;
-                }
-            }
         }
         else
         {
@@ -224,7 +201,9 @@ public partial class UpdateService(Config config, Func<bool, string, Task> updat
 
             tagName = lastUrl?.Split("/tag/").LastOrDefault();
         }
-        return new UpdateResult(true, new SemanticVersion(tagName)) { ReleaseTag = tagName };
+        if (!SemanticVersion.TryParse(tagName, out var version))
+            return new UpdateResult(false, "The upstream release version is invalid.") { Decision = UpdateCheckDecision.Failed };
+        return new UpdateResult(true, version) { ReleaseTag = tagName };
     }
 
     [GeneratedRegex(@"v?(?<version>\d+\.\d+\.\d+(?:-[0-9a-zA-Z.-]+)?(?:\+[0-9a-zA-Z.-]+)?)", RegexOptions.IgnoreCase)]
@@ -302,16 +281,18 @@ public partial class UpdateService(Config config, Func<bool, string, Task> updat
             if (curVersion >= version && !version.Equals(new SemanticVersion(0, 0, 0)))
             {
                 if (!synchronizeInstalled) return new UpdateResult(false, message)
-                { Version = result.Version, ReleaseTag = result.ReleaseTag };
+                { Version = result.Version, ReleaseTag = result.ReleaseTag, Decision = UpdateCheckDecision.Current };
                 // The privileged store may still hold a bundled older executable. Fetch the
                 // installed version's official package without downgrading a newer install.
                 var installedTag = curVersion.ToStandardVersionString("v");
                 result.Version = new SemanticVersion(installedTag);
                 result.Url = string.Format(coreUrl, installedTag);
+                result.Decision = UpdateCheckDecision.Available;
                 return result;
             }
 
             result.Url = url;
+            result.Decision = UpdateCheckDecision.Available;
             return result;
         }
         catch (Exception ex)

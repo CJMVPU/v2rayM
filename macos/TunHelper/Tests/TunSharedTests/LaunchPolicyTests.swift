@@ -45,24 +45,27 @@ final class LaunchPolicyTests: XCTestCase {
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: temporary.appendingPathComponent("state").path), [])
     }
     func testResourcesCannotEscapePrivateStaging() throws {
-        var input = try request(); input.resources = ["../escape.srs": Data([0])]
+        var input = try request(); input.resources = ["../escape.pem": Data([0])]
         XCTAssertThrowsError(try policy().prepare(input))
     }
     func testLocalFilesMustBeProvidedAsSnapshots() throws {
         let input = try request(extra: ["tls": ["key_path": "/etc/ssh/ssh_host_ed25519_key"]])
         XCTAssertThrowsError(try policy().prepare(input))
     }
-    func testLocalRuleSnapshotIsRewrittenButWebsocketPathIsPreserved() throws {
+    func testCertificateSnapshotIsRewrittenButWebsocketPathIsPreserved() throws {
         var input = try request(extra: [
-            "route": ["rule_set": [["type": "local", "path": "/user/rules.srs"]]],
+            "tls": ["certificateFile": "/user/certificate.pem"],
             "transport": ["type": "ws", "path": "/websocket"]])
-        input.resources = ["rules.srs": Data([1, 2, 3])]; input.paths = ["/user/rules.srs": "rules.srs"]
+        input.resources = ["certificate.pem": Data([1, 2, 3])]; input.paths = ["/user/certificate.pem": "certificate.pem"]
         let result = try policy().prepare(input)
         let output = try JSONSerialization.jsonObject(with: Data(contentsOf: result.directory.appendingPathComponent("config.json"))) as! [String: Any]
-        let route = output["route"] as! [String: Any]
-        let rules = route["rule_set"] as! [[String: Any]]
-        XCTAssertEqual(rules[0]["path"] as? String, result.directory.appendingPathComponent("rules.srs").path)
+        let tls = output["tls"] as! [String: Any]
+        XCTAssertEqual(tls["certificateFile"] as? String, result.directory.appendingPathComponent("certificate.pem").path)
         XCTAssertEqual((output["transport"] as! [String: Any])["path"] as? String, "/websocket")
+    }
+    func testRetiredRuleResourcesAreRejected() throws {
+        var input = try request(); input.resources = ["rules.srs": Data([1])]
+        XCTAssertThrowsError(try policy().prepare(input))
     }
     func testSymlinkedStateDirectoryIsRejected() throws {
         try FileManager.default.createSymbolicLink(at: temporary.appendingPathComponent("state"), withDestinationURL: temporary)

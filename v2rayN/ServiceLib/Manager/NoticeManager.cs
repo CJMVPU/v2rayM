@@ -11,7 +11,7 @@ public class NoticeManager
         {
             return;
         }
-        AppEvents.SendSnackMsgRequested.Publish(content);
+        Logging.SaveLog(content);
     }
 
     public void SendMessage(string? content)
@@ -20,7 +20,7 @@ public class NoticeManager
         {
             return;
         }
-        AppEvents.SendMsgViewRequested.Publish(content);
+        Logging.SaveLog(content);
     }
 
     public void SendMessageEx(string? content)
@@ -35,13 +35,11 @@ public class NoticeManager
 
     public void SendMessageAndEnqueue(string? msg)
     {
-        Enqueue(msg);
         SendMessage(msg);
     }
 
     /// <summary>
-    /// Sends each error and warning in <paramref name="validatorResult"/> to the message panel
-    /// and enqueues a summary snack notification (capped at 10 messages).
+    /// Records each error and warning in <paramref name="validatorResult"/> in the shared log.
     /// Returns <c>true</c> when there were any messages so the caller can decide on early-return
     /// based on <see cref="NodeValidatorResult.Success"/>.
     /// </summary>
@@ -56,7 +54,6 @@ public class NoticeManager
         {
             SendMessage(msg);
         }
-        Enqueue(Utils.List2String(msgs.Take(10).ToList(), true));
         return true;
     }
 }

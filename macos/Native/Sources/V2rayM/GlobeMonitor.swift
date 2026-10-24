@@ -97,16 +97,3 @@ private actor GlobeResolver {
         }
     }
 }
-
-enum GlobeOrigin {
-    static let cities: [GlobePlace] = [
-        .init(city: "上海", latitude: 31.2304, longitude: 121.4737),
-        .init(city: "北京", latitude: 39.9042, longitude: 116.4074),
-        .init(city: "深圳", latitude: 22.5431, longitude: 114.0579),
-        .init(city: "香港", latitude: 22.3193, longitude: 114.1694),
-        .init(city: "东京", latitude: 35.6762, longitude: 139.6503),
-        .init(city: "新加坡", latitude: 1.3521, longitude: 103.8198),
-        .init(city: "洛杉矶", latitude: 34.0522, longitude: -118.2437),
-    ]
-    static func place(_ city: String) -> GlobePlace? { cities.first { $0.city == city } }
-}

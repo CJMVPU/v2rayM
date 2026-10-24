@@ -2,6 +2,7 @@
 """Build the pinned Xray Darwin binding fix. Never installs or changes networking."""
 import argparse
 import hashlib
+import json
 import os
 from pathlib import Path
 import shutil
@@ -10,9 +11,10 @@ import tarfile
 import tempfile
 import urllib.request
 
-REVISION = "1b1647cd9ddf0abc34b981d4611fc03bcac1ca74"
-SOURCE_SHA256 = "8458a0a7a53d0bb1ecdb1be522126745ffa4ade6fcf2aa56f6fea7c6a3ddf480"
-MARKER = "1b1647c-v2raym-darwin-bind2"
+INPUTS = json.loads((Path(__file__).resolve().parents[1] / "contracts/macos-build-inputs.json").read_text())
+REVISION = INPUTS["xray"]["revision"]
+SOURCE_SHA256 = INPUTS["xray"]["sourceSHA256"]
+MARKER = INPUTS["xray"]["buildMarker"]
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -24,13 +26,16 @@ def main():
     if args.output.exists():
         parser.error("output must not exist")
     go = shutil.which(args.go)
-    if not go or "go1.27.3 darwin/" not in subprocess.check_output([go, "version"], text=True):
-        parser.error("use the verified Go 1.27.3 Darwin toolchain")
+    if not go or ("go" + INPUTS["goVersion"] + " darwin/") not in subprocess.check_output([go, "version"], text=True):
+        parser.error("use the verified Go " + INPUTS["goVersion"] + " Darwin toolchain")
     repo = Path(__file__).resolve().parent.parent
     marker = MARKER
     patches = ["darwin-bound-interface.patch"]
     if args.process_lookup_fix:
         patches.append("darwin-process-lookup.patch")
+    for filename in patches:
+        if hashlib.sha256((repo / "patches/xray" / filename).read_bytes()).hexdigest() != INPUTS["xray"]["patches"][filename]:
+            raise RuntimeError("Reviewed Darwin patch checksum mismatch: " + filename)
     with tempfile.TemporaryDirectory(prefix="v2raym-xray-build-") as work:
         root = Path(work)
         archive = args.source_archive or root / "source.tar.gz"

@@ -1,4 +1,4 @@
-# Native connection dashboard (0.3.2)
+# Native connection dashboard (0.3.3)
 
 The fixed 860 × 600 homepage uses a native circular connection display and a
 92-point traffic trend below it. The right-hand status, traffic and recent
@@ -16,10 +16,10 @@ bar. The background uses the same `NSColor.controlBackgroundColor` as Settings.
   only the track. Changes ease over 1.2 seconds. Reduce Motion, window occlusion, minimization
   and closure pause animation. The central status preserves offline, recovery,
   updating, stale, faulted and local-core distinctions.
-- The circle is centered horizontally and shifted upward by 10 points; the
+- The circle is centered horizontally and shifted upward by 20 points; the
   redundant current-connection heading is omitted. The complete gauge area,
   including all four badges, is shifted up another 12 points while the trend
-  remains in place. Hover adds a subtle disc fill and cyan/purple rim with a
+  remains in place. Hover adds a clearly visible disc fill and cyan/purple rim with a
   0.18-second transition, without changing geometry. Gauge tooltips and the
   Settings home-display explanation section are removed. Source attribution
   remains bundled in Resources/Globe/ATTRIBUTION.txt.
@@ -54,9 +54,9 @@ not an invented line across the chart.
 ## Location and historical map
 
 The node city and recent-connection location details still use system DNS and
-the offline IP database. Unknown locations remain unknown. The previous map
-renderer/resources and the saved origin preference are retained, but the
-homepage and Settings no longer advertise a map or origin picker.
+the offline IP database. Unknown locations remain unknown. The unused map renderer and its dedicated textures are removed. Location lookup
+uses memory-mapped IPv4/IPv6 ranges and an indexed places.bin table, retaining
+source attribution and returning unknown for corrupt or missing records.
 See `globe-dashboard.md` for the historical map design.
 
 ## Verification

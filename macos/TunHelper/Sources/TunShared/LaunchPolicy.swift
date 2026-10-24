@@ -23,7 +23,7 @@ public struct LaunchPolicy {
 
     public func prepare(_ request: HelperRequest) throws -> PreparedLaunch {
         guard let kind = request.core, kind == "xray",
-              let data = request.config, !data.isEmpty, data.count <= 4 * 1024 * 1024,
+              let data = request.config, !data.isEmpty, data.count <= HelperContract.configBytes,
               var object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let inbounds = object["inbounds"] as? [[String: Any]],
               inbounds.contains(where: { ($0["protocol"] as? String) == "tun" }) else {
@@ -51,9 +51,9 @@ public struct LaunchPolicy {
             object["inbounds"] = nativeInbounds
         }
         let resources = request.resources ?? [:]
-        guard resources.count <= 128,
-              resources.values.reduce(0, { $0 + $1.count }) <= 64 * 1024 * 1024,
-              resources.allSatisfy({ validResourceName($0.key) && $0.value.count <= 32 * 1024 * 1024 }),
+        guard resources.count <= HelperContract.resourceCount,
+              resources.values.reduce(0, { $0 + $1.count }) <= HelperContract.resourcesBytes,
+              resources.allSatisfy({ validResourceName($0.key) && $0.value.count <= HelperContract.resourceBytes }),
               (request.paths ?? [:]).values.allSatisfy({ resources[$0] != nil }) else {
             throw HelperFailure("resource_snapshot_invalid")
         }
@@ -124,8 +124,8 @@ public struct LaunchPolicy {
     }
 
     private func validResourceName(_ name: String) -> Bool {
-        name.range(of: "^[A-Za-z0-9][A-Za-z0-9_.-]{0,120}\\.(dat|srs|pem|crt|key)$", options: .regularExpression) != nil
-            && !name.contains("..")
+        name.range(of: "^[A-Za-z0-9][A-Za-z0-9_.-]{0,120}\\.[A-Za-z0-9]+$", options: .regularExpression) != nil
+            && !name.contains("..") && HelperContract.resourceExtensions.contains(URL(fileURLWithPath: name).pathExtension)
     }
 
     private func rewrite(_ value: Any, mappings: [String: String], directory: URL, parent: String = "") throws -> Any {

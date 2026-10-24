@@ -56,32 +56,28 @@ import V2rayMKit
         let current = model()
         let system = NSMenuItem(title: "代理模式", action: #selector(toggleSystemProxy), keyEquivalent: "")
         system.target = self
-        system.state = systemIsRunning(current) ? .on : .off
-        system.isEnabled = canSwitch(current)
+        system.state = systemRequested(current) ? .on : .off
+        system.isEnabled = current?.canToggle(.system) == true
         menu.addItem(system)
         let tun = NSMenuItem(title: "tun模式", action: #selector(toggleTunMode), keyEquivalent: "")
         tun.target = self
-        tun.state = current?.tun?.isRunning == true ? .on : .off
-        tun.isEnabled = canSwitch(current) && current?.tun != nil
+        tun.state = current?.desiredMode == .tun ? .on : .off
+        tun.isEnabled = current?.canToggle(.tun) == true && current?.tun != nil
         menu.addItem(tun)
         let quit = NSMenuItem(title: "退出", action: #selector(quitApp), keyEquivalent: "q")
         quit.target = self; menu.addItem(quit)
     }
-    private func canSwitch(_ current: AppModel?) -> Bool {
-        guard let current else { return false }
-        return current.ready && !current.busy && !current.moduleUpdateActive
-    }
-    private func systemIsRunning(_ current: AppModel?) -> Bool {
-        current?.systemProxyEnabled == true && current?.status?.coreRunning == true && current?.tun?.isRunning != true
+    private func systemRequested(_ current: AppModel?) -> Bool {
+        current?.desiredMode == .system
     }
     @objc private func toggleSystemProxy() {
-        guard let current = model(), canSwitch(current) else { return }
-        current.toggleProxy(!systemIsRunning(current))
+        guard let current = model(), current.canToggle(.system) else { return }
+        current.toggleProxy(!systemRequested(current))
         refreshAppearance()
     }
     @objc private func toggleTunMode() {
-        guard let current = model(), canSwitch(current), current.tun != nil else { return }
-        current.toggleTun(!current.tun!.isRunning)
+        guard let current = model(), current.canToggle(.tun), current.tun != nil else { return }
+        current.toggleTun(current.desiredMode != .tun)
         refreshAppearance()
     }
     @objc private func showWindow() { show() }

@@ -73,15 +73,15 @@ do {
         emit(response)
         if !response.success { exit(1) }
     } else if action == "update" {
-        guard let line = readLine(), line.utf8.count <= 100 * 1024 * 1024,
+        guard let line = readLine(), line.utf8.count <= HelperContract.wireBytes,
               let data = line.data(using: .utf8) else { throw HelperFailure("update_request_required") }
         let request = try JSONDecoder().decode(HelperRequest.self, from: data)
-        guard request.action.hasPrefix("update-") else { throw HelperFailure("update_action_invalid") }
+        guard request.action.hasPrefix("update-"), HelperContract.actions.contains(request.action) else { throw HelperFailure("update_action_invalid") }
         let response = try Client().call(request)
         emit(response)
         if !response.success { exit(1) }
     } else if action == "run" {
-        guard let line = readLine(), line.utf8.count <= 100 * 1024 * 1024,
+        guard let line = readLine(), line.utf8.count <= HelperContract.wireBytes,
               let bytes = line.data(using: .utf8) else { throw HelperFailure("start_request_required") }
         let request = try JSONDecoder().decode(HelperRequest.self, from: bytes)
         guard request.action == "start" else { throw HelperFailure("start_request_required") }

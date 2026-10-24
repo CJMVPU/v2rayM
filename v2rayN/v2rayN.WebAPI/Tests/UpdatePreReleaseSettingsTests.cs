@@ -1,15 +1,11 @@
-using System.Reflection;
 using System.Text.Json;
-using ServiceLib;
 using ServiceLib.Common;
-using ServiceLib.Manager;
 using ServiceLib.Models.Configs;
 using v2rayN.WebAPI.Contracts;
 using v2rayN.WebAPI.Services;
 
 namespace v2rayN.WebAPI.Tests;
 
-[NotInParallel]
 public class UpdatePreReleaseSettingsTests
 {
     private const string WebTarget = "v2rayN.WebAPI";
@@ -49,12 +45,13 @@ public class UpdatePreReleaseSettingsTests
     }
 
     [Test]
-    public async Task MissingPreReleaseListDefaultsToStable()
+    public async Task NativeXrayIncludesPrereleasesEvenWithoutSavedPreference()
     {
         using var fixture = new RuntimeFixture();
 
         await fixture.Runtime.GetUpdatePreRelease(WebTarget).Should().BeFalse();
-        await fixture.Runtime.GetUpdatePreRelease("Xray").Should().BeFalse();
+        await fixture.Runtime.GetUpdatePreRelease("Xray").Should().BeEqualTo(OperatingSystem.IsMacOS());
+        await fixture.Runtime.GetUpdatePreRelease("Xray", false).Should().BeEqualTo(OperatingSystem.IsMacOS());
         await fixture.Runtime.GetCoreUpdateSettings().CheckPreReleaseCoreTypes.Count.Should().BeEqualTo(0);
     }
 
@@ -72,7 +69,7 @@ public class UpdatePreReleaseSettingsTests
 
         fixture.Config.CheckUpdateItem.CheckPreReleaseCoreTypes = [WebTarget];
         await fixture.Runtime.GetUpdatePreRelease(WebTarget).Should().BeTrue();
-        await fixture.Runtime.GetUpdatePreRelease("Xray").Should().BeFalse();
+        await fixture.Runtime.GetUpdatePreRelease("Xray").Should().BeEqualTo(OperatingSystem.IsMacOS());
     }
 
     [Test]
@@ -128,7 +125,7 @@ public class UpdatePreReleaseSettingsTests
 
         await result.Success.Should().BeTrue();
         await fixture.Runtime.GetUpdatePreRelease(WebTarget).Should().BeEqualTo(preRelease);
-        await fixture.Runtime.GetUpdatePreRelease("Xray").Should().BeEqualTo(preRelease);
+        await fixture.Runtime.GetUpdatePreRelease("Xray").Should().BeEqualTo(OperatingSystem.IsMacOS() || preRelease);
         await fixture.Runtime.GetUpdatePreRelease("mihomo").Should().BeFalse();
         await fixture.Runtime.GetUpdatePreRelease("sing_box").Should().BeFalse();
         await fixture.Config.CheckUpdateItem.CheckPreReleaseCoreTypes.Contains("v2rayN").Should().BeTrue();
@@ -156,59 +153,19 @@ public class UpdatePreReleaseSettingsTests
         await JsonUtils.Serialize(fixture.Config).Should().BeEqualTo(previous);
     }
 
-    private sealed class RuntimeFixture : IDisposable
+    private sealed class RuntimeFixture : IDisposable, IRuntimeConfigStore
     {
-        private readonly FieldInfo _configField = typeof(AppManager)
-            .GetField("_config", BindingFlags.Instance | BindingFlags.NonPublic)
-            ?? throw new MissingFieldException(typeof(AppManager).FullName, "_config");
-        private readonly object? _previousConfig;
-        private readonly string? _previousLocalData;
-        private readonly string _configPath;
-        private readonly byte[]? _previousConfigFile;
-        private readonly UnixFileMode? _previousConfigMode;
-
+        private string? _saved;
         public Config Config { get; } = new() { CheckUpdateItem = new CheckUpdateItem() };
-        public V2rayRuntime Runtime { get; } = new(null!, null!, null!, null!, null!);
-
-        public RuntimeFixture()
-        {
-            _previousConfig = _configField.GetValue(AppManager.Instance);
-            _previousLocalData = Environment.GetEnvironmentVariable(Global.LocalAppData);
-            // ConfigHandler writes only into the test build directory, never user data.
-            _configPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "guiConfigs", Global.ConfigFileName);
-            if (File.Exists(_configPath))
-            {
-                _previousConfigFile = File.ReadAllBytes(_configPath);
-                if (!OperatingSystem.IsWindows()) _previousConfigMode = File.GetUnixFileMode(_configPath);
-            }
-            Environment.SetEnvironmentVariable(Global.LocalAppData, "0");
-            _configField.SetValue(AppManager.Instance, Config);
-        }
-
-        public async Task<Config> ReadSavedConfigAsync() =>
-            JsonUtils.Deserialize<Config>(await File.ReadAllTextAsync(_configPath))
-            ?? throw new InvalidDataException("The saved update settings could not be reloaded.");
-
-        public void Dispose()
-        {
-            try
-            {
-                if (_previousConfigFile is null)
-                {
-                    if (File.Exists(_configPath)) File.Delete(_configPath);
-                }
-                else
-                {
-                    File.WriteAllBytes(_configPath, _previousConfigFile);
-                    if (!OperatingSystem.IsWindows() && _previousConfigMode is { } mode)
-                        File.SetUnixFileMode(_configPath, mode);
-                }
-            }
-            finally
-            {
-                _configField.SetValue(AppManager.Instance, _previousConfig);
-                Environment.SetEnvironmentVariable(Global.LocalAppData, _previousLocalData);
-            }
-        }
+        public Config Current => Config;
+        public V2rayRuntime Runtime { get; }
+        public RuntimeFixture() => Runtime = new(null!, null!, null!, null!, new RuntimeOperationCoordinator(), this);
+        public Task<int> SaveAsync() { _saved = JsonUtils.Serialize(Config); return Task.FromResult(0); }
+        public Task<RuntimeConfigSnapshot> CaptureAsync() => Task.FromResult(new RuntimeConfigSnapshot(
+            JsonUtils.DeepCopy(Config)!, [], [], []));
+        public Task RestoreAsync(RuntimeConfigSnapshot snapshot) => throw new NotSupportedException();
+        public Task<Config> ReadSavedConfigAsync() => Task.FromResult(JsonUtils.Deserialize<Config>(_saved!)
+            ?? throw new InvalidDataException("The saved update settings could not be reloaded."));
+        public void Dispose() { }
     }
 }

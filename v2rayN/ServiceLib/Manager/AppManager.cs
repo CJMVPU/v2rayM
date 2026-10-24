@@ -10,7 +10,6 @@ public sealed class AppManager
     private int? _statePort2;
     public static AppManager Instance => _instance.Value;
     public Config Config => _config;
-    public IWindowDialog WindowDialog { get; set; } = null!;
 
     public int StatePort
     {
@@ -116,45 +115,6 @@ public sealed class AppManager
         _statePort = null;
         _statePort2 = null;
         return true;
-    }
-
-    public async Task AppExitAsync(bool needShutdown)
-    {
-        try
-        {
-            Logging.SaveLog("AppExitAsync Begin");
-
-            await SysProxyHandler.UpdateSysProxy(_config, true);
-            AppEvents.AppExitRequested.Publish();
-            await Task.Delay(50); //Wait for AppExitRequested to be processed
-
-            await ConfigHandler.SaveConfig(_config);
-            await ProfileExManager.Instance.SaveTo();
-            await StatisticsManager.Instance.SaveTo();
-            await CoreManager.Instance.CoreStop();
-            StatisticsManager.Instance.Close();
-
-            Logging.SaveLog("AppExitAsync End");
-        }
-        catch { }
-        finally
-        {
-            if (needShutdown)
-            {
-                Shutdown(false);
-            }
-        }
-    }
-
-    public void Shutdown(bool byUser)
-    {
-        AppEvents.ShutdownRequested.Publish(byUser);
-    }
-
-    public async Task RebootAsAdmin()
-    {
-        ProcUtils.RebootAsAdmin();
-        await AppManager.Instance.AppExitAsync(true);
     }
 
     #endregion App

@@ -15,38 +15,46 @@ using ServiceLib.Services;
 using NLog;
 using NLog.Config;
 using NLog.Targets;
-using v2rayN.WebAPI.Adapters;
 using v2rayN.WebAPI.Contracts;
 using v2rayN.WebAPI.MacOS;
 
 namespace v2rayN.WebAPI.Services;
 
-public sealed partial class V2rayRuntime(
-    EventHub events,
-    LogBuffer logs,
-    IConfiguration configuration,
-    IHostApplicationLifetime lifetime,
-    RuntimeOperationCoordinator operations)
+public sealed partial class V2rayRuntime
 {
-    private readonly EventHub _events = events;
-    private readonly LogBuffer _logs = logs;
-    private readonly IConfiguration _configuration = configuration;
-    private readonly IHostApplicationLifetime _lifetime = lifetime;
-    private readonly RuntimeOperationCoordinator _operations = operations;
-    private readonly RuntimeMutationGate _mutations = new();
-    private readonly SemaphoreSlim _coreGate = new(1, 1);
-    private readonly SemaphoreSlim _regionalPresetGate = new(1, 1);
-    private readonly SemaphoreSlim _coreMonitorGate = new(1, 1);
+    private readonly EventHub _events;
+    private readonly LogBuffer _logs;
+    private readonly IConfiguration _configuration;
+    private readonly IHostApplicationLifetime _lifetime;
+    private readonly RuntimeExecutionContext _execution;
+    private readonly CoreLifecycleService _coreLifecycle;
+    private readonly IRuntimeConfigStore _configStore;
+    private readonly CoreSettingsTransaction _settingsTransaction;
+    private readonly ModuleUpdateCoordinator _moduleUpdates;
+    private RuntimeOperationCoordinator _operations => _execution.Operations;
+    private RuntimeMutationGate _mutations => _execution.Mutations;
+    private SemaphoreSlim _coreGate => _execution.CoreGate;
+    private SemaphoreSlim _regionalPresetGate => _execution.RegionalPresetGate;
+
+    public V2rayRuntime(EventHub events, LogBuffer logs, IConfiguration configuration,
+        IHostApplicationLifetime lifetime, RuntimeOperationCoordinator operations,
+        IRuntimeConfigStore? configStore = null)
+    {
+        _events = events; _logs = logs; _configuration = configuration; _lifetime = lifetime;
+        _execution = new RuntimeExecutionContext(operations);
+        _configStore = configStore ?? new ServiceLibRuntimeConfigStore();
+        _coreLifecycle = new CoreLifecycleService(_execution, () => CoreManager.Instance.CoreStop(),
+            () => _macTunLauncher.ConfirmCleanup(), IsListeningAsync, OnCoreRuntimeChanged,
+            message => AddLog("core", message), CoreProcessTracker.GetActiveProcesses);
+        _settingsTransaction = new CoreSettingsTransaction(_execution, _configStore);
+        _moduleUpdates = new ModuleUpdateCoordinator(_execution);
+    }
     private readonly object _subscriptionGate = new();
     private readonly object _speedtestGate = new();
     private readonly Dictionary<string, Task> _subscriptionTasks = new(StringComparer.Ordinal);
     private SpeedtestService? _speedtestService;
     private Task? _speedtestTask;
     private CancellationTokenSource? _speedtestCancellation;
-    private CoreRuntimeSnapshot _coreRuntime = CoreRuntimeSnapshot.Stopped;
-    private CancellationTokenSource? _coreMonitorCancellation;
-    private Task? _coreMonitorTask;
-    private CoreProcessIdentity[] _trackedCoreProcesses = [];
     private string? _xrayPath;
     private readonly TrafficAverageWindow _trafficWindow = new();
     private readonly InstalledXrayVersion _installedXrayVersion = new();
@@ -55,8 +63,8 @@ public sealed partial class V2rayRuntime(
     private bool _restoring;
     private int _restoreAndRestartRequested;
 
-    private Config Config => AppManager.Instance.Config;
-    private CoreRuntimeSnapshot CurrentCoreRuntime => Volatile.Read(ref _coreRuntime);
+    private Config Config => _configStore.Current;
+    private CoreRuntimeSnapshot CurrentCoreRuntime => _coreLifecycle.Snapshot;
     public bool RestoreAndRestartRequested => Volatile.Read(ref _restoreAndRestartRequested) != 0;
 
     public int[] GetCoreProcessIds() => GetActiveCoreProcessIds();
@@ -65,13 +73,12 @@ public sealed partial class V2rayRuntime(
 
     public string GetCoreRuntimeState() => CurrentCoreRuntime.State.ToString().ToLowerInvariant();
 
-    private void SetCoreRuntime(CoreRuntimeSnapshot snapshot)
+    private void SetCoreRuntime(CoreRuntimeSnapshot snapshot) => _coreLifecycle.SetSnapshot(snapshot);
+
+    private void OnCoreRuntimeChanged(CoreRuntimeSnapshot snapshot)
     {
-        snapshot = snapshot with { ProcessIds = GetActiveCoreProcessIds() };
-        Volatile.Write(ref _coreRuntime, snapshot);
         if (snapshot.State != CoreRuntimeState.Running)
         {
-            _coreMonitorCancellation?.Cancel();
             _trafficWindow.Clear();
             StatisticsManager.Instance.ResetSample();
         }
@@ -90,129 +97,13 @@ public sealed partial class V2rayRuntime(
         });
     }
 
-    private async Task StartCoreMonitorAsync()
-    {
-        await StopCoreMonitorAsync();
-        var cancellation = new CancellationTokenSource();
-        _coreMonitorCancellation = cancellation;
-        _coreMonitorTask = Task.Run(() => MonitorCoreRuntimeAsync(cancellation.Token));
-    }
-
-    private async Task StopCoreMonitorAsync()
-    {
-        await _coreMonitorGate.WaitAsync();
-        try
-        {
-            var cancellation = _coreMonitorCancellation;
-            var task = _coreMonitorTask;
-            _coreMonitorCancellation = null;
-            _coreMonitorTask = null;
-            if (cancellation is null) return;
-            cancellation.Cancel();
-            if (task is not null)
-            {
-                try { await task.WaitAsync(TimeSpan.FromSeconds(2)); }
-                catch (OperationCanceledException) { }
-                catch (TimeoutException) { AddLog("core", "Core runtime monitor did not stop within its cleanup budget."); }
-            }
-            cancellation.Dispose();
-        }
-        finally
-        {
-            _coreMonitorGate.Release();
-        }
-    }
-
-    private CoreProcessIdentity[] GetActiveCoreProcesses() =>
-        CoreProcessTracker.GetActiveProcesses(Volatile.Read(ref _trackedCoreProcesses));
-
-    private int[] GetActiveCoreProcessIds() =>
-        GetActiveCoreProcesses().Select(process => process.ProcessId).ToArray();
-
-    private bool HasTrackedCoreProcesses => GetActiveCoreProcesses().Length > 0;
-
-    private void SetTrackedCoreProcesses(IEnumerable<CoreProcessIdentity> processes) =>
-        Volatile.Write(ref _trackedCoreProcesses, processes.DistinctBy(process => process.ProcessId).ToArray());
-
-    private async Task StopCoreAndConfirmAsync(CancellationToken cancellationToken)
-    {
-        await CoreManager.Instance.CoreStop();
-        _macTunLauncher.ConfirmCleanup();
-
-        var deadline = DateTimeOffset.UtcNow.AddSeconds(5);
-        while (true)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var activeProcesses = GetActiveCoreProcesses();
-            // Port occupancy is not process ownership: another program may bind a just-released
-            // TCP or UDP port before this check. Only Web's captured process identities can
-            // keep stop pending or cause a stop failure.
-            if (activeProcesses.Length == 0)
-            {
-                SetTrackedCoreProcesses([]);
-                return;
-            }
-
-            if (DateTimeOffset.UtcNow >= deadline)
-            {
-                var details = new List<string>();
-                if (activeProcesses.Length > 0)
-                {
-                    details.Add($"Core processes remain: {string.Join(",", activeProcesses.Select(process => process.ProcessId))}.");
-                }
-                throw new TimeoutException(string.Join(" ", details));
-            }
-
-            await Task.Delay(TimeSpan.FromMilliseconds(100), cancellationToken);
-        }
-    }
-
-    private async Task MonitorCoreRuntimeAsync(CancellationToken cancellationToken)
-    {
-        try
-        {
-            while (!cancellationToken.IsCancellationRequested)
-            {
-                await Task.Delay(TimeSpan.FromMilliseconds(750), cancellationToken);
-                var snapshot = CurrentCoreRuntime;
-                if (snapshot.State != CoreRuntimeState.Running || snapshot.ProxyPort is not int port)
-                {
-                    continue;
-                }
-
-                var processIds = GetActiveCoreProcessIds();
-                var listening = await IsListeningAsync(port, cancellationToken);
-                if (!ReferenceEquals(snapshot, CurrentCoreRuntime) || CurrentCoreRuntime.State != CoreRuntimeState.Running)
-                {
-                    continue;
-                }
-                if (processIds.Length > 0 && listening)
-                {
-                    continue;
-                }
-
-                var failure = processIds.Length == 0
-                    ? "The tracked Core child process exited unexpectedly."
-                    : "The running Core no longer owns its expected proxy listener.";
-                SetCoreRuntime(snapshot with
-                {
-                    State = CoreRuntimeState.Faulted,
-                    ProcessIds = processIds,
-                    LastFailure = failure,
-                });
-                AddLog("core", failure);
-                return;
-            }
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            // Expected when the Core is stopped, restarted, or the Web host shuts down.
-        }
-        catch (Exception exception)
-        {
-            AddLog("core", $"Core runtime monitor failed: {exception}");
-        }
-    }
+    private Task StartCoreMonitorAsync() => _coreLifecycle.StartMonitorAsync();
+    private Task StopCoreMonitorAsync() => _coreLifecycle.StopMonitorAsync();
+    private CoreProcessIdentity[] GetActiveCoreProcesses() => _coreLifecycle.GetActiveProcesses();
+    private int[] GetActiveCoreProcessIds() => _coreLifecycle.GetActiveProcessIds();
+    private bool HasTrackedCoreProcesses => _coreLifecycle.HasTrackedProcesses;
+    private void SetTrackedCoreProcesses(IEnumerable<CoreProcessIdentity> processes) => _coreLifecycle.SetTrackedProcesses(processes);
+    private Task StopCoreAndConfirmAsync(CancellationToken token) => _coreLifecycle.StopAndConfirmAsync(token);
 
     public async Task InitializeAsync(CancellationToken cancellationToken, bool suppressCoreAutostart = false)
     {
@@ -226,9 +117,11 @@ public sealed partial class V2rayRuntime(
         {
             throw new InvalidOperationException("ServiceLib could not load its configuration.");
         }
+        // Finish a previously interrupted DB + JSON rollback before any core
+        // or background mutator can observe a partially restored configuration.
+        await _configStore.RecoverPendingRestoreAsync();
         ConfigureServiceLibConsoleLogging();
 
-        AppManager.Instance.WindowDialog = new HeadlessWindowDialog();
         if (!AppManager.Instance.InitComponents())
         {
             throw new InvalidOperationException("ServiceLib component initialization failed.");
@@ -254,7 +147,7 @@ public sealed partial class V2rayRuntime(
             {
                 Config.Inbound[0].AllowLANConn = allowProxyFromLan;
             }
-            await EnsureConfigSaveSucceededAsync(() => ConfigHandler.SaveConfig(Config));
+            await EnsureConfigSaveSucceededAsync(() => _configStore.SaveAsync());
         });
         await ConfigHandler.InitBuiltinDNS(Config);
         await BuiltinDnsProfileBootstrap.EnsureAsync(
@@ -278,7 +171,7 @@ public sealed partial class V2rayRuntime(
         }
         var selectedProfileId = Config.IndexId;
         var defaultProfile = await ConfigHandler.GetDefaultServer(Config);
-        await _mutations.RunAsync(() => EnsureConfigSaveSucceededAsync(() => ConfigHandler.SaveConfig(Config)));
+        await _mutations.RunAsync(() => EnsureConfigSaveSucceededAsync(() => _configStore.SaveAsync()));
         await ProfileExManager.Instance.Init();
         await CertPemManager.Instance.Init(Config);
         // The native macOS host routes TUN launches through its signed XPC helper.
@@ -402,7 +295,7 @@ public sealed partial class V2rayRuntime(
             steps.Add(new("configuration save", async deadline =>
             {
                 await _mutations.RunAsync(
-                    () => EnsureConfigSaveSucceededAsync(() => ConfigHandler.SaveConfig(Config)),
+                    () => EnsureConfigSaveSucceededAsync(() => _configStore.SaveAsync()),
                     deadline.Token);
                 return true;
             }));
@@ -513,7 +406,7 @@ public sealed partial class V2rayRuntime(
             if (removesCurrentProfile)
             {
                 _ = await ConfigHandler.GetDefaultServer(Config);
-                await EnsureConfigSaveSucceededAsync(() => ConfigHandler.SaveConfig(Config));
+                await EnsureConfigSaveSucceededAsync(() => _configStore.SaveAsync());
             }
         });
 
@@ -561,7 +454,7 @@ public sealed partial class V2rayRuntime(
                         });
 
                         operation.Token.ThrowIfCancellationRequested();
-                        await EnsureConfigSaveSucceededAsync(() => ConfigHandler.SaveConfig(Config));
+                        await EnsureConfigSaveSucceededAsync(() => _configStore.SaveAsync());
                         await UpdateSubscriptionTimestampLockedAsync(id);
                     }, operation.Token);
                     _events.Publish("profiles-changed", new { subscriptionId = id });
@@ -737,7 +630,7 @@ public sealed partial class V2rayRuntime(
                 return OperationView.Fail("core_selection_requires_stop", ApiMessageKeys.CommonInvalidInput);
             await _mutations.RunAsync(async () => {
                 Config.IndexId = profile.IndexId;
-                await EnsureConfigSaveSucceededAsync(() => ConfigHandler.SaveConfig(Config));
+                await EnsureConfigSaveSucceededAsync(() => _configStore.SaveAsync());
             });
             return OperationView.Ok(ApiMessageKeys.CommonCompleted);
         }
@@ -761,15 +654,7 @@ public sealed partial class V2rayRuntime(
 
     private async Task<OperationView> StartCoreAsync(ProfileItem? requestedProfile, CancellationToken cancellationToken, bool selectProfile = false)
     {
-        await _coreGate.WaitAsync(cancellationToken);
-        try
-        {
-            return await StartCoreLockedAsync(requestedProfile, cancellationToken, selectProfile);
-        }
-        finally
-        {
-            _coreGate.Release();
-        }
+        return await _coreLifecycle.ExecuteAsync(() => StartCoreLockedAsync(requestedProfile, cancellationToken, selectProfile), cancellationToken);
     }
 
     private async Task<OperationView> StartCoreLockedAsync(ProfileItem? requestedProfile, CancellationToken cancellationToken, bool selectProfile = false)
@@ -800,7 +685,7 @@ public sealed partial class V2rayRuntime(
             await _mutations.RunAsync(async () =>
             {
                 Config.IndexId = profile.IndexId;
-                await EnsureConfigSaveSucceededAsync(() => ConfigHandler.SaveConfig(Config));
+                await EnsureConfigSaveSucceededAsync(() => _configStore.SaveAsync());
             });
         }
 
@@ -812,7 +697,7 @@ public sealed partial class V2rayRuntime(
         var selected = await ConfigHandler.GetDefaultServer(Config);
         if (selected is not null)
         {
-            await EnsureConfigSaveSucceededAsync(() => ConfigHandler.SaveConfig(Config));
+            await EnsureConfigSaveSucceededAsync(() => _configStore.SaveAsync());
         }
         return selected;
     });
@@ -1009,15 +894,7 @@ public sealed partial class V2rayRuntime(
 
     public async Task<OperationView> StopCoreAsync(CancellationToken cancellationToken)
     {
-        await _coreGate.WaitAsync(cancellationToken);
-        try
-        {
-            return await StopCoreLockedAsync(cancellationToken);
-        }
-        finally
-        {
-            _coreGate.Release();
-        }
+        return await _coreLifecycle.ExecuteAsync(() => StopCoreLockedAsync(cancellationToken), cancellationToken);
     }
 
     private async Task<OperationView> StopCoreLockedAsync(CancellationToken cancellationToken)
@@ -1055,15 +932,7 @@ public sealed partial class V2rayRuntime(
 
     public async Task<OperationView> RestartCoreAsync(CancellationToken cancellationToken)
     {
-        await _coreGate.WaitAsync(cancellationToken);
-        try
-        {
-            return await RestartCoreLockedAsync(cancellationToken);
-        }
-        finally
-        {
-            _coreGate.Release();
-        }
+        return await _coreLifecycle.ExecuteAsync(() => RestartCoreLockedAsync(cancellationToken), cancellationToken);
     }
 
     private async Task<OperationView> RestartCoreLockedAsync(CancellationToken cancellationToken)

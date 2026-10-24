@@ -1,6 +1,6 @@
 namespace ServiceLib.Models.Dto;
 
-public class SemanticVersion : IEquatable<SemanticVersion>, IComparable
+public partial class SemanticVersion : IEquatable<SemanticVersion>, IComparable
 {
     private readonly string? build;
     private readonly int major;
@@ -85,19 +85,25 @@ public class SemanticVersion : IEquatable<SemanticVersion>, IComparable
         return major == other.major && minor == other.minor && patch == other.patch && prerelease == other.prerelease;
     }
 
+    /// Strict release parsing. The legacy constructor intentionally remains
+    /// tolerant for old stored configuration; update decisions must use this API.
     public static bool TryParse(string? version, out SemanticVersion? result)
     {
-        try
-        {
-            result = new SemanticVersion(version);
-            return true;
-        }
-        catch
-        {
-            result = null;
-            return false;
-        }
+        result = null;
+        if (version is null) return false;
+        var match = StrictVersionPattern().Match(version);
+        if (!match.Success) return false;
+        for (var index = 1; index <= 3; index++)
+            if (!int.TryParse(match.Groups[index].Value, System.Globalization.NumberStyles.None,
+                System.Globalization.CultureInfo.InvariantCulture, out _)) return false;
+        var prerelease = match.Groups[4].Value;
+        if (prerelease.Split('.').Any(part => part.Length > 1 && part[0] == '0' && part.All(char.IsAsciiDigit))) return false;
+        result = new SemanticVersion(version);
+        return true;
     }
+
+    [GeneratedRegex(@"\A[vV]?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?\z")]
+    private static partial Regex StrictVersionPattern();
 
     public override bool Equals(object? obj)
     {
@@ -236,18 +242,24 @@ public class SemanticVersion : IEquatable<SemanticVersion>, IComparable
 
     private static int CompareSegment(ReadOnlySpan<char> left, ReadOnlySpan<char> right)
     {
-        var leftIsNum = ulong.TryParse(left, out var leftNum);
-        var rightIsNum = ulong.TryParse(right, out var rightNum);
-
-        return (leftIsNum, rightIsNum) switch
+        var leftIsNum = IsNumericIdentifier(left);
+        var rightIsNum = IsNumericIdentifier(right);
+        if (leftIsNum && rightIsNum)
         {
-            (true, true) => leftNum.CompareTo(rightNum),
+            // Numeric prerelease identifiers are unbounded by the SemVer spec.
+            // Compare digits, not ulong, so large identifiers still sort numerically.
+            while (left.Length > 1 && left[0] == '0') left = left[1..];
+            while (right.Length > 1 && right[0] == '0') right = right[1..];
+            return left.Length != right.Length ? left.Length.CompareTo(right.Length) : left.SequenceCompareTo(right);
+        }
+        return leftIsNum ? -1 : rightIsNum ? 1 : left.SequenceCompareTo(right);
+    }
 
-            (false, true) => 1,
-            (true, false) => -1,
-
-            (false, false) => left.SequenceCompareTo(right),
-        };
+    private static bool IsNumericIdentifier(ReadOnlySpan<char> value)
+    {
+        if (value.IsEmpty) return false;
+        foreach (var character in value) if (!char.IsAsciiDigit(character)) return false;
+        return true;
     }
 
     #endregion Private

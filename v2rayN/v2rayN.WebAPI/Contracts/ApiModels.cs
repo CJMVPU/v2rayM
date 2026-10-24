@@ -310,7 +310,7 @@ public sealed record ProfileExportItem(string IndexId, string Remarks, string Fo
 public sealed record TrafficView(double ProxyUp, double ProxyDown, double DirectUp, double DirectDown,
     double SampleSeconds = 1, DateTimeOffset? SampledAt = null);
 
-public sealed record CoreUpdateCheckView(bool UpdateAvailable, string? Version, bool IsUpToDate = false, string? Detail = null);
+public sealed record CoreUpdateCheckView(bool UpdateAvailable, string? Version, bool IsUpToDate = false, string? Detail = null, bool AwaitingCompatibilityValidation = false);
 
 public sealed record CoreUpdateTargetView(
     string CoreType,

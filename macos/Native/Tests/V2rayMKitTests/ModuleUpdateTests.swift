@@ -6,7 +6,16 @@ final class ModuleUpdateTests: XCTestCase {
         let same = try JSONDecoder().decode(ModuleUpdateProgress.self, from: Data(#"{"coreType":"Xray","phase":"completed","isComplete":true,"success":true,"batch":false,"detail":"已安装同版本修复版，无需更新"}"#.utf8))
         XCTAssertEqual(same.phaseLabel, "已安装同版本修复版，无需更新")
         let newer = try JSONDecoder().decode(ModuleUpdateProgress.self, from: Data(#"{"coreType":"Xray","phase":"failed","isComplete":true,"success":false,"batch":false,"detail":"发现上游新版本 26.10.22，尚未通过原生 TUN 兼容验证，已保留当前修复版。"}"#.utf8))
-        XCTAssertEqual(newer.phaseLabel, "等待兼容验证")
+        XCTAssertEqual(newer.phaseLabel, "等待验证后再替换内核")
+    }
+    func testWaitingPhasePreservesCandidateForSingleAndBatchUpdates() throws {
+        for batch in [false, true] {
+            let json = "{\"coreType\":\"Xray\",\"phase\":\"awaiting-validation\",\"isComplete\":true,\"success\":false,\"batch\":\(batch),\"version\":\"v26.10.22\",\"detail\":\"Compatibility review pending\"}"
+            let progress = try JSONDecoder().decode(ModuleUpdateProgress.self, from: Data(json.utf8))
+            XCTAssertTrue(progress.awaitingCompatibilityValidation)
+            XCTAssertEqual(progress.phaseLabel, "等待验证后再替换内核")
+            XCTAssertEqual(progress.version, "v26.10.22")
+        }
     }
     func testByteProgressIsClampedAndUnknownLengthStaysIndeterminate() throws {
         func progress(_ fields: String) throws -> ModuleUpdateProgress {
