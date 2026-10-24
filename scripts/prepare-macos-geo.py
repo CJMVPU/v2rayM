@@ -4,12 +4,22 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
 import urllib.request
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / 'macos/Native/Sources/V2rayM/Resources/Globe'
+
+def download(url, destination):
+    # DB-IP rejects urllib's default Python user agent. Identify this build
+    # client explicitly; the pinned SHA-256 remains the acceptance boundary.
+    request = urllib.request.Request(url, headers={
+        'User-Agent': 'v2rayM-build/1.0 (+https://github.com/CJMVPU/v2rayM)',
+    })
+    with urllib.request.urlopen(request, timeout=30) as response, Path(destination).open('wb') as output:
+        shutil.copyfileobj(response, output)
 
 def digest(path):
     h = hashlib.sha256()
@@ -35,7 +45,7 @@ def main():
     pinned = json.loads((ROOT / 'contracts/macos-build-inputs.json').read_text())['geolocation']
     with tempfile.TemporaryDirectory(prefix='v2raym-geodata-') as work:
         source = args.source or Path(work) / pinned['file']
-        if args.source is None: urllib.request.urlretrieve(pinned['sourceURL'], source)
+        if args.source is None: download(pinned['sourceURL'], source)
         if digest(source) != pinned['sha256']: raise ValueError('Pinned DB-IP archive checksum mismatch')
         subprocess.run([sys.executable, str(ROOT / 'scripts/prepare-globe-geo.py'), str(source), str(OUTPUT)], check=True)
     verify(); print('Prepared reproducible native city data.')

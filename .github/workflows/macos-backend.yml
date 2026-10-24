@@ -33,6 +33,7 @@ jobs:
           python3 scripts/test-macos-product-boundaries.py
           python3 scripts/test-core-packaging.py
           python3 scripts/test-macos-signing-identity.py
+          python3 scripts/test-macos-geo-download.py
           bash v2rayN/v2rayN.WebAPI/Tests/Integration/test-release-packaging.sh
       - name: Verify backend and shared proxy logic before packaging
         run: |
