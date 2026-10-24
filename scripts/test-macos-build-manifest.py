@@ -2,6 +2,7 @@
 """Offline regressions for stale/mixed backend source and modified artifacts."""
 import importlib.util
 import json
+import plistlib
 from pathlib import Path
 import subprocess
 import tempfile
@@ -43,6 +44,38 @@ class ProvenanceTests(unittest.TestCase):
     def test_invalid_version_is_rejected(self):
         (self.root / 'VERSION').write_text('0.3.3.1\n')
         with self.assertRaises(ValueError): manifest.source_snapshot(self.root)
+
+class PackagedDataTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix='v2raym-packaged-data-')
+        self.app = Path(self.temp.name)
+        self.data = self.app / 'Contents/Resources/Backend/bin'
+        self.data.mkdir(parents=True)
+        self.plist = self.app / 'Contents/Info.plist'
+        self.plist.write_bytes(plistlib.dumps({'CFBundleShortVersionString': '0.3.6', 'CFBundleVersion': '0.3.6'}))
+        for name in ('geoip.dat', 'geosite.dat'): (self.data / name).write_bytes(name.encode())
+        self.receipt = {'source': {'version': '0.3.6'}, 'artifacts': {}, 'resourceDigests': {},
+                        'runtimeData': {'SHA256': {name: manifest.sha(self.data / name) for name in ('geoip.dat', 'geosite.dat')}}}
+    def tearDown(self): self.temp.cleanup()
+    def test_unchanged_runtime_data_passes(self):
+        manifest.verify_app_files(self.app, self.receipt)
+    def test_each_changed_dat_is_rejected(self):
+        for name in ('geoip.dat', 'geosite.dat'):
+            with self.subTest(name=name):
+                path = self.data / name; original = path.read_bytes(); path.write_bytes(b'tampered')
+                with self.assertRaisesRegex(ValueError, name): manifest.verify_app_files(self.app, self.receipt)
+                path.write_bytes(original)
+    def test_missing_or_extra_data_digest_is_rejected(self):
+        digests = self.receipt['runtimeData']['SHA256']
+        original = dict(digests)
+        for invalid in ({}, {'geoip.dat': original['geoip.dat']}, original | {'unexpected.dat': 'bad'}):
+            self.receipt['runtimeData']['SHA256'] = invalid
+            with self.assertRaisesRegex(ValueError, 'digests'): manifest.verify_app_files(self.app, self.receipt)
+    def test_plist_version_changed_after_packaging_is_rejected(self):
+        for key in ('CFBundleShortVersionString', 'CFBundleVersion'):
+            value = {'CFBundleShortVersionString': '0.3.6', 'CFBundleVersion': '0.3.6'}; value[key] = '0.3.5'
+            self.plist.write_bytes(plistlib.dumps(value))
+            with self.assertRaisesRegex(ValueError, 'versions'): manifest.verify_app_files(self.app, self.receipt)
 
 class ReviewedInputTests(unittest.TestCase):
     def setUp(self):

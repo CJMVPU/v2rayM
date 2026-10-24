@@ -17,6 +17,10 @@ public sealed class SQLiteHelper
         _connstr = databasePath;
         _db = new SQLiteConnection(_connstr, false);
         _dbAsync = new SQLiteAsyncConnection(_connstr, false);
+        // FullMutex protects individual SQLite calls, not a complete transaction.
+        // Serialize operations on the pooled connection so another writer cannot
+        // enter a transaction and accidentally share its commit or rollback.
+        _dbAsync.GetConnection().SkipLock = false;
     }
 
     public CreateTableResult CreateTable<T>()

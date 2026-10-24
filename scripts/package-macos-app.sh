@@ -11,7 +11,7 @@ python3 "$repo_root/scripts/check-macos-product-boundaries.py"
 python3 "$repo_root/scripts/prepare-macos-geo.py" --verify-only
 for resource in ipv4.bin ipv6.bin places.bin ATTRIBUTION.txt; do
   if [[ ! -s "$repo_root/macos/Native/Sources/V2rayM/Resources/Globe/$resource" ]]; then
-    echo "Missing globe resource: $resource. See docs/globe-dashboard.md before packaging." >&2
+    echo "Missing geolocation resource: $resource. See docs/connection-dashboard.md before packaging." >&2
     exit 1
   fi
 done

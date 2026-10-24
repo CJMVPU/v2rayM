@@ -564,7 +564,7 @@ public static class ConfigHandler
         catch (Exception ex)
         {
             Logging.SaveLog(_tag, ex);
-            return -1;
+            throw new IOException("Could not persist the imported custom node; existing nodes were retained.", ex);
         }
 
         profileItem.Address = newFileName;
@@ -602,7 +602,7 @@ public static class ConfigHandler
         catch (Exception ex)
         {
             Logging.SaveLog(_tag, ex);
-            return -1;
+            throw new IOException("Could not persist the imported custom node; existing nodes were retained.", ex);
         }
 
         profileItem.Address = newFileName;
@@ -1969,7 +1969,8 @@ public static class ConfigHandler
         {
             lstOriSub = await AppManager.Instance.ProfileItems(subid);
             activeProfile = lstOriSub?.FirstOrDefault(t => t.IndexId == config.IndexId);
-            await RemoveServersViaSubid(config, subid, true);
+            // Keep the original subscription usable until replacement parsing and
+            // persistence have succeeded. Empty/invalid responses must not erase it.
         }
 
         var counter = 0;
@@ -2029,28 +2030,51 @@ public static class ConfigHandler
             counter = await AddBatchServers4Custom(config, strData, subid, isSub);
         }
 
-        //Select active node
-        if (activeProfile != null)
+        if (lstOriSub is not null)
         {
-            var lstSub = await AppManager.Instance.ProfileItems(subid);
-            var existItem = FindMatchedProfileItem(lstSub, activeProfile);
-            if (existItem != null)
-            {
-                await ConfigHandler.SetDefaultServerIndex(config, existItem.IndexId);
-            }
-        }
+            if (counter < 1) return counter;
+            var originalIds = lstOriSub.Select(item => item.IndexId).ToHashSet(StringComparer.Ordinal);
+            var imported = (await AppManager.Instance.ProfileItems(subid) ?? [])
+                .Where(item => !originalIds.Contains(item.IndexId)).ToList();
+            if (imported.Count == 0) return 0;
 
-        //Keep the last traffic statistics
-        if (lstOriSub != null)
-        {
-            var lstSub = await AppManager.Instance.ProfileItems(subid);
-            foreach (var item in lstSub)
+            // Complete all replacement writes before retiring the old rows. A failed
+            // statistics/config save may leave additional candidates, never an empty group.
+            var oldSubscriptionProfiles = lstOriSub.Where(item => item.IsSub).ToList();
+            foreach (var item in imported)
             {
-                var existItem = FindMatchedProfileItem(lstOriSub, item);
-                if (existItem != null)
-                {
-                    await StatisticsManager.Instance.CloneServerStatItem(existItem.IndexId, item.IndexId);
-                }
+                var matched = FindMatchedProfileItem(oldSubscriptionProfiles, item);
+                if (matched is not null)
+                    await StatisticsManager.Instance.CloneServerStatItem(matched.IndexId, item.IndexId);
+            }
+            var selectedBefore = config.IndexId;
+            if (activeProfile is { IsSub: true } && XrayOnlyPolicy.Supports(activeProfile))
+            {
+                var matched = FindMatchedProfileItem(imported, activeProfile);
+                if (matched is not null) config.IndexId = matched.IndexId;
+            }
+            if (await SaveConfig(config) != 0)
+            {
+                config.IndexId = selectedBefore;
+                throw new IOException("Could not save subscription replacement configuration; original nodes were retained.");
+            }
+
+            // Unsupported stored records remain inspectable. An unmatched selected
+            // node also remains usable until the user chooses its replacement.
+            var replaced = oldSubscriptionProfiles
+                .Where(item => XrayOnlyPolicy.Supports(item) && item.IndexId != config.IndexId).ToArray();
+            await SQLiteHelper.Instance.RunInTransactionAsync(db =>
+            {
+                foreach (var item in replaced) db.Delete<ProfileItem>(item.IndexId);
+            });
+            foreach (var item in replaced.Where(item => item.ConfigType is EConfigType.Custom or EConfigType.Outbound))
+            {
+                if (item.Address.IsNullOrEmpty()
+                    || await SQLiteHelper.Instance.TableAsync<ProfileItem>().Where(profile => profile.Address == item.Address).CountAsync() != 0)
+                    continue;
+                try { File.Delete(Utils.GetConfigPath(item.Address)); }
+                catch (IOException exception) { Logging.SaveLog("Subscription file cleanup deferred", exception); }
+                catch (UnauthorizedAccessException exception) { Logging.SaveLog("Subscription file cleanup deferred", exception); }
             }
         }
 
@@ -2172,7 +2196,7 @@ public static class ConfigHandler
         {
             return -1;
         }
-        var customProfile = await SQLiteHelper.Instance.TableAsync<ProfileItem>().Where(t => t.Subid == subid && (t.ConfigType == EConfigType.Custom || t.ConfigType == EConfigType.Outbound)).ToListAsync();
+        var customProfile = await SQLiteHelper.Instance.TableAsync<ProfileItem>().Where(t => t.Subid == subid && (!isSub || t.IsSub) && (t.ConfigType == EConfigType.Custom || t.ConfigType == EConfigType.Outbound)).ToListAsync();
         if (isSub)
         {
             await SQLiteHelper.Instance.ExecuteAsync("delete from ProfileItem where isSub = 1 and subid = ?", subid);
@@ -2183,7 +2207,9 @@ public static class ConfigHandler
         }
         foreach (var item in customProfile)
         {
-            File.Delete(Utils.GetConfigPath(item.Address));
+            if (item.Address.IsNotEmpty()
+                && await SQLiteHelper.Instance.TableAsync<ProfileItem>().Where(profile => profile.Address == item.Address).CountAsync() == 0)
+                File.Delete(Utils.GetConfigPath(item.Address));
         }
 
         return 0;

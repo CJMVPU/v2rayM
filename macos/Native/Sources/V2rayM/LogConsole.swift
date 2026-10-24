@@ -7,5 +7,6 @@ struct LogConsole: NSViewRepresentable {
     var entries: [LogEntry]
     func makeCoordinator() -> NativeLogDocument { NativeLogDocument() }
     func makeNSView(context: Context) -> NSScrollView { context.coordinator.scrollView }
+    static func dismantleNSView(_ scroll: NSScrollView, coordinator: NativeLogDocument) { coordinator.stopFollowingAnimation() }
     func updateNSView(_ scroll: NSScrollView, context: Context) { context.coordinator.update(entries) }
 }

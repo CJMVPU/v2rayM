@@ -1,4 +1,4 @@
-# Native connection dashboard (0.3.4)
+# Native connection dashboard
 
 The fixed 860 × 600 homepage uses a native circular connection display and a
 92-point traffic trend below it. The right-hand status, traffic and recent
@@ -57,7 +57,8 @@ The node city and recent-connection location details still use system DNS and
 the offline IP database. Unknown locations remain unknown. The unused map renderer and its dedicated textures are removed. Location lookup
 uses memory-mapped IPv4/IPv6 ranges and an indexed places.bin table, retaining
 source attribution and returning unknown for corrupt or missing records.
-See `globe-dashboard.md` for the historical map design.
+Regenerate missing geographic resources with `python3 scripts/prepare-macos-geo.py`;
+verify fixed input/output digests with `--verify-only`. Retired map designs remain in Git history.
 
 ## Verification
 

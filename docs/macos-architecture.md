@@ -1,4 +1,4 @@
-# v2rayM macOS 架构（0.3.3）
+# v2rayM macOS 架构
 
 产品只包含 SwiftUI 原生 macOS 客户端和 Xray，保留上游 fork、ServiceLib 与 WebAPI。
 控制链路为 SwiftUI → 本机认证 WebAPI → ServiceLib → Xray；TUN 特权操作通过独立签名 helper。
@@ -69,5 +69,5 @@ Xray 保留固定源码及 Darwin 修复标识。macOS 产品 CI 与独立 WebAP
 
 测试、构建、签名、安装、真实网络验收和公证是不同结果。
 隔离测试不改系统代理、不注册 helper，也不证明真实 TUN、休眠或 Wi-Fi 恢复已通过实机验收。
-版本规则、操作命令见 [README](../README.md)；本轮验收见 [架构改造记录](audits/2026-10-24-architecture-refactor.md)。
+版本规则、操作命令见 [README](../README.md)；本轮验收见 [最终收敛记录](audits/2026-10-24-final-stabilization.md)。
 上游导入必须先阅读 [合并规则](upstream-merge-policy.md)，不能恢复其他内核或桌面 GUI。

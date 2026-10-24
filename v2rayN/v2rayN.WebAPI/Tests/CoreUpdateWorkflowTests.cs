@@ -1,3 +1,4 @@
+using v2rayN.WebAPI.MacOS;
 using System.Formats.Tar;
 using System.IO.Compression;
 using System.Text;
@@ -11,6 +12,40 @@ namespace v2rayN.WebAPI.Tests;
 
 public class CoreUpdateWorkflowTests
 {
+    [Test]
+    public async Task LostFinishAcknowledgementDoesNotRollBackCommittedCoreOrClaimHealth()
+    {
+        var touchedLocal = false;
+        var result = await CoreUpdateWorkflow.RollBackAndRestoreAsync(
+            () => { touchedLocal = true; return Task.CompletedTask; },
+            () => { touchedLocal = true; return Task.CompletedTask; },
+            wasRunning: true,
+            () => { touchedLocal = true; return Task.FromResult(true); },
+            () => throw new MacHelperUpdateException("update_already_committed"));
+        await touchedLocal.Should().BeFalse();
+        await result.UpdateCommitted.Should().BeTrue();
+        await result.Completed.Should().BeFalse();
+        await result.CoreRestarted.Should().BeFalse();
+        await CoreUpdateWorkflow.CommittedUpdateUnconfirmedDetail.Should().Contain("health still requires confirmation");
+    }
+
+    [Test]
+    public async Task CancellationBeforeTrustedRollbackConfirmationDoesNotRestoreOnlyLocalFiles()
+    {
+        var touchedLocal = false;
+        var cancelled = false;
+        try
+        {
+            await CoreUpdateWorkflow.RollBackAndRestoreAsync(
+                () => { touchedLocal = true; return Task.CompletedTask; },
+                () => Task.CompletedTask, false, () => Task.FromResult(true),
+                () => throw new OperationCanceledException());
+        }
+        catch (OperationCanceledException) { cancelled = true; }
+        await cancelled.Should().BeTrue();
+        await touchedLocal.Should().BeFalse();
+    }
+
     [Test]
     public async Task OldExecutableAliasesCannotShadowTheNewXrayVersion()
     {

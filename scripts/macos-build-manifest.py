@@ -79,6 +79,18 @@ def verify_core_input(core_bin, root=ROOT, version_output=None):
 def write_json(path, value):
     Path(path).write_text(json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + '\n')
 
+def verify_app_files(app, receipt):
+    plist = plistlib.loads((app / 'Contents/Info.plist').read_bytes())
+    if any(plist.get(key) != receipt['source']['version'] for key in ('CFBundleShortVersionString', 'CFBundleVersion')):
+        raise ValueError('Application display/build versions differ from VERSION')
+    runtime = receipt.get('runtimeData', {}).get('SHA256', {})
+    if set(runtime) != {'geoip.dat', 'geosite.dat'}:
+        raise ValueError('Runtime Geo DAT digests are missing or unexpected')
+    expected_files = receipt['artifacts'] | receipt['resourceDigests']
+    expected_files |= {'Contents/Resources/Backend/bin/' + name: digest for name, digest in runtime.items()}
+    for name, expected in expected_files.items():
+        if sha(app / name) != expected: raise ValueError('Packaged artifact changed: ' + name)
+
 def main():
     parser = argparse.ArgumentParser(); sub = parser.add_subparsers(dest='action', required=True)
     snapshot = sub.add_parser('snapshot'); snapshot.add_argument('--output', type=Path, required=True); snapshot.add_argument('--dotnet', default='dotnet')
@@ -133,8 +145,7 @@ def main():
         write_json(args.app / 'Contents/Resources/build-manifest.json', receipt)
     elif args.action in {'verify-app', 'seal-app'}:
         receipt = json.loads((args.app / 'Contents/Resources/build-manifest.json').read_text()); assert_source(receipt['source'])
-        for name, expected in (receipt['artifacts'] | receipt['resourceDigests']).items():
-            if sha(args.app / name) != expected: raise ValueError('Packaged artifact changed: ' + name)
+        verify_app_files(args.app, receipt)
         if args.action == 'seal-app':
             receipt['signedArtifacts'] = {str(path.relative_to(args.app)): sha(path) for path in args.app.rglob('*') if path.is_file()}
             write_json(args.output, receipt)

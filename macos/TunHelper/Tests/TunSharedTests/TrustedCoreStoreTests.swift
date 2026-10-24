@@ -233,4 +233,29 @@ final class TrustedCoreStoreTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: store.source("xray")!.url), Data("first".utf8))
     }
 
+    func testLateRollbackAfterCommitCannotDeleteTheOnlyCommittedVersion() throws {
+        let root = try root(), store = TrustedCoreStore(root: root, owner: getuid())
+        let a = UUID().uuidString, b = UUID().uuidString
+        try seed(root, a, Data("old".utf8))
+        _ = try store.transition(action: "update-activate", kind: "xray", token: a)
+        _ = try store.transition(action: "update-finish", kind: "xray", token: a)
+        try seed(root, b, Data("new".utf8))
+        _ = try store.transition(action: "update-activate", kind: "xray", token: b)
+        _ = try store.transition(action: "update-finish", kind: "xray", token: b)
+        // The commit acknowledgement can be lost; a late rollback must not erase
+        // the committed selection after its previous directory has been removed.
+        XCTAssertThrowsError(try store.transition(action: "update-rollback", kind: "xray", token: b)) {
+            XCTAssertEqual(($0 as? HelperFailure)?.description, "update_already_committed")
+        }
+        var retry = HelperRequest(action: "update-rollback")
+        retry.core = "xray"; retry.updateToken = b
+        let response = store.handle(retry)
+        XCTAssertFalse(response.success)
+        XCTAssertEqual(response.code, "update_already_committed")
+        let source = try store.source("xray")
+        XCTAssertNotNil(source)
+        if let source { XCTAssertEqual(try Data(contentsOf: source.url), Data("new".utf8)) }
+        XCTAssertNoThrow(try store.transition(action: "update-finish", kind: "xray", token: b))
+    }
+
 }

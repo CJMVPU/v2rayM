@@ -296,7 +296,12 @@ public final class TrustedCoreStore {
             DispatchQueue.global().asyncAfter(deadline: .now() + 120) { [weak self] in self?.expire(kind: kind, token: token) }
         case "update-rollback":
             if rolledBackTokens.contains(token) { return HelperResponse(state: "ready") }
-            guard try read(current).token == token else { throw HelperFailure("update_token_mismatch") }
+            let manifest = try read(current)
+            guard manifest.token == token else { throw HelperFailure("update_token_mismatch") }
+            // A successful finish may lose its XPC acknowledgement. Its previous
+            // version has already been discarded; a late rollback cannot restore
+            // it and must never delete the only committed selection.
+            guard !manifest.committed else { throw HelperFailure("update_already_committed") }
             activeTokens.remove(token); rolledBackTokens.insert(token)
             try FileManager.default.removeItem(at: current)
             if FileManager.default.fileExists(atPath: previous.path) { try directory(previous); try FileManager.default.moveItem(at: previous, to: current) }

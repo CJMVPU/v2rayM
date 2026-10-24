@@ -45,7 +45,7 @@ internal sealed partial class MacTunCoreLauncher
             if (response is not null && response.ProtocolVersion != MacHelperContract.Version)
                 throw new IOException("TUN 后台服务协议版本不匹配，请更新后台服务后重试。");
             if (process.ExitCode != 0 || response is null || !response.Success)
-                throw new IOException("TUN 安全更新未完成：" + (response?.Code ?? "helper_update_failed"));
+                throw new MacHelperUpdateException(response?.Code ?? "helper_update_failed");
             return response;
         }
         finally
@@ -55,4 +55,9 @@ internal sealed partial class MacTunCoreLauncher
             try { await error; } catch (OperationCanceledException) { }
         }
     }
+}
+
+internal sealed class MacHelperUpdateException(string code) : IOException("TUN 安全更新未完成：" + code)
+{
+    public string Code { get; } = code;
 }

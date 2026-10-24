@@ -12,6 +12,7 @@ using ServiceLib.Models.Entities;
 using ServiceLib.Resx;
 using ServiceLib.Services;
 using v2rayN.WebAPI.Contracts;
+using v2rayN.WebAPI.MacOS;
 
 namespace v2rayN.WebAPI.Services;
 
@@ -867,6 +868,9 @@ public sealed partial class V2rayRuntime
                     runningProfile,
                     batch,
                     privilegedActivated ? stage.PrivilegedToken : null);
+                if (rollback.UpdateCommitted)
+                    return new CoreUpdateApplyResult(false, false, originalCoreWasRunning,
+                        CoreUpdateWorkflow.CommittedUpdateUnconfirmedDetail, stage.VersionOutput);
                 if (!rollback.Completed)
                 {
                     AddLog("update", rollback.FilesRestored
@@ -903,6 +907,9 @@ public sealed partial class V2rayRuntime
                     batch,
                     privilegedActivated ? stage.PrivilegedToken : null);
             }
+            if (rollback.UpdateCommitted)
+                return new CoreUpdateApplyResult(false, false, originalCoreWasRunning,
+                    CoreUpdateWorkflow.CommittedUpdateUnconfirmedDetail, stage.VersionOutput);
             var detail = rollback.Completed
                 ? $"{exception.Message} The previous Core was restored."
                 : rollback.FilesRestored
@@ -941,8 +948,7 @@ public sealed partial class V2rayRuntime
         var filesRestored = false;
         try
         {
-            await _macTunLauncher.TransitionUpdateAsync(coreType, privilegedToken, "update-rollback", CancellationToken.None);
-            return await CoreUpdateWorkflow.RollBackAndRestoreAsync(
+            var result = await CoreUpdateWorkflow.RollBackAndRestoreAsync(
                 async () =>
                 {
                     // Do not stop an unrelated active Core when the target being updated was idle.
@@ -970,7 +976,10 @@ public sealed partial class V2rayRuntime
                     PublishCoreUpdateProgress(coreType, "restarting-core", isComplete: false, success: false,
                         true, null, "Restarting the restored Core.", batch);
                     return (await StartCoreLockedAsync(runningProfile!, CancellationToken.None)).Success;
-                });
+                },
+                () => _macTunLauncher.TransitionUpdateAsync(coreType, privilegedToken, "update-rollback", CancellationToken.None));
+            if (result.UpdateCommitted) AddLog("update", CoreUpdateWorkflow.CommittedUpdateUnconfirmedDetail);
+            return result;
         }
         catch (Exception exception)
         {
@@ -1361,6 +1370,9 @@ internal static class CoreUpdateRuntimePolicy
 
 internal static class CoreUpdateWorkflow
 {
+    internal const string CommittedUpdateUnconfirmedDetail =
+        "The new Core was already committed and has been retained in both update stores. " +
+        "Final acknowledgement was interrupted; runtime health still requires confirmation. No rollback was performed.";
     public static void RestorePreviousDirectory(
         string installPath,
         string backupPath,
@@ -1381,8 +1393,19 @@ internal static class CoreUpdateWorkflow
         Func<Task> restoreFilesAsync,
         Func<Task> initializePreviousCoreAsync,
         bool wasRunning,
-        Func<Task<bool>> restartPreviousCoreAsync)
+        Func<Task<bool>> restartPreviousCoreAsync,
+        Func<Task>? rollbackTrustedCoreAsync = null)
     {
+        if (rollbackTrustedCoreAsync is not null)
+        {
+            try { await rollbackTrustedCoreAsync(); }
+            catch (MacHelperUpdateException exception) when (exception.Code == "update_already_committed")
+            {
+                // The helper's durable commit cannot be undone. Leave the matching
+                // local candidate and runtime untouched; commit alone is not health.
+                return new CoreUpdateRollbackResult(false, false, UpdateCommitted: true);
+            }
+        }
         await restoreFilesAsync();
         await initializePreviousCoreAsync();
         var restarted = !wasRunning || await restartPreviousCoreAsync();
@@ -1416,7 +1439,7 @@ internal static class CoreUpdateWorkflow
     }
 }
 
-internal sealed record CoreUpdateRollbackResult(bool FilesRestored, bool CoreRestarted)
+internal sealed record CoreUpdateRollbackResult(bool FilesRestored, bool CoreRestarted, bool UpdateCommitted = false)
 {
-    public bool Completed => FilesRestored && CoreRestarted;
+    public bool Completed => !UpdateCommitted && FilesRestored && CoreRestarted;
 }

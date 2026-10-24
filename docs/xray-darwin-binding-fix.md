@@ -55,5 +55,5 @@ Warning/Error、出口失败、进程查询失败及连接重置均保留。
 
 ## 进程查询后续调查
 
-M2 候选的回环复现、诊断分类补丁与未安装边界见
-[xray-process-lookup-fix.md](xray-process-lookup-fix.md)。0.2.2 的完整签名包使用 M2。
+M2 的回环复现、诊断分类补丁与验证边界见
+[xray-process-lookup-fix.md](xray-process-lookup-fix.md)。当前完整签名包使用 M2。

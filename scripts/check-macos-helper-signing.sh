@@ -29,6 +29,7 @@ import Foundation
 SWIFT
 swiftc -parse-as-library "$repo_root/macos/TunHelper/Sources/TunShared/SigningPolicy.swift" \
   "$repo_root/macos/TunHelper/Sources/TunShared/ExecutableLocation.swift" \
+  "$repo_root/macos/TunHelper/Sources/TunShared/HelperContract.generated.swift" \
   "$repo_root/macos/TunHelper/Sources/TunShared/Wire.swift" "$test_root/Check.swift" -o "$fixture"
 codesign --force --sign - "$fixture"
 python3 - "$fixture" <<'PY'

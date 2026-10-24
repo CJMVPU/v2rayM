@@ -49,14 +49,14 @@ macOS 无权访问的进程/socket 也可能导致归属不明；不可将所有
 ```sh
 python3 scripts/build-macos-xray.py --go /path/to/go \
   --source-archive /path/to/verified-source.tar.gz \
-  --output /tmp/new-m2-core --process-lookup-fix
+  --output /tmp/new-m2-core
 python3 scripts/xray/test-process-lookup-loopback.py \
   --core /tmp/new-m2-core/xray --output /tmp/new-m2-loopback
 ```
 
 沿用固定上游提交及归档校验，新增补丁 `patches/xray/darwin-process-lookup.patch`。
 候选标识为 `1b1647c-v2raym-darwin-bind2`；没有改成上游新版本。
-默认构建已切换到 M2，`--process-lookup-fix` 参数保留兼容。
+构建固定包含两项已批准补丁及对应回归，不再提供可省略补丁的开关。
 
 0.2.2 将 M2 纳入完整签名应用包，主页显示 `26.10.21（修复版 M2）`。
 helper 和后端显式识别 M1/M2 标识，拒绝相似但未知的标识；更新继续执行同版本跳过、
