@@ -2,7 +2,7 @@
 
 基于 [v2rayN](https://github.com/2dust/v2rayN) 的原生 macOS 代理客户端，使用 **SwiftUI + Xray**，保留上游 fork 关联与提交历史。共享业务继续复用 `ServiceLib` 和 `v2rayN.WebAPI`，已移除 WPF/Avalonia 桌面界面，以及 sing-box、Mihomo 等其他内核的运行、配置生成和更新入口。
 
-当前开发版本为 **0.3.3**。本项目尚未提供经过 Developer ID 签名和 Apple 公证的正式发行包；本地开发 DMG 的使用范围见[签名与分发](#签名与分发)。
+当前开发版本为 **0.3.4**。本项目尚未提供经过 Developer ID 签名和 Apple 公证的正式发行包；本地开发 DMG 的使用范围见[签名与分发](#签名与分发)。
 
 0.3.3 包含连接观察与控制隔离、可测试的连接意图协调、后端事务与生命周期分离、helper 契约和缓存、定位数据优化及统一来源校验构建。保留 Darwin M2 修复、5 秒采样与一分钟均速，以及新内核等待验证的更新保护。真实 TUN 联网验收需单独进行。
 

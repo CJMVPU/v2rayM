@@ -1,4 +1,4 @@
-# Native connection dashboard (0.3.3)
+# Native connection dashboard (0.3.4)
 
 The fixed 860 × 600 homepage uses a native circular connection display and a
 92-point traffic trend below it. The right-hand status, traffic and recent
@@ -16,10 +16,10 @@ bar. The background uses the same `NSColor.controlBackgroundColor` as Settings.
   only the track. Changes ease over 1.2 seconds. Reduce Motion, window occlusion, minimization
   and closure pause animation. The central status preserves offline, recovery,
   updating, stale, faulted and local-core distinctions.
-- The circle is centered horizontally and shifted upward by 20 points; the
-  redundant current-connection heading is omitted. The complete gauge area,
-  including all four badges, is shifted up another 12 points while the trend
-  remains in place. Hover adds a clearly visible disc fill and cyan/purple rim with a
+- The disc and both rings share the horizontal and vertical center of the
+  gauge area above the traffic trend. Vertical position uses the actual gauge
+  height, with no accumulated offsets. The four badges and trend retain their
+  positions; the redundant current-connection heading is omitted. Hover adds a clearly visible disc fill and cyan/purple rim with a
   0.18-second transition, without changing geometry. Gauge tooltips and the
   Settings home-display explanation section are removed. Source attribution
   remains bundled in Resources/Globe/ATTRIBUTION.txt.

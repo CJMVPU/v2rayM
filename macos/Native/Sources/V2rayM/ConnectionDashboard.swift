@@ -39,22 +39,21 @@ struct ConnectionDashboard: View {
             let gap: CGFloat = 12
             let gaugeHeight = max(0, geometry.size.height - trendHeight - gap)
             let diameter = max(0, min(340, 2 * gaugeHeight - geometry.size.width))
-            let inset = (geometry.size.width - diameter) / 2
             VStack(spacing: gap) {
                 ZStack(alignment: .topLeading) {
                     HStack {
                         badge("模式", value: mode)
                         Spacer()
                         badge("内核", value: "Xray")
-                    }.padding(.horizontal, 12).padding(.top, 26)
+                    }.padding(.horizontal, 12).padding(.top, 14)
                     activityRing(diameter: diameter)
-                        .position(x: geometry.size.width / 2, y: inset + diameter / 2 - 20)
+                        .position(x: geometry.size.width / 2, y: gaugeHeight / 2)
                     HStack {
                         badge("协议", value: node?.protocol.uppercased() ?? "—")
                         Spacer()
                         badge("延迟", value: (node?.delay ?? 0) > 0 ? "\(node?.delay ?? 0) ms" : "—")
-                    }.padding(.horizontal, 12).frame(maxHeight: .infinity, alignment: .bottom)
-                }.frame(height: gaugeHeight).offset(y: -12)
+                    }.padding(.horizontal, 12).padding(.bottom, 12).frame(maxHeight: .infinity, alignment: .bottom)
+                }.frame(height: gaugeHeight)
                 TrafficTrendView(trend: trend, now: now, animate: windowVisible && !reduceMotion,
                     emptyTitle: DashboardStatus.trafficDescription(state: state, enabled: trafficEnabled, hasSample: false))
                     .frame(height: trendHeight)
