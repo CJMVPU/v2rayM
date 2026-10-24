@@ -18,6 +18,7 @@ struct ConnectionDashboard: View {
     let reconnect: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var windowVisible = false
+    @State private var discHovered = false
     private var running: Bool { state.active || state == .local }
     private var mode: String {
         switch state {
@@ -52,9 +53,8 @@ struct ConnectionDashboard: View {
                         badge("协议", value: node?.protocol.uppercased() ?? "—")
                         Spacer()
                         badge("延迟", value: (node?.delay ?? 0) > 0 ? "\(node?.delay ?? 0) ms" : "—")
-                            .help("节点上次测试的延迟，不代表当前连接的实时延迟。")
                     }.padding(.horizontal, 12).frame(maxHeight: .infinity, alignment: .bottom)
-                }.frame(height: gaugeHeight)
+                }.frame(height: gaugeHeight).offset(y: -12)
                 TrafficTrendView(trend: trend, now: now, animate: windowVisible && !reduceMotion,
                     emptyTitle: DashboardStatus.trafficDescription(state: state, enabled: trafficEnabled, hasSample: false))
                     .frame(height: trendHeight)
@@ -84,12 +84,19 @@ struct ConnectionDashboard: View {
             .animation(animate ? .easeInOut(duration: 1.2) : nil, value: download)
             .accessibilityHidden(true)
             Circle().fill(DashboardTheme.panel.opacity(0.65)).padding(26)
+            Circle().fill(Color.primary.opacity(discHovered ? 0.045 : 0)).padding(26)
+            Circle().strokeBorder(
+                LinearGradient(colors: [DashboardTheme.cyan, DashboardTheme.purple],
+                               startPoint: .topLeading, endPoint: .bottomTrailing)
+                    .opacity(discHovered ? 0.35 : 0), lineWidth: 1)
+                .padding(26)
+                .shadow(color: DashboardTheme.cyan.opacity(discHovered ? 0.12 : 0), radius: 10)
             VStack(spacing: 9) {
                 Image(systemName: running ? "shield.lefthalf.filled" : state == .recovering ? "arrow.triangle.2.circlepath" : "shield")
                     .font(.system(size: 22)).foregroundStyle(statusColor)
                 Text(city).font(AppFont.size(25)).lineLimit(1).minimumScaleFactor(0.7)
                 Text(nodeName).font(AppFont.size(12)).foregroundStyle(DashboardTheme.muted)
-                    .lineLimit(1).truncationMode(.middle).help(nodeName)
+                    .lineLimit(1).truncationMode(.middle)
                 Text(coreRunning ? DashboardStatus.duration(since: startedAt, now: now) : "—")
                     .font(AppFont.size(24)).monospacedDigit().padding(.top, 4)
                 Text(connecting && state == .offline ? "正在连接本地服务" : state.title)
@@ -99,7 +106,10 @@ struct ConnectionDashboard: View {
                 }
             }.padding(.horizontal, 44)
         }.frame(width: diameter, height: diameter)
-            .help("青色外环表示上传，紫色内环表示下载；从下方开始填充，以各方向最近一分钟内的最高采样速度为满环，每五秒采样，平滑过渡。不是带宽利用率。")
+            .contentShape(Circle())
+            .onHover { discHovered = $0 }
+            .onDisappear { discHovered = false }
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: discHovered)
     }
     private func ring(diameter: CGFloat, color: Color, fraction: Double) -> some View {
         ZStack {

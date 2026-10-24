@@ -205,7 +205,6 @@ struct ContentView: View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 1) {
                 settingsSection("通用") { LoginItemSettings().environmentObject(model) }
-                settingsSection("主页展示") { DashboardDisplaySettings() }
                 settingsSection("代理设置") {
                     HStack(spacing: 12) {
                         Text("路由规则").fixedSize()

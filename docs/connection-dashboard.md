@@ -1,4 +1,4 @@
-# Native connection dashboard (0.3.0)
+# Native connection dashboard (0.3.2)
 
 The fixed 860 × 600 homepage uses a native circular connection display and a
 92-point traffic trend below it. The right-hand status, traffic and recent
@@ -17,7 +17,12 @@ bar. The background uses the same `NSColor.controlBackgroundColor` as Settings.
   and closure pause animation. The central status preserves offline, recovery,
   updating, stale, faulted and local-core distinctions.
 - The circle is centered horizontally and shifted upward by 10 points; the
-  redundant current-connection heading is omitted.
+  redundant current-connection heading is omitted. The complete gauge area,
+  including all four badges, is shifted up another 12 points while the trend
+  remains in place. Hover adds a subtle disc fill and cyan/purple rim with a
+  0.18-second transition, without changing geometry. Gauge tooltips and the
+  Settings home-display explanation section are removed. Source attribution
+  remains bundled in Resources/Globe/ATTRIBUTION.txt.
   Diameter is bounded by both width and the space remaining above the trend.
   Protocol and mode labels surround the circle; latency is explicitly the last
   node test, not a live path measurement.
