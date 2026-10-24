@@ -1,6 +1,3 @@
-using System.Net.Http.Headers;
-using System.Net.Mime;
-
 namespace ServiceLib.Helper;
 
 /// <summary>
@@ -31,7 +28,7 @@ public class HttpClientHelper
 
         try
         {
-            var response = await httpClient.GetAsync(url, cancellationToken);
+            using var response = await httpClient.GetAsync(url, cancellationToken);
             return await response.Content.ReadAsStringAsync(cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -53,26 +50,4 @@ public class HttpClientHelper
         return await httpClient.GetStringAsync(url);
     }
 
-    public async Task PutAsync(string url, Dictionary<string, string> headers)
-    {
-        var jsonContent = JsonUtils.Serialize(headers);
-        var content = new StringContent(jsonContent, Encoding.UTF8, MediaTypeNames.Application.Json);
-
-        await httpClient.PutAsync(url, content);
-    }
-
-    public async Task PatchAsync(string url, Dictionary<string, string> headers)
-    {
-        var myContent = JsonUtils.Serialize(headers);
-        var buffer = Encoding.UTF8.GetBytes(myContent);
-        var byteContent = new ByteArrayContent(buffer);
-        byteContent.Headers.ContentType = new MediaTypeHeaderValue("application/json");
-
-        await httpClient.PatchAsync(url, byteContent);
-    }
-
-    public async Task DeleteAsync(string url)
-    {
-        await httpClient.DeleteAsync(url);
-    }
 }

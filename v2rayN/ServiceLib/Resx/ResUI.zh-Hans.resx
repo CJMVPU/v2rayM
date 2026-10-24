@@ -944,7 +944,7 @@
     <value>拷贝字体 TTF/TTC 文件到目录 guiFonts，重启生效</value>
   </data>
   <data name="TbSettingsSocksPortTip" xml:space="preserve">
-    <value>Pac 端口 = +3；Xray API 端口 = +4；mihomo API 端口 = +5；</value>
+    <value>Pac 端口 = +3；Xray API 端口 = +4；</value>
   </data>
   <data name="TbSettingsStartBootTip" xml:space="preserve">
     <value>以管理员权限设置此项，在启动后获得管理员权限</value>

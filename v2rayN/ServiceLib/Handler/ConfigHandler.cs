@@ -2175,11 +2175,11 @@ public static class ConfigHandler
         var customProfile = await SQLiteHelper.Instance.TableAsync<ProfileItem>().Where(t => t.Subid == subid && (t.ConfigType == EConfigType.Custom || t.ConfigType == EConfigType.Outbound)).ToListAsync();
         if (isSub)
         {
-            await SQLiteHelper.Instance.ExecuteAsync($"delete from ProfileItem where isSub = 1 and subid = '{subid}'");
+            await SQLiteHelper.Instance.ExecuteAsync("delete from ProfileItem where isSub = 1 and subid = ?", subid);
         }
         else
         {
-            await SQLiteHelper.Instance.ExecuteAsync($"delete from ProfileItem where subid = '{subid}'");
+            await SQLiteHelper.Instance.ExecuteAsync("delete from ProfileItem where subid = ?", subid);
         }
         foreach (var item in customProfile)
         {

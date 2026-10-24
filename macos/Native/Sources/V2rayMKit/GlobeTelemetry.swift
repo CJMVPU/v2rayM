@@ -80,13 +80,33 @@ public struct GlobeConnection: Identifiable, Equatable, Sendable {
     public var place: GlobePlace?
     public var isProxy: Bool { route == "proxy" }
     public var routeTitle: String { route == "proxy" ? "代理" : route == "direct" ? "直连" : route == "block" ? "阻断" : route }
+    /// Newest unique connections win; the dashboard never needs an unbounded intermediate list.
+    public static func recent(_ entries: [LogEntry], previous: [Self], since start: Date, limit: Int = 24) -> [Self] {
+        guard limit > 0 else { return [] }
+        var result: [Self] = []
+        var seen = Set<String>()
+        let places = Dictionary(previous.map { ($0.host, $0.place) }, uniquingKeysWith: { first, _ in first })
+        for entry in entries.reversed() {
+            guard var item = parse(entry), item.timestamp >= start, seen.insert(item.id).inserted else { continue }
+            item.place = places[item.host] ?? nil
+            result.append(item)
+            if result.count == limit { return result }
+        }
+        for item in previous where item.timestamp >= start && seen.insert(item.id).inserted {
+            result.append(item)
+            if result.count == limit { break }
+        }
+        return result
+    }
     public static func parse(_ entry: LogEntry) -> Self? {
         // Xray access events only: never treat errors or arbitrary log domains as connections.
         guard let range = entry.message.range(of: " accepted ") else { return nil }
         let tail = String(entry.message[range.upperBound...])
         guard let target = tail.split(separator: " ").first,
               target.hasPrefix("tcp:") || target.hasPrefix("udp:"),
-              let bracket = tail.firstIndex(of: "["), let end = tail[bracket...].firstIndex(of: "]") else { return nil }
+              let targetEnd = tail.firstIndex(of: " "),
+              let bracket = tail[targetEnd...].firstIndex(of: "["),
+              let end = tail[bracket...].firstIndex(of: "]") else { return nil }
         let routeText = tail[tail.index(after: bracket)..<end]
         guard let route = routeText.split(whereSeparator: { $0 == ">" || $0 == " " }).last else { return nil }
         let value = String(target.dropFirst(4))

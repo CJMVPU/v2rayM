@@ -185,11 +185,7 @@ install, data_home = map(os.path.realpath, sys.argv[1:])
 expected = {
     os.path.join(install, "v2rayN.WebAPI"),
     os.path.join(install, "bin", "xray", "xray"),
-    os.path.join(install, "bin", "sing_box", "sing-box"),
-    os.path.join(install, "bin", "mihomo", "mihomo"),
     os.path.join(data_home, "v2rayN", "bin", "xray", "xray"),
-    os.path.join(data_home, "v2rayN", "bin", "sing_box", "sing-box"),
-    os.path.join(data_home, "v2rayN", "bin", "mihomo", "mihomo"),
 }
 expected = {os.path.realpath(path) for path in expected if os.path.exists(path)}
 residual = []

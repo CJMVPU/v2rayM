@@ -21,7 +21,6 @@ import V2rayMKit
     private var logBuffer = RollingLogBuffer()
     private var logCursor: Int64 = 0
     private var updateStarting = false
-    private var updateGeneration = 0
     private var mutationGeneration: Int { connection.revision }
     @Published var ready = false
     @Published var busy = false
@@ -39,7 +38,8 @@ import V2rayMKit
     private let clock: any NativeClock
     private let checkTunnel: @Sendable () async throws -> Void
     private let observations: ObservationScheduler
-    private var pendingDisconnect = false
+    @Published private var pendingDisconnect = false
+    private var disconnectRetryAt = Date.distantPast
     private var recoveringInFlight = false
     private var sleeping = false
     private var networkAvailable = true
@@ -126,7 +126,11 @@ import V2rayMKit
         guard generation == networkRecovery.generation, !sleeping, networkAvailable else { return }
         guard proxyRequested else { connection.recovery.cancel(); return }
         guard !moduleUpdateActive, !RuntimeUpdateActivity.isActive(operations) else { return }
-        if networkRecovery.needsRestart {
+        // A previous restart can finish and then lose its core before recovery
+        // is confirmed. A fresh terminal state must re-enter the start path.
+        guard !["starting", "stopping"].contains(status?.runtimeState ?? "") else { return }
+        let coreStopped = status?.coreRunning == false && ["stopped", "faulted"].contains(status?.runtimeState ?? "")
+        if networkRecovery.needsRestart || coreStopped {
             // A timed-out POST may have succeeded. Observe its result before
             // retrying, rather than blindly restarting the same core again.
             if restartSubmitted, status?.coreRunning == true, status?.coreStartedAt != restartBaseline {
@@ -181,6 +185,10 @@ import V2rayMKit
             error = ClientFailure("backend_exited").localizedDescription
             return
         }
+        if pendingDisconnect {
+            if clock.now() >= disconnectRetryAt { setProxyMode(.off) }
+            return
+        }
         do {
             if networkRecovery.active && !moduleUpdateActive {
                 try await attemptNetworkRecovery()
@@ -230,7 +238,7 @@ import V2rayMKit
         let state: RuntimeStatus = try await api.value("/api/status")
         guard connection.isCurrent(revision: revision, recoveryGeneration: generation) else { return false }
         let now = clock.now()
-        status = state; lastStatusRefresh = now; observationErrors["runtime"] = nil
+        status = state; lastStatusRefresh = now; clearObservationError("runtime")
         trafficTrend.record(state, now: now)
         scheduleObservations(api: api, force: forceMetadata)
         return true
@@ -241,6 +249,9 @@ import V2rayMKit
             && targets.allSatisfy({ id in moduleProgress.contains { $0.coreType == id && $0.isComplete } }) {
             moduleUpdateActive = false
         }
+    }
+    private func clearObservationError(_ topic: String) {
+        if observationErrors[topic] != nil { observationErrors[topic] = nil }
     }
     private func scheduleObservations(api: any NativeAPI, force: Bool) {
         let revision = mutationGeneration, generation = networkRecovery.generation
@@ -258,8 +269,9 @@ import V2rayMKit
         schedule("logs", interval: 2) { [self] in
             let tail: LogTail = try await api.value("/api/logs/tail?after=\(logCursor)&limit=10000")
             guard current() else { return }
-            logBuffer.append(tail.items); logCursor = tail.latestSequence; logs = logBuffer.entries
-            observationErrors["logs"] = nil
+            if logBuffer.append(tail.items) { logs = logBuffer.entries }
+            logCursor = tail.latestSequence
+            clearObservationError("logs")
             if let state = status {
                 let id = state.coreRunning ? state.runningProfileId : state.currentProfileId
                 dashboard.update(state: state, node: profiles.first { $0.id == id }, entries: tail.items)
@@ -268,7 +280,7 @@ import V2rayMKit
         schedule("profiles", interval: 5) { [self] in
             let value: [Profile] = try await api.value("/api/profiles?subscriptionId=")
             guard current() else { return }
-            profiles = value; observationErrors["profiles"] = nil
+            if profiles != value { profiles = value }; clearObservationError("profiles")
             if let state = status {
                 let id = state.coreRunning ? state.runningProfileId : state.currentProfileId
                 dashboard.update(state: state, node: profiles.first { $0.id == id }, entries: [])
@@ -277,32 +289,33 @@ import V2rayMKit
         schedule("routes", interval: 30) { [self] in
             let value: [RoutingProfile] = try await api.value("/api/settings/routing-profiles")
             guard current() else { return }
-            routes = value; observationErrors["routes"] = nil
+            if routes != value { routes = value }; clearObservationError("routes")
         }
         schedule("tun", interval: 2) { [self] in
             let value = try await api.tunStatus()
             guard current() else { return }
-            tun = value; observationErrors["tun"] = nil
+            if tun != value { tun = value }; clearObservationError("tun")
         }
         schedule("operations", interval: 2) { [self] in
             let value: [String] = try await api.value("/api/operations")
             guard current() else { return }
-            operations = value; observationErrors["operations"] = nil
+            if operations != value { operations = value }; clearObservationError("operations")
         }
         schedule("updates", interval: 15) { [self] in
             let value: [ModuleUpdateProgress] = try await api.value("/api/core-updates/progress")
             guard current() else { return }
-            moduleProgress = value; observationErrors["updates"] = nil
+            if moduleProgress != value { moduleProgress = value }; clearObservationError("updates")
         }
     }
     func waitForObservations() async { await observations.waitUntilIdle() }
     func waitForOperation() async { await operation?.value }
     func canToggle(_ mode: ProxyMode) -> Bool {
-        ready && !moduleUpdateActive && !shuttingDown &&
+        ready && !moduleUpdateActive && !shuttingDown && !pendingDisconnect &&
             (!busy || (recoveringInFlight && networkRecovery.active && desiredMode == mode))
     }
-    func run(_ action: @escaping (any NativeAPI) async throws -> Void, success: String? = nil) {
-        guard ready, !busy, !moduleUpdateActive, !shuttingDown, let api else { return }
+    func run(_ action: @escaping (any NativeAPI) async throws -> Void, success: String? = nil, finishingDisconnect: Bool = false) {
+        guard ready, !busy, !moduleUpdateActive, !shuttingDown,
+              !pendingDisconnect || finishingDisconnect, let api else { return }
         connection.invalidateObservations()
         busy = true; error = nil; message = nil
         operation = Task {
@@ -317,6 +330,12 @@ import V2rayMKit
                     self.systemProxyEnabled = failure.systemProxyEnabled
                     self.proxyNeedsRecovery = await proxy.needsRecovery
                 }
+                if finishingDisconnect, desiredMode == .off, NetworkRecovery.isTransient(error), error is ProxyModeFailure {
+                    pendingDisconnect = true
+                    disconnectRetryAt = clock.now().addingTimeInterval(2)
+                    observationErrors["disconnect"] = error.localizedDescription
+                    return
+                }
                 if networkRecovery.active && NetworkRecovery.isTransient(error) {
                     connection.recovery.retry(now: clock.now())
                     return
@@ -329,7 +348,13 @@ import V2rayMKit
     }
     private func observeAfterCommand() async -> Bool {
         do { return try await refresh() }
-        catch { observationErrors["runtime"] = error.localizedDescription; return false }
+        catch { lastStatusRefresh = nil; observationErrors["runtime"] = error.localizedDescription; return false }
+    }
+    func displayStatus(at now: Date) -> DashboardStatus {
+        DashboardStatus.resolve(ready: ready, updating: moduleUpdateActive,
+            busy: busy || pendingDisconnect, recovery: proxyNeedsRecovery, state: status,
+            tunRunning: tun?.isRunning == true, systemProxy: systemProxyEnabled,
+            lastRefresh: lastStatusRefresh, now: now, reconnecting: networkRecovery.active)
     }
     var proxyRunning: Bool { ready && status?.coreRunning == true && (systemProxyEnabled || tun?.isRunning == true) }
     var proxyDescription: String {
@@ -349,22 +374,24 @@ import V2rayMKit
             connection.request(.off); pendingDisconnect = true
             return
         }
-        run { [self] api in
+        run({ [self] api in
             if mode != .off && proxyNeedsRecovery { throw ClientFailure("proxy_recovery") }
             let previous = desiredMode
             connection.request(mode)
+            if mode == .off { pendingDisconnect = false }
             do {
                 systemProxyEnabled = try await ProxyModeSwitch.apply(mode, systemProxyEnabled: systemProxyEnabled,
                     hasSelectedProfile: status?.currentProfileId?.isEmpty == false || !profiles.isEmpty,
                     backend: api, preferences: proxy, checkOtherTunnel: checkTunnel)
             } catch {
-                connection.restoreIntent(previous)
+                if mode != .off { connection.restoreIntent(previous) }
                 throw error
             }
+            clearObservationError("disconnect")
             proxyNeedsRecovery = await proxy.needsRecovery
-            do { tun = try await api.tunStatus(); observationErrors["tun"] = nil }
+            do { tun = try await api.tunStatus(); clearObservationError("tun") }
             catch { observationErrors["tun"] = error.localizedDescription }
-        }
+        }, finishingDisconnect: mode == .off)
     }
     func toggleProxy(_ enabled: Bool) { setProxyMode(enabled ? .system : .off) }
     func toggleTun(_ enabled: Bool) { setProxyMode(enabled ? .tun : .off) }
@@ -427,11 +454,11 @@ import V2rayMKit
         }
     }
     func updateModules(_ scope: ModuleUpdateScope) {
-        guard ready, !busy, !moduleUpdateActive, !shuttingDown, let api else { return }
+        guard ready, !busy, !moduleUpdateActive, !shuttingDown, !pendingDisconnect, let api else { return }
         connection.invalidateObservations()
         error = nil; message = nil
         moduleScope = scope; moduleUpdateError = nil; moduleProgress = []
-        moduleUpdateActive = true; updateStarting = true; updateGeneration += 1
+        moduleUpdateActive = true; updateStarting = true
         operation = Task {
             defer { updateStarting = false }
             do {
@@ -460,7 +487,7 @@ import V2rayMKit
         return try await api.value(path)
     }
     func settingsWrite(_ path: String, method: String = "PUT", body: SettingsValue? = nil) async throws {
-        guard ready, !busy, !moduleUpdateActive, !shuttingDown, let api else { throw ClientFailure("operation_in_progress") }
+        guard ready, !busy, !moduleUpdateActive, !shuttingDown, !pendingDisconnect, let api else { throw ClientFailure("operation_in_progress") }
         connection.invalidateObservations()
         busy = true
         defer { busy = false }

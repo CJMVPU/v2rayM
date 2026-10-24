@@ -4665,7 +4665,7 @@ namespace ServiceLib.Resx {
         }
         
         /// <summary>
-        ///   查找类似 Pac port = +3; Xray API port = +4; mihomo API port = +5; 的本地化字符串。
+        ///   查找类似 Pac port = +3; Xray API port = +4; 的本地化字符串。
         /// </summary>
         public static string TbSettingsSocksPortTip {
             get {

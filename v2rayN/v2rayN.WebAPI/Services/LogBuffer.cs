@@ -1,5 +1,6 @@
 using v2rayN.WebAPI.Contracts;
-using ServiceLib.Common;
+using System.Diagnostics;
+using System.Text.RegularExpressions;
 
 namespace v2rayN.WebAPI.Services;
 
@@ -38,39 +39,43 @@ public sealed class LogBuffer
         return entry;
     }
 
-    public IReadOnlyList<LogView> Recent(int limit, string? filter = null)
-    {
-        lock (_gate)
-        {
-            var query = _items.AsEnumerable();
-            if (!string.IsNullOrWhiteSpace(filter))
-            {
-                query = query.Where(item => Utils.IsRegexMatch($"{item.Source} {item.Message}", filter));
-            }
-            return query.TakeLast(Math.Clamp(limit, 1, Capacity)).ToArray();
-        }
-    }
+    public IReadOnlyList<LogView> Recent(int limit, string? filter = null) =>
+        FilterSnapshot(filter).TakeLast(Math.Clamp(limit, 1, Capacity)).ToArray();
 
     public LogPageView RecentPage(int page, int pageSize, string? filter = null)
     {
-        lock (_gate)
+        var items = FilterSnapshot(filter);
+        var total = items.Length;
+        var safePageSize = Math.Clamp(pageSize, 1, 200);
+        var totalPages = Math.Max(1, (total + safePageSize - 1) / safePageSize);
+        var safePage = Math.Clamp(page, 1, totalPages);
+        var end = total - ((safePage - 1) * safePageSize);
+        var start = Math.Max(0, end - safePageSize);
+        return new LogPageView(items.Skip(start).Take(end - start).ToArray(), safePage, safePageSize, total, totalPages);
+    }
+
+    private LogView[] FilterSnapshot(string? filter)
+    {
+        LogView[] snapshot;
+        lock (_gate) snapshot = _items.ToArray();
+        if (string.IsNullOrWhiteSpace(filter)) return snapshot;
+        // Preserve fail-open search semantics, but abort the entire request's filter
+        // on an invalid/expensive pattern instead of retrying it for every log entry.
+        if (filter.Length > 4096) return snapshot;
+        var watch = Stopwatch.StartNew();
+        try
         {
-            var filtered = _items.AsEnumerable();
-            if (!string.IsNullOrWhiteSpace(filter))
+            var regex = new Regex(filter, RegexOptions.None, TimeSpan.FromMilliseconds(50));
+            var result = new List<LogView>();
+            foreach (var item in snapshot)
             {
-                filtered = filtered.Where(item => Utils.IsRegexMatch($"{item.Source} {item.Message}", filter));
+                if (watch.Elapsed > TimeSpan.FromMilliseconds(200)) return snapshot;
+                if (regex.IsMatch($"{item.Source} {item.Message}")) result.Add(item);
             }
-
-            var items = filtered.ToArray();
-            var total = items.Length;
-            var safePageSize = Math.Clamp(pageSize, 1, 200);
-            var totalPages = Math.Max(1, (total + safePageSize - 1) / safePageSize);
-            var safePage = Math.Clamp(page, 1, totalPages);
-            var end = total - ((safePage - 1) * safePageSize);
-            var start = Math.Max(0, end - safePageSize);
-
-            return new LogPageView(items.Skip(start).Take(end - start).ToArray(), safePage, safePageSize, total, totalPages);
+            return result.ToArray();
         }
+        catch (ArgumentException) { return snapshot; }
+        catch (RegexMatchTimeoutException) { return snapshot; }
     }
 
     public LogTailView Tail(long afterSequence, int limit)

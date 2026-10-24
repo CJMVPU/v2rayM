@@ -282,15 +282,10 @@ public sealed partial class V2rayRuntime
                 await ProfileExManager.Instance.SaveTo();
                 return true;
             }));
-            steps.Add(new("statistics save", async _ =>
+            steps.Add(new("statistics close", async _ =>
             {
-                await StatisticsManager.Instance.SaveTo();
+                await StatisticsManager.Instance.CloseAsync();
                 return true;
-            }));
-            steps.Add(new("statistics close", _ =>
-            {
-                StatisticsManager.Instance.Close();
-                return Task.FromResult(true);
             }));
             steps.Add(new("configuration save", async deadline =>
             {
@@ -485,8 +480,6 @@ public sealed partial class V2rayRuntime
     {
         var groupId = subscriptionId ?? Config.SubIndexId ?? string.Empty;
         var profiles = await AppManager.Instance.ProfileItems(groupId) ?? [];
-        var profileModels = await AppManager.Instance.ProfileModels(groupId, string.Empty) ?? [];
-        var modelMap = profileModels.ToDictionary(item => item.IndexId);
         var subscriptions = (await AppManager.Instance.SubItems() ?? []).ToDictionary(item => item.Id, item => item.Remarks);
         var extensions = await ProfileExManager.Instance.GetProfileExs();
         var extensionMap = extensions.ToDictionary(item => item.IndexId);
@@ -501,7 +494,6 @@ public sealed partial class V2rayRuntime
             .Select(item =>
             {
                 extensionMap.TryGetValue(item.IndexId, out var extension);
-                modelMap.TryGetValue(item.IndexId, out var model);
                 statisticsMap.TryGetValue(item.IndexId, out var statistic);
                 var delay = extension?.Delay ?? 0;
                 var speed = extension?.Speed ?? 0;
@@ -514,7 +506,7 @@ public sealed partial class V2rayRuntime
                     item.GetNetwork(),
                     item.StreamSecurity,
                     item.Subid,
-                    model?.SubRemarks ?? subscriptions.GetValueOrDefault(item.Subid),
+                    subscriptions.GetValueOrDefault(item.Subid),
                     System.Text.Json.JsonNamingPolicy.CamelCase.ConvertName(AppManager.Instance.GetCoreType(item, item.ConfigType).ToString()),
                     extension?.Sort ?? 0,
                     delay,

@@ -73,15 +73,13 @@ public class SpeedtestService(Config config, Func<SpeedTestResult, Task> updateF
             }
             finally
             {
-                await UpdateFunc("", ResUI.SpeedtestingCompleted);
+                try { await UpdateFunc("", ResUI.SpeedtestingCompleted); }
+                finally
+                {
+                    lock (_runLock) _runCtsList.Remove(runCts);
+                    runCts.Dispose();
+                }
             }
-
-            lock (_runLock)
-            {
-                _runCtsList.Remove(runCts);
-            }
-
-            runCts.Dispose();
         }
     }
 

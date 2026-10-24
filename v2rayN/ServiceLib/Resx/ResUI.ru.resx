@@ -944,7 +944,7 @@
     <value>Скопируйте файл шрифта TTF/TTC в каталог guiFonts и перезапустите приложение</value>
   </data>
   <data name="TbSettingsSocksPortTip" xml:space="preserve">
-    <value>PAC-порт = +3; Xray API порт = +4; mihomo API порт = +5;</value>
+    <value>PAC-порт = +3; Xray API порт = +4;</value>
   </data>
   <data name="TbSettingsStartBootTip" xml:space="preserve">
     <value>Установите с правами администратора; после запуска приложение получит права администратора</value>

@@ -5,6 +5,21 @@ namespace v2rayN.WebAPI.Tests;
 public class LogBufferTests
 {
     [Test]
+    public async Task PathologicalFilterUsesOneBudgetAndDoesNotHoldTheWriteLock()
+    {
+        var logs = new LogBuffer();
+        for (var index = 0; index < 2; index++) logs.Add("core", new string('a', 100) + "!");
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var query = Task.Run(() => logs.RecentPage(1, 100, "(a+)+$"));
+        await Task.Delay(100);
+        var write = Task.Run(() => logs.Add("core", "still writable"));
+        await write.WaitAsync(TimeSpan.FromSeconds(1));
+        var result = await query.WaitAsync(TimeSpan.FromSeconds(1));
+        await (watch.Elapsed < TimeSpan.FromSeconds(2)).Should().BeTrue();
+        await (result.Items.Count >= 2).Should().BeTrue();
+    }
+
+    [Test]
     public async Task HighVolumeRetentionRemainsBoundedAndClearDropsAllEntries()
     {
         var logs = new LogBuffer();

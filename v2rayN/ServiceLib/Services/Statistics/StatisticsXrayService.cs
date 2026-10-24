@@ -11,9 +11,10 @@ public class StatisticsXrayService
     private long _sampleTime = System.Diagnostics.Stopwatch.GetTimestamp();
     private readonly Config _config;
     private readonly CancellationTokenSource _cts = new();
+    private Task _runTask = Task.CompletedTask;
+    private bool _closed;
     private readonly Func<ServerSpeedItem, Task>? _updateFunc;
     private string Url => $"{Global.HttpProtocol}{Global.Loopback}:{AppManager.Instance.StatePort}/debug/vars";
-    private static readonly string _tag = "StatisticsXrayService";
 
     public StatisticsXrayService(Config config, Func<ServerSpeedItem, Task> updateFunc)
     {
@@ -44,7 +45,7 @@ public class StatisticsXrayService
             }
             catch (OperationCanceledException) when (!_cts.IsCancellationRequested) { }
         }
-        _ = Task.Run(Run);
+        _runTask = Run();
     }
 
     public void ResetSample()
@@ -58,16 +59,13 @@ public class StatisticsXrayService
         }
     }
 
-    public void Close()
+    public async Task CloseAsync()
     {
-        try
-        {
-            _cts.Cancel();
-        }
-        catch (Exception ex)
-        {
-            Logging.SaveLog(_tag, ex);
-        }
+        if (_closed) return;
+        _cts.Cancel();
+        await _runTask;
+        _cts.Dispose();
+        _closed = true;
     }
 
     private async Task Run()
@@ -111,7 +109,6 @@ public class StatisticsXrayService
             }
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
-        finally { _cts.Dispose(); }
     }
 
     private ServerSpeedItem? ParseOutput(string result)

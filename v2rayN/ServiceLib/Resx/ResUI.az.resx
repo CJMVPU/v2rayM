@@ -941,7 +941,7 @@
     <value>Şriftin TTF/TTC faylını gui Fonts qovluğuna kopyalayın; parametrlər pəncərəsini yenidən açın</value>
   </data>
   <data name="TbSettingsSocksPortTip" xml:space="preserve">
-    <value>PAC portu = +3; Xray API portu = +4; mihomo API portu = +5;</value>
+    <value>PAC portu = +3; Xray API portu = +4;</value>
   </data>
   <data name="TbSettingsStartBootTip" xml:space="preserve">
     <value>Bunu administrator səlahiyyətləri ilə təyin edin, başlanğıcdan sonra administrator səlahiyyətləri əldə edilir</value>

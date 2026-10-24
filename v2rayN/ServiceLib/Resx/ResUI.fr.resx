@@ -938,7 +938,7 @@
     <value>Copiez les fichiers de police TTF/TTC dans le dossier guiFonts, effet après redémarrage</value>
   </data>
   <data name="TbSettingsSocksPortTip" xml:space="preserve">
-    <value>Port PAC = +3 ; port API Xray = +4 ; port API mihomo = +5 ;</value>
+    <value>Port PAC = +3 ; port API Xray = +4 ;</value>
   </data>
   <data name="TbSettingsStartBootTip" xml:space="preserve">
     <value>Définir cette option avec des privilèges administrateur pour obtenir les droits admin au démarrage</value>

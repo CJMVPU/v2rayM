@@ -7,19 +7,26 @@ final class SessionEndpoint: NSObject, TunHelperProtocol {
     let session: TunSession
     let updates: TrustedCoreStore
     let queue = DispatchQueue(label: "v2rayM.tun.session")
+    let cancellation = HelperCancellation()
     init(_ session: TunSession, updates: TrustedCoreStore) { self.session = session; self.updates = updates }
     func request(_ data: Data, withReply reply: @escaping (Data) -> Void) {
         queue.async {
+            guard !self.cancellation.isCancelled else {
+                reply((try? JSONEncoder().encode(HelperResponse(success: false, code: "session_disconnected", state: "unavailable"))) ?? Data())
+                return
+            }
             let response: HelperResponse
             if data.count <= HelperContract.wireBytes,
                let request = try? JSONDecoder().decode(HelperRequest.self, from: data), request.action.hasPrefix("update-") {
-                response = self.updates.handle(request)
+                response = self.updates.handle(request, cancellation: self.cancellation)
             } else { response = self.session.handle(data) }
             reply((try? JSONEncoder().encode(response)) ?? Data())
         }
     }
-    func disconnect() { queue.async { self.session.disconnect() } }
-    func stopAndWait() { queue.sync { session.disconnect() } }
+    func stopAndWait(requireConfirmedRecovery: Bool = false) -> Bool {
+        cancellation.cancel()
+        return queue.sync { session.disconnect(requireConfirmedRecovery: requireConfirmedRecovery) }
+    }
 }
 
 final class ListenerDelegate: NSObject, NSXPCListenerDelegate {
@@ -27,6 +34,7 @@ final class ListenerDelegate: NSObject, NSXPCListenerDelegate {
     let policy: LaunchPolicy
     let updates: TrustedCoreStore
     let limiter = SlotLimiter()
+    let cleanup = SessionCleanupCoordinator()
     private let lock = NSLock()
     private var sessions: [UUID: SessionEndpoint] = [:]
     private var stopping = false
@@ -56,17 +64,31 @@ final class ListenerDelegate: NSObject, NSXPCListenerDelegate {
         connection.exportedInterface = NSXPCInterface(with: TunHelperProtocol.self)
         connection.exportedObject = endpoint
         connection.invalidationHandler = { [weak self] in
-            endpoint.disconnect()
             guard let self else { return }
-            self.lock.lock(); self.sessions.removeValue(forKey: id); self.lock.unlock()
+            self.disconnect(id: id, endpoint: endpoint)
         }
-        connection.interruptionHandler = { endpoint.disconnect() }
+        connection.interruptionHandler = { [weak self] in self?.disconnect(id: id, endpoint: endpoint) }
         connection.resume()
         return true
     }
-    func shutdown() {
-        lock.lock(); stopping = true; let active = Array(sessions.values); sessions.removeAll(); lock.unlock()
-        for endpoint in active { endpoint.stopAndWait() }
+    private func disconnect(id: UUID, endpoint: SessionEndpoint) {
+        endpoint.cancellation.cancel()
+        cleanup.disconnect(id: id, cleanup: { endpoint.stopAndWait() }) { [weak self] in
+            guard let self else { return }
+            self.lock.lock(); self.sessions.removeValue(forKey: id); self.lock.unlock()
+        }
+    }
+    func shutdown() -> Bool {
+        lock.lock(); stopping = true; let active = Array(sessions.values); lock.unlock()
+        for endpoint in active { endpoint.cancellation.cancel() }
+        let clean = SessionShutdownCoordinator.stop(active.map { endpoint in { endpoint.stopAndWait(requireConfirmedRecovery: true) } })
+        if clean {
+            lock.lock(); sessions.removeAll(); lock.unlock()
+        }
+        // Retain unfinished owners until process exit. Closing the helper's SC
+        // session removes temporary DNS; launchd owns remaining process-group
+        // members. Neither is proof that the core restored all routes gracefully.
+        return clean
     }
 }
 
@@ -79,7 +101,13 @@ do {
     let signals = [SIGTERM, SIGINT].map { value -> DispatchSourceSignal in
         signal(value, SIG_IGN)
         let source = DispatchSource.makeSignalSource(signal: value, queue: shutdownQueue)
-        source.setEventHandler { delegate.shutdown(); exit(0) }
+        source.setEventHandler {
+            if delegate.shutdown() { exit(0) }
+            Logger(subsystem: HelperIdentity.service, category: "shutdown")
+                .error("Helper shutdown deadline exceeded; network recovery is unconfirmed. Remaining sessions retained until process exit.")
+            fputs("V2rayMHelper: shutdown_cleanup_unconfirmed\n", stderr)
+            exit(1)
+        }
         source.resume()
         return source
     }

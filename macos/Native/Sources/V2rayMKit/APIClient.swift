@@ -12,9 +12,12 @@ public actor APIClient {
     private var loginTask: Task<String, Error>?
     private let session: URLSession
     public init(baseURL: URL, managementKey: String) {
+        self.init(baseURL: baseURL, managementKey: managementKey, configuration: .ephemeral)
+    }
+    /// Internal transport seam for isolated URLProtocol contract tests.
+    init(baseURL: URL, managementKey: String, configuration: URLSessionConfiguration) {
         precondition(baseURL.host == "127.0.0.1" && baseURL.scheme == "http")
         self.baseURL = baseURL; key = managementKey
-        let configuration = URLSessionConfiguration.ephemeral
         configuration.connectionProxyDictionary = [:]
         configuration.httpCookieStorage = nil
         configuration.urlCache = nil
@@ -29,17 +32,6 @@ public actor APIClient {
               (try? JSONDecoder().decode(Health.self, from: data).status) == "ok" else {
             throw ClientFailure("backend_identity")
         }
-    }
-    public func value<T: Decodable>(_ path: String, as type: T.Type = T.self) async throws -> T {
-        let envelope: APIEnvelope<T> = try await request(path)
-        guard let result = envelope.data else { throw ClientFailure("response_missing") }
-        return result
-    }
-    public func perform(_ path: String, method: String = "POST") async throws {
-        let _: APIEnvelope<EmptyValue> = try await request(path, method: method)
-    }
-    public func send<T: Encodable>(_ path: String, method: String = "POST", body: T) async throws {
-        let _: APIEnvelope<EmptyValue> = try await request(path, method: method, body: JSONEncoder().encode(body))
     }
     public func logout() async { _ = try? await raw("/api/auth/logout", method: "POST"); token = nil }
     private func login() async throws {
@@ -56,9 +48,6 @@ public actor APIClient {
               let envelope = try? JSONDecoder().decode(APIEnvelope<SessionToken>.self, from: reply),
               envelope.success, let result = envelope.data else { throw ClientFailure("unauthorized") }
         return result.token
-    }
-    private func request<T: Decodable>(_ path: String, method: String = "GET", body: Data? = nil) async throws -> APIEnvelope<T> {
-        try JSONDecoder().decode(APIEnvelope<T>.self, from: await encodedResponse(path, method: method, body: body))
     }
     public func encodedResponse(_ path: String, method: String, body: Data?) async throws -> Data {
         if token == nil { try await login() }

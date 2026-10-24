@@ -938,7 +938,7 @@
     <value>Másolja a TTF/TTC betűtípus fájlt a gui Fonts könyvtárba; Nyissa meg újra a beállítások ablakot</value>
   </data>
   <data name="TbSettingsSocksPortTip" xml:space="preserve">
-    <value>Pac port = +3; Xray API port = +4; mihomo API port = +5;</value>
+    <value>Pac port = +3; Xray API port = +4;</value>
   </data>
   <data name="TbSettingsStartBootTip" xml:space="preserve">
     <value>Rendszergazdai jogosultságokkal állítsa be, indítás után szerezzen rendszergazdai jogosultságokat</value>

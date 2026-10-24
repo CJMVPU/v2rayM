@@ -1325,7 +1325,6 @@ public sealed partial class V2rayRuntime
     private static string GetCoreUpdateNameKey(ECoreType coreType) => coreType switch
     {
         ECoreType.Xray => "maintenance.coreNames.xray",
-        ECoreType.mihomo => "maintenance.coreNames.mihomo",
         ECoreType.v2rayN => "maintenance.coreNames.v2rayN",
         _ => "maintenance.coreNames.other",
     };

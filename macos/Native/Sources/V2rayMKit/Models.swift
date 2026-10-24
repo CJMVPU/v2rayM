@@ -6,7 +6,6 @@ public struct APIEnvelope<Value: Decodable>: Decodable {
     public var messageKey: String?
     public var data: Value?
 }
-public struct EmptyValue: Decodable {}
 public struct SessionToken: Decodable { public var token: String }
 public struct Health: Decodable { public var status: String }
 public struct RuntimeStatus: Decodable {
@@ -28,7 +27,7 @@ public struct RuntimeStatus: Decodable {
     public var capabilities: [String]?
     public var coreProcessIds: [Int32]?
 }
-public struct Profile: Decodable, Identifiable {
+public struct Profile: Decodable, Identifiable, Equatable {
     public var id: String { indexId }
     public var indexId: String
     public var remarks: String
@@ -116,7 +115,7 @@ public struct LogTail: Decodable {
     public var latestSequence: Int64
     public var generation: Int64
 }
-public struct RoutingProfile: Decodable, Identifiable {
+public struct RoutingProfile: Decodable, Identifiable, Equatable {
     public var id: String
     public var remarks: String
     public var isActive: Bool
@@ -142,7 +141,6 @@ public struct ClientFailure: LocalizedError {
             "tun_approval_required": "请在系统设置中允许 v2rayM 的后台服务，然后重新开启 TUN。",
             "tun_conflict": "检测到其他软件正在使用 TUN。请先暂停 v2rayN 或其他 VPN，再开启 v2rayM 的 TUN。",
             "tun_route_check_failed": "暂时无法确认当前网络路由，请检查网络连接后重试。",
-            "tun_rollback_failed": "TUN 启动失败，且未能恢复原模式。请先关闭 TUN，再重试连接。",
             "tun_stop_unconfirmed": "尚未确认 TUN 内核已完全停止，请检查日志后重试退出。",
             "mac_tun_generated_core_required": "当前节点配置不支持 Xray 原生 TUN，请选择使用 Xray 的节点。",
             "mac_tun_apply_failed": "TUN 模式切换失败，请查看日志并检查当前连接状态。",

@@ -100,7 +100,7 @@ import CryptoKit
             let tunnel = try await api.tunStatus()
             try require(tunnel.platformSupported && !tunnel.enabled && !tunnel.isRunning,
                         "TUN status distinguishes saved mode from a running tunnel")
-            try await TunModeChange.apply(false, backend: api, hasSelectedProfile: false)
+            try await api.setTunEnabled(false)
             let disabled = try await api.tunStatus()
             try require(!disabled.enabled && disabled.privilegedCoreProcessIds.isEmpty,
                         "TUN can be disabled through the native API without starting a core")

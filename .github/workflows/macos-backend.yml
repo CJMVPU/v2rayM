@@ -30,6 +30,10 @@ jobs:
           python3 scripts/check-macos-product-boundaries.py
           python3 scripts/generate-helper-contract.py --check
           python3 scripts/test-macos-build-manifest.py
+          python3 scripts/test-macos-product-boundaries.py
+          python3 scripts/test-core-packaging.py
+          python3 scripts/test-macos-signing-identity.py
+          bash v2rayN/v2rayN.WebAPI/Tests/Integration/test-release-packaging.sh
       - name: Verify backend and shared proxy logic before packaging
         run: |
           dotnet test --project v2rayN/ServiceLib.Tests --configuration Release

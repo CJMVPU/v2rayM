@@ -215,8 +215,7 @@ public sealed partial class V2rayRuntime
                 await StopCoreAndConfirmAsync(cancellationToken);
                 SetCoreRuntime(CoreRuntimeSnapshot.Stopped);
                 await ProfileExManager.Instance.SaveTo();
-                await StatisticsManager.Instance.SaveTo();
-                StatisticsManager.Instance.Close();
+                await StatisticsManager.Instance.CloseAsync();
                 await _mutations.RunAsync(() => EnsureConfigSaveSucceededAsync(() => _configStore.SaveAsync()), cancellationToken);
                 await SQLiteHelper.Instance.DisposeDbConnectionAsync();
                 databaseClosed = true;

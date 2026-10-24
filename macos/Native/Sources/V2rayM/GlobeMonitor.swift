@@ -6,9 +6,7 @@ import V2rayMKit
 private actor GlobeResolver {
     private var database: GlobeGeoDatabase?
     private var loaded = false
-    private var cache: [String: (Date, GlobePlace?)] = [:]
     func resolve(_ host: String) -> GlobePlace? {
-        if let hit = cache[host], Date().timeIntervalSince(hit.0) < 3600 { return hit.1 }
         if !loaded {
             loaded = true
             if let directory = Bundle.module.url(forResource: "Globe", withExtension: nil) {
@@ -35,8 +33,6 @@ private actor GlobeResolver {
                 }
             }
         }
-        if cache.count >= 512 { cache.removeAll(keepingCapacity: true) }
-        cache[host] = (Date(), place)
         return place
     }
 }
@@ -44,13 +40,15 @@ private actor GlobeResolver {
 @MainActor final class GlobeMonitor: ObservableObject {
     @Published private(set) var connections: [GlobeConnection] = []
     @Published private(set) var nodePlace: GlobePlace?
-    private let resolver = GlobeResolver()
+    private let resolver: GlobeLookupCache
     private var nodeAddress = ""
     private var session = ""
     private var lookups: [String: Task<Void, Never>] = [:]
     private var nodeLookup: Task<Void, Never>?
-    private var resolved: [String: GlobePlace] = [:]
-    private var attempted = Set<String>()
+    init(resolver: GlobeLookupCache? = nil) {
+        let database = GlobeResolver()
+        self.resolver = resolver ?? GlobeLookupCache { host in await database.resolve(host) }
+    }
 
     func update(state: RuntimeStatus, node: Profile?, entries: [LogEntry]) {
         let nextSession = (state.runningProfileId ?? "") + "|" + (state.coreStartedAt ?? "")
@@ -59,41 +57,33 @@ private actor GlobeResolver {
         }
         let address = node?.address ?? ""
         if address != nodeAddress {
-            nodeAddress = address; nodePlace = nil; nodeLookup?.cancel()
-            if !address.isEmpty {
-                nodeLookup = Task { [weak self, resolver] in
-                    let place = await resolver.resolve(address)
-                    guard !Task.isCancelled, let self, self.nodeAddress == address else { return }
-                    self.nodePlace = place
-                }
+            nodeAddress = address; nodePlace = nil; nodeLookup?.cancel(); nodeLookup = nil
+        }
+        if !address.isEmpty, nodeLookup == nil {
+            nodeLookup = Task { [weak self, resolver] in
+                let place = await resolver.resolve(address)
+                guard !Task.isCancelled, let self, self.nodeAddress == address else { return }
+                if self.nodePlace != place { self.nodePlace = place }
+                self.nodeLookup = nil
             }
         }
         let start = DashboardStatus.date(state.coreStartedAt) ?? .distantPast
-        var recent = connections
-        for entry in entries {
-            guard var connection = GlobeConnection.parse(entry), connection.timestamp >= start else { continue }
-            connection.place = resolved[connection.host]
-            recent.removeAll { $0.id == connection.id }
-            recent.insert(connection, at: 0)
-        }
-        connections = Array(recent.prefix(24))
+        let recent = GlobeConnection.recent(entries, previous: connections, since: start)
+        if recent != connections { connections = recent }
         // Bound DNS work during bursts. The UI never waits for a lookup.
         for item in connections.prefix(8) where item.route == "proxy" || item.route == "direct" {
-            guard lookups.count < 8, !attempted.contains(item.host) else { continue }
+            guard lookups.count < 8, lookups[item.host] == nil else { continue }
             let host = item.host
-            attempted.insert(host)
             lookups[host] = Task { [weak self, resolver] in
                 let place = await resolver.resolve(host)
                 guard !Task.isCancelled, let self else { return }
-                if let place { self.resolved[host] = place }
-                self.connections = self.connections.map { item in
+                let updated = self.connections.map { item in
                     var copy = item; if copy.host == host { copy.place = place }; return copy
                 }
+                if updated != self.connections { self.connections = updated }
                 self.lookups[host] = nil
             }
         }
-        if attempted.count > 512 {
-            attempted = Set(connections.map(\.host)); resolved = resolved.filter { attempted.contains($0.key) }
-        }
+
     }
 }

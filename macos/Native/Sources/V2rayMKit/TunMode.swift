@@ -1,6 +1,6 @@
 import Foundation
 
-public struct MacTunStatus: Decodable, Sendable {
+public struct MacTunStatus: Decodable, Sendable, Equatable {
     public var platformSupported: Bool
     public var helperAvailable: Bool
     public var helperCode: String
@@ -51,27 +51,7 @@ public enum TunModeChange {
         if state.privilegedCoreProcessIds.isEmpty { try await checkOtherTunnel() }
     }
 
-    public static func apply(_ enabled: Bool, backend: any TunBackend, hasSelectedProfile: Bool,
-                             checkOtherTunnel: @Sendable () async throws -> Void = { try await TunnelConflict.check() }) async throws {
-        // Disabling remains available even when the helper is missing or no node is selected.
-        guard enabled else { try await backend.setTunEnabled(false); return }
-        guard hasSelectedProfile else { throw ClientFailure("profile_not_selected") }
-        let original = try await backend.tunStatus()
-        guard original.helperAvailable else { throw ClientFailure("mac_tun_helper_unavailable") }
-        if original.privilegedCoreProcessIds.isEmpty { try await checkOtherTunnel() }
-        // The backend transaction owns restart/rollback when an existing core is running.
-        try await backend.setTunEnabled(true)
-        if original.runtimeState != "running" {
-            do { try await backend.startTunCore() }
-            catch {
-                if !original.enabled {
-                    do { try await backend.setTunEnabled(false) }
-                    catch { throw ClientFailure("tun_rollback_failed") }
-                }
-                throw error
-            }
-        }
-    }
+
 }
 
 public enum TunnelConflict {

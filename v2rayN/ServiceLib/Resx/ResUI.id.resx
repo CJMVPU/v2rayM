@@ -938,7 +938,7 @@
     <value>Salin file font TTF/TTC ke folder gui Fonts, lalu buka kembali jendela pengaturan.</value>
   </data>
   <data name="TbSettingsSocksPortTip" xml:space="preserve">
-    <value>Port Pac = +3; Port API Xray = +4; Port API mihomo = +5;</value>
+    <value>Port Pac = +3; Port API Xray = +4;</value>
   </data>
   <data name="TbSettingsStartBootTip" xml:space="preserve">
     <value>Atur opsi ini dengan hak administrator; hak admin akan diperoleh setelah startup.</value>

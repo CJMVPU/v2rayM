@@ -944,7 +944,7 @@
     <value>Copy the font TTF/TTC file to the directory gui Fonts; Reopen the settings window</value>
   </data>
   <data name="TbSettingsSocksPortTip" xml:space="preserve">
-    <value>Pac port = +3; Xray API port = +4; mihomo API port = +5;</value>
+    <value>Pac port = +3; Xray API port = +4;</value>
   </data>
   <data name="TbSettingsStartBootTip" xml:space="preserve">
     <value>Set this with admin privileges, get admin privileges after startup</value>

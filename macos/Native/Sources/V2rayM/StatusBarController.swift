@@ -35,10 +35,7 @@ import V2rayMKit
     deinit { appearanceTask?.cancel() }
     private func refreshAppearance() {
         guard let current = model() else { return }
-        let state = DashboardStatus.resolve(ready: current.ready, updating: current.moduleUpdateActive,
-            busy: current.busy, recovery: current.proxyNeedsRecovery, state: current.status,
-            tunRunning: current.tun?.isRunning == true, systemProxy: current.systemProxyEnabled,
-            lastRefresh: current.lastStatusRefresh, now: Date(), reconnecting: current.networkRecovery.active)
+        let state = current.displayStatus(at: Date())
         let mode = MenuBarMode(state)
         if mode != lastMode {
             item.button?.image = MenuBarIcon.image(for: mode)

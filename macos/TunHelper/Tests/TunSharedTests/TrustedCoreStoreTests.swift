@@ -98,4 +98,139 @@ final class TrustedCoreStoreTests: XCTestCase {
         XCTAssertThrowsError(try TrustedCoreStore(root: link, owner: getuid()).source("xray"))
         XCTAssertThrowsError(try store.transition(action: "update-discard", kind: "xray", token: "../../current"))
     }
+    func testCrashBetweenActivationRenamesRestoresPreviousAndAllowsNextUpdate() throws {
+        let root = try root(), store = TrustedCoreStore(root: root, owner: getuid())
+        let a = UUID().uuidString, b = UUID().uuidString
+        try seed(root, a, Data("old".utf8))
+        _ = try store.transition(action: "update-activate", kind: "xray", token: a)
+        _ = try store.transition(action: "update-finish", kind: "xray", token: a)
+        try FileManager.default.moveItem(at: root.appendingPathComponent("xray/current"), to: root.appendingPathComponent("xray/previous"))
+        let restarted = TrustedCoreStore(root: root, owner: getuid())
+        XCTAssertNotNil(try restarted.source("xray"))
+        try seed(root, b, Data("new".utf8))
+        XCTAssertNoThrow(try restarted.transition(action: "update-activate", kind: "xray", token: b))
+    }
+    func testCrashAfterCommittedManifestBeforePreviousDeletionFinishesCleanup() throws {
+        let root = try root(), store = TrustedCoreStore(root: root, owner: getuid())
+        let a = UUID().uuidString, b = UUID().uuidString, c = UUID().uuidString
+        try seed(root, a, Data("old".utf8))
+        _ = try store.transition(action: "update-activate", kind: "xray", token: a)
+        _ = try store.transition(action: "update-finish", kind: "xray", token: a)
+        try seed(root, b, Data("new".utf8))
+        _ = try store.transition(action: "update-activate", kind: "xray", token: b)
+        let manifestURL = root.appendingPathComponent("xray/current/manifest.json")
+        var manifest = try JSONSerialization.jsonObject(with: Data(contentsOf: manifestURL)) as! [String: Any]
+        manifest["committed"] = true
+        try JSONSerialization.data(withJSONObject: manifest).write(to: manifestURL)
+        let restarted = TrustedCoreStore(root: root, owner: getuid())
+        XCTAssertNotNil(try restarted.source("xray"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("xray/previous").path))
+        try seed(root, c, Data("next".utf8))
+        XCTAssertNoThrow(try restarted.transition(action: "update-activate", kind: "xray", token: c))
+    }
+
+    private var assetName: String {
+        #if arch(arm64)
+        return "Xray-macos-arm64-v8a.zip"
+        #else
+        return "Xray-macos-64.zip"
+        #endif
+    }
+    private var releaseURL: String { "https://github.com/XTLS/Xray-core/releases/download/v1/" + assetName }
+    private func releaseFixture(_ archive: Data) throws -> OfficialCoreRelease {
+        let object: [String: Any] = ["draft": false, "assets": [["name": assetName, "size": archive.count,
+            "state": "uploaded", "digest": "sha256:" + OfficialCorePolicy.hash(archive), "browser_download_url": releaseURL]]]
+        return try JSONDecoder().decode(OfficialCoreRelease.self, from: JSONSerialization.data(withJSONObject: object))
+    }
+    func testSlowStageDoesNotBlockRollbackAndCancelledMetadataCreatesNoStage() throws {
+        let root = try root(), archive = Data("archive".utf8), release = try releaseFixture(archive)
+        let entered = expectation(description: "metadata entered"), finished = expectation(description: "stage cancelled")
+        let releaseMetadata = DispatchSemaphore(value: 0), cancellation = HelperCancellation()
+        let store = TrustedCoreStore(root: root, owner: getuid(), metadataLoader: { _, _, context in
+            entered.fulfill()
+            _ = releaseMetadata.wait(timeout: .now() + 3)
+            try context.check()
+            return release
+        }, toolRunner: nil)
+        let a = UUID().uuidString, b = UUID().uuidString
+        try seed(root, a, Data("old".utf8)); _ = try store.transition(action: "update-activate", kind: "xray", token: a)
+        _ = try store.transition(action: "update-finish", kind: "xray", token: a)
+        try seed(root, b, Data("new".utf8)); _ = try store.transition(action: "update-activate", kind: "xray", token: b)
+        let url = releaseURL
+        DispatchQueue.global().async {
+            do {
+                _ = try store.stage(kind: "xray", releaseURL: url, archive: archive,
+                                    context: HelperOperationContext(cancellation: cancellation))
+                XCTFail("cancelled stage succeeded")
+            } catch { XCTAssertEqual((error as? HelperFailure)?.description, "update_cancelled") }
+            finished.fulfill()
+        }
+        wait(for: [entered], timeout: 2)
+        let rolledBack = expectation(description: "rollback did not wait for metadata")
+        DispatchQueue.global().async {
+            do { _ = try store.transition(action: "update-rollback", kind: "xray", token: b) }
+            catch { XCTFail("rollback failed: \(error)") }
+            rolledBack.fulfill()
+        }
+        wait(for: [rolledBack], timeout: 1)
+        cancellation.cancel(); releaseMetadata.signal()
+        wait(for: [finished], timeout: 2)
+        XCTAssertEqual(try Data(contentsOf: store.source("xray")!.url), Data("old".utf8))
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: root.appendingPathComponent("xray").path), ["current"])
+    }
+    func testCancellationDuringToolRemovesPrivateStage() throws {
+        let root = try root(), archive = Data("archive".utf8), release = try releaseFixture(archive)
+        let cancellation = HelperCancellation()
+        let store = TrustedCoreStore(root: root, owner: getuid(), metadataLoader: { _, _, _ in release },
+                                    toolRunner: { _, _, _, context in
+            cancellation.cancel()
+            try context.check()
+            return Data()
+        })
+        XCTAssertThrowsError(try store.stage(kind: "xray", releaseURL: releaseURL, archive: archive,
+                                            context: HelperOperationContext(cancellation: cancellation))) {
+            XCTAssertEqual(($0 as? HelperFailure)?.description, "update_cancelled")
+        }
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: root.appendingPathComponent("xray").path), [])
+    }
+    func testStageDeadlineExpiresBeforeNetworkOrToolWork() throws {
+        let root = try root()
+        let store = TrustedCoreStore(root: root, owner: getuid(), metadataLoader: { _, _, _ in
+            XCTFail("expired operation reached network")
+            throw HelperFailure("unexpected_network")
+        }, toolRunner: nil)
+        XCTAssertThrowsError(try store.stage(kind: "xray", releaseURL: releaseURL, archive: Data("archive".utf8),
+                                            context: HelperOperationContext(timeout: 0))) {
+            XCTAssertEqual(($0 as? HelperFailure)?.description, "update_timeout")
+        }
+        XCTAssertGreaterThan(HelperOperationContext.stageClientTimeout, HelperOperationContext.stageTimeout)
+    }
+    func testCancellationKillsAndReapsBlockedToolWithoutNetworking() throws {
+        let store = TrustedCoreStore(root: try root(), owner: getuid()), cancellation = HelperCancellation()
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.05) { cancellation.cancel() }
+        let start = ProcessInfo.processInfo.systemUptime
+        XCTAssertThrowsError(try store.tool("/bin/sleep", ["30"], context: HelperOperationContext(cancellation: cancellation))) {
+            XCTAssertEqual(($0 as? HelperFailure)?.description, "update_cancelled")
+        }
+        XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - start, 2)
+    }
+    func testSharedDeadlineKillsAndReapsBlockedToolWithoutNetworking() throws {
+        let store = TrustedCoreStore(root: try root(), owner: getuid())
+        let start = ProcessInfo.processInfo.systemUptime
+        XCTAssertThrowsError(try store.tool("/bin/sleep", ["30"], context: HelperOperationContext(timeout: 0.05))) {
+            XCTAssertEqual(($0 as? HelperFailure)?.description, "update_timeout")
+        }
+        XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - start, 2)
+    }
+    func testUncommittedFirstActivationCannotBeReplacedByConcurrentUpdate() throws {
+        let root = try root(), store = TrustedCoreStore(root: root, owner: getuid())
+        let a = UUID().uuidString, b = UUID().uuidString
+        try seed(root, a, Data("first".utf8)); try seed(root, b, Data("second".utf8))
+        _ = try store.transition(action: "update-activate", kind: "xray", token: a)
+        XCTAssertThrowsError(try store.transition(action: "update-activate", kind: "xray", token: b)) {
+            XCTAssertEqual(($0 as? HelperFailure)?.description, "update_store_busy")
+        }
+        XCTAssertEqual(try Data(contentsOf: store.source("xray")!.url), Data("first".utf8))
+    }
+
 }

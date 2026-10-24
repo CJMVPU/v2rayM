@@ -29,11 +29,11 @@ public class CoreUpdateWorkflowTests
     }
 
     [Test]
-    public async Task CoreVersionCheckAcceptsVPrefixedMihomoVersion()
+    public async Task CoreVersionCheckAcceptsVPrefixedXrayVersion()
     {
-        var output = "Mihomo Meta v1.19.31 linux amd64 with go1.26.8";
+        var output = "Xray v26.10.21 darwin arm64 with go1.26.8";
 
-        await CoreExecutableVersionCheck.IsValid(output, "Mihomo").Should().BeTrue();
+        await CoreExecutableVersionCheck.IsValid(output, "Xray").Should().BeTrue();
     }
 
     [Test]
@@ -310,9 +310,10 @@ public class CoreUpdateWorkflowTests
     }
 
     [Test]
-    public async Task RollingMihomoAlphaRequiresAnActualRevisionInTheVersionOutput()
+    public async Task RetiredEnginesAreRejectedEvenWhenTheirVersionOutputIsValid()
     {
-        await CoreExecutableVersionCheck.IsValid("Mihomo Meta alpha-94b13ae darwin arm64 with go1.26.8", "Mihomo").Should().BeTrue();
+        await CoreExecutableVersionCheck.IsValid("Mihomo Meta alpha-94b13ae darwin arm64 with go1.26.8", "Mihomo").Should().BeFalse();
+        await CoreExecutableVersionCheck.IsValid("Mihomo Meta v1.19.31", "Mihomo").Should().BeFalse();
         await CoreExecutableVersionCheck.IsValid("Mihomo Meta alpha-development build", "Mihomo").Should().BeFalse();
         await CoreExecutableVersionCheck.IsValid("Mihomo Meta alpha-94b13ae", "Xray").Should().BeFalse();
     }

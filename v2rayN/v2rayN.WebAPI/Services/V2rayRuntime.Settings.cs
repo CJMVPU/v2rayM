@@ -265,7 +265,7 @@ public sealed partial class V2rayRuntime
 
         if (statisticsChanged)
         {
-            StatisticsManager.Instance.Close();
+            await StatisticsManager.Instance.CloseAsync();
             _trafficWindow.Clear();
             if (Config.GuiItem.EnableStatistics || Config.GuiItem.DisplayRealTimeSpeed)
             {
@@ -389,7 +389,7 @@ public sealed partial class V2rayRuntime
 
         if (statisticsChanged)
         {
-            StatisticsManager.Instance.Close();
+            await StatisticsManager.Instance.CloseAsync();
             _trafficWindow.Clear();
             if (Config.GuiItem.EnableStatistics || Config.GuiItem.DisplayRealTimeSpeed)
             {

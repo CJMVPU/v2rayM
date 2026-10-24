@@ -40,10 +40,7 @@ private struct DashboardContent: View {
     }
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
-            let state = DashboardStatus.resolve(ready: model.ready, updating: model.moduleUpdateActive,
-                busy: model.busy, recovery: model.proxyNeedsRecovery, state: model.status,
-                tunRunning: model.tun?.isRunning == true, systemProxy: model.systemProxyEnabled,
-                lastRefresh: model.lastStatusRefresh, now: context.date, reconnecting: model.networkRecovery.active)
+            let state = model.displayStatus(at: context.date)
             let live = state.active || state == .local
             let rates = live && model.status?.trafficEnabled == true ? model.status?.traffic?.rates(at: context.date) : nil
             VStack(spacing: 0) {

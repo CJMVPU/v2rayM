@@ -82,7 +82,17 @@ public final class TrustedCoreStore {
     private let lock = NSLock()
     private var activeTokens = Set<String>()
     private var rolledBackTokens = Set<String>()
-    public init(root: URL, owner: uid_t = 0) { self.root = root; self.owner = owner }
+    private let metadataLoader: ((String, String, HelperOperationContext) throws -> OfficialCoreRelease)?
+    private let toolRunner: ((String, [String], Int, HelperOperationContext) throws -> Data)?
+    public convenience init(root: URL, owner: uid_t = 0) {
+        self.init(root: root, owner: owner, metadataLoader: nil, toolRunner: nil)
+    }
+    init(root: URL, owner: uid_t,
+         metadataLoader: ((String, String, HelperOperationContext) throws -> OfficialCoreRelease)?,
+         toolRunner: ((String, [String], Int, HelperOperationContext) throws -> Data)?) {
+        self.root = root; self.owner = owner
+        self.metadataLoader = metadataLoader; self.toolRunner = toolRunner
+    }
     private func directory(_ url: URL, create: Bool = false) throws {
         var info = stat()
         if lstat(url.path, &info) != 0 && create {
@@ -96,12 +106,28 @@ public final class TrustedCoreStore {
         try directory(root, create: true)
         let base = root.appendingPathComponent(kind); try directory(base, create: true)
         let current = base.appendingPathComponent("current"), previous = base.appendingPathComponent("previous")
+        // A crash can occur between either pair of renames in activate/rollback.
+        // In that state previous is the only surviving selection; restore it first.
+        if !FileManager.default.fileExists(atPath: current.path), FileManager.default.fileExists(atPath: previous.path) {
+            guard try read(previous).kind == kind else { throw HelperFailure("update_store_invalid") }
+            try FileManager.default.moveItem(at: previous, to: current)
+        }
         if FileManager.default.fileExists(atPath: current.path) {
             let manifest = try read(current)
+            guard manifest.kind == kind else { throw HelperFailure("update_store_invalid") }
             if !manifest.committed && !activeTokens.contains(manifest.token) {
                 rolledBackTokens.insert(manifest.token)
                 try FileManager.default.removeItem(at: current)
                 if FileManager.default.fileExists(atPath: previous.path) { try directory(previous); try FileManager.default.moveItem(at: previous, to: current) }
+            } else if manifest.committed && FileManager.default.fileExists(atPath: previous.path) {
+                // Commit is durable before the old directory is removed. Resume
+                // that cleanup after a crash, only after verifying the new core.
+                let binary = current.appendingPathComponent("core")
+                try regularFile(binary, maxSize: 256 * 1024 * 1024)
+                guard OfficialCorePolicy.hash(try Data(contentsOf: binary)) == manifest.executableSHA256 else {
+                    throw HelperFailure("installed_core_digest_mismatch")
+                }
+                try directory(previous); try FileManager.default.removeItem(at: previous)
             }
         }
         // Interrupted staging files never become executable selections. Reap abandoned
@@ -129,7 +155,9 @@ public final class TrustedCoreStore {
             throw HelperFailure("update_file_not_private")
         }
     }
-    private func metadata(_ repository: String, tag: String) throws -> OfficialCoreRelease {
+    private func metadata(_ repository: String, tag: String, context: HelperOperationContext) throws -> OfficialCoreRelease {
+        try context.check()
+        if let metadataLoader { return try metadataLoader(repository, tag, context) }
         let configuration = URLSessionConfiguration.ephemeral
         configuration.connectionProxyDictionary = [:]
         configuration.timeoutIntervalForRequest = 25; configuration.timeoutIntervalForResource = 30
@@ -149,11 +177,19 @@ public final class TrustedCoreStore {
             else { result = .failure(HelperFailure("official_release_unavailable")) }
         }
         task.resume()
-        guard semaphore.wait(timeout: .now() + 35) == .success else { task.cancel(); throw HelperFailure("official_release_timeout") }
+        defer { task.cancel() }
+        let deadline = ProcessInfo.processInfo.systemUptime + 35
+        while semaphore.wait(timeout: .now() + 0.1) != .success {
+            try context.check()
+            guard ProcessInfo.processInfo.systemUptime < deadline else { throw HelperFailure("official_release_timeout") }
+        }
+        try context.check()
         resultLock.lock(); let value = result; resultLock.unlock()
         return try JSONDecoder().decode(OfficialCoreRelease.self, from: value!.get())
     }
-    private func tool(_ path: String, _ arguments: [String], limit: Int = 2 * 1024 * 1024) throws -> Data {
+    func tool(_ path: String, _ arguments: [String], limit: Int = 2 * 1024 * 1024, context: HelperOperationContext) throws -> Data {
+        try context.check()
+        if let toolRunner { return try toolRunner(path, arguments, limit, context) }
         let process = Process(); process.executableURL = URL(fileURLWithPath: path); process.arguments = arguments
         process.environment = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"]
         let pipe = Pipe(); process.standardOutput = pipe; process.standardError = FileHandle.nullDevice
@@ -161,8 +197,15 @@ public final class TrustedCoreStore {
         try process.run()
         // Only this Process owns the child. Force its exit if a broken tool ignores SIGTERM,
         // so a stalled version probe cannot leave the privileged update queue blocked.
-        let timeout = DispatchWorkItem { if process.isRunning { kill(process.processIdentifier, SIGKILL) } }
-        DispatchQueue.global().asyncAfter(deadline: .now() + 25, execute: timeout)
+        let deadline = ProcessInfo.processInfo.systemUptime + 25
+        let timeout = DispatchSource.makeTimerSource(queue: DispatchQueue.global())
+        timeout.schedule(deadline: .now(), repeating: 0.1)
+        timeout.setEventHandler {
+            if ProcessInfo.processInfo.systemUptime >= deadline || (try? context.check()) == nil {
+                if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+            }
+        }
+        timeout.resume()
         defer { timeout.cancel(); try? pipe.fileHandleForReading.close() }
         var data = Data()
         while true {
@@ -175,23 +218,31 @@ public final class TrustedCoreStore {
             data.append(chunk)
         }
         process.waitUntilExit()
+        try context.check()
         guard process.terminationStatus == 0 else { throw HelperFailure("official_package_tool_failed") }
         return data
     }
-    public func stage(kind: String, releaseURL: String, archive: Data) throws -> HelperResponse {
-        lock.lock(); defer { lock.unlock() }
+    public func stage(kind: String, releaseURL: String, archive: Data,
+                      context: HelperOperationContext = HelperOperationContext()) throws -> HelperResponse {
+        try context.check()
         guard archive.count <= 64 * 1024 * 1024 else { throw HelperFailure("official_package_too_large") }
         let coordinate = try OfficialCorePolicy.coordinates(kind: kind, releaseURL: releaseURL)
-        let release = try metadata(coordinate.repository, tag: coordinate.tag)
+        let release = try metadata(coordinate.repository, tag: coordinate.tag, context: context)
         let digest = try OfficialCorePolicy.verifiedDigest(release: release, name: coordinate.name, releaseURL: releaseURL, archive: archive)
-        let base = try base(kind), token = UUID().uuidString
-        let stage = base.appendingPathComponent("stage-" + token)
-        try directory(stage, create: true)
+        try context.check()
+        let token = UUID().uuidString
+        let stage: URL
+        lock.lock()
+        do {
+            stage = try base(kind).appendingPathComponent("stage-" + token)
+            try directory(stage, create: true)
+            lock.unlock()
+        } catch { lock.unlock(); throw error }
         do {
             let archiveURL = stage.appendingPathComponent("package")
             try archive.write(to: archiveURL, options: .atomic)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: archiveURL.path)
-            let listing = String(decoding: try tool("/usr/bin/tar", ["-tf", archiveURL.path]), as: UTF8.self)
+            let listing = String(decoding: try tool("/usr/bin/tar", ["-tf", archiveURL.path], context: context), as: UTF8.self)
                 .split(separator: "\n").map(String.init)
             guard !listing.isEmpty, listing.count <= 4096,
                   listing.allSatisfy({ !$0.hasPrefix("/") && !$0.split(separator: "/").contains("..")
@@ -202,20 +253,20 @@ public final class TrustedCoreStore {
             let matches = listing.filter { !$0.hasSuffix("/") && URL(fileURLWithPath: $0).lastPathComponent == name }
             guard matches.count == 1 else { throw HelperFailure("official_executable_missing") }
             let entry = matches[0]
-            let type = String(decoding: try tool("/usr/bin/tar", ["-tvf", archiveURL.path, "--", entry]), as: UTF8.self)
+            let type = String(decoding: try tool("/usr/bin/tar", ["-tvf", archiveURL.path, "--", entry], context: context), as: UTF8.self)
             guard type.hasPrefix("-") else { throw HelperFailure("official_executable_not_regular") }
-            let binary = try tool("/usr/bin/tar", ["-xOf", archiveURL.path, "--", entry], limit: 256 * 1024 * 1024)
+            let binary = try tool("/usr/bin/tar", ["-xOf", archiveURL.path, "--", entry], limit: 256 * 1024 * 1024, context: context)
             let executable = stage.appendingPathComponent("core")
             try binary.write(to: executable, options: .atomic)
             try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
-            let architecture = String(decoding: try tool("/usr/bin/lipo", ["-archs", executable.path]), as: UTF8.self)
+            let architecture = String(decoding: try tool("/usr/bin/lipo", ["-archs", executable.path], context: context), as: UTF8.self)
             #if arch(arm64)
             guard architecture.split(whereSeparator: \.isWhitespace).contains("arm64") else { throw HelperFailure("official_executable_architecture") }
             #else
             guard architecture.split(whereSeparator: \.isWhitespace).contains("x86_64") else { throw HelperFailure("official_executable_architecture") }
             #endif
-            _ = try tool("/usr/bin/codesign", ["--verify", "--strict", executable.path])
-            let version = String(decoding: try tool(executable.path, ["version"]), as: UTF8.self)
+            _ = try tool("/usr/bin/codesign", ["--verify", "--strict", executable.path], context: context)
+            let version = String(decoding: try tool(executable.path, ["version"], context: context), as: UTF8.self)
             guard version.contains("Xray"), version.count < 8192 else { throw HelperFailure("official_version_invalid") }
             guard !OfficialCorePolicy.hasKnownDarwinBindingBug(version) else { throw HelperFailure("xray_darwin_binding_update_unsafe") }
             let manifest = Manifest(kind: kind, token: token, releaseURL: releaseURL, packageSHA256: digest,
@@ -224,6 +275,7 @@ public final class TrustedCoreStore {
             try JSONEncoder().encode(manifest).write(to: manifestURL, options: .atomic)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: manifestURL.path)
             try FileManager.default.removeItem(at: archiveURL)
+            try context.check()
             var response = HelperResponse(state: "staged"); response.updateToken = token; return response
         } catch { try? FileManager.default.removeItem(at: stage); throw error }
     }
@@ -236,6 +288,7 @@ public final class TrustedCoreStore {
         case "update-activate":
             let manifest = try read(stage)
             guard manifest.kind == kind, manifest.token == token, !FileManager.default.fileExists(atPath: previous.path) else { throw HelperFailure("update_store_busy") }
+            if FileManager.default.fileExists(atPath: current.path), !(try read(current).committed) { throw HelperFailure("update_store_busy") }
             if FileManager.default.fileExists(atPath: current.path) { try directory(current); try FileManager.default.moveItem(at: current, to: previous) }
             do { try FileManager.default.moveItem(at: stage, to: current) }
             catch { if FileManager.default.fileExists(atPath: previous.path) { try? FileManager.default.moveItem(at: previous, to: current) }; throw error }
@@ -280,7 +333,7 @@ public final class TrustedCoreStore {
         if OfficialCorePolicy.hasKnownDarwinBindingBug(manifest.version) { return nil }
         return VerifiedCoreSource(url: executable, sha256: manifest.executableSHA256)
     }
-    public func handle(_ request: HelperRequest) -> HelperResponse {
+    public func handle(_ request: HelperRequest, cancellation: HelperCancellation = HelperCancellation()) -> HelperResponse {
         do {
             guard let kind = request.core else { throw HelperFailure("update_core_required") }
             if request.action == "update-status" {
@@ -297,7 +350,8 @@ public final class TrustedCoreStore {
                 return response
             }
             if request.action == "update-stage", let url = request.releaseURL, let archive = request.archive {
-                return try stage(kind: kind, releaseURL: url, archive: archive)
+                return try stage(kind: kind, releaseURL: url, archive: archive,
+                                 context: HelperOperationContext(cancellation: cancellation))
             }
             guard let token = request.updateToken else { throw HelperFailure("update_token_invalid") }
             return try transition(action: request.action, kind: kind, token: token)

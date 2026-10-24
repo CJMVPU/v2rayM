@@ -376,35 +376,6 @@ public partial class UpdateService(Config config, Func<bool, string, Task> updat
         ];
     }
 
-    private List<FileDownloadRequest> GetOtherFilesRequest()
-    {
-        //If it is not in China area, no update is required
-        if (_config.ConstItem.GeoSourceUrl.IsNotEmpty())
-        {
-            return [];
-        }
-
-        return
-        [
-            .. Global.OtherGeoUrls.Select(url =>
-            {
-                var fileName = Path.GetFileName(url);
-                var targetPath = Utils.GetBinPath($"{fileName}");
-                return new FileDownloadRequest()
-                {
-                    FileUrl = url,
-                    FilePath = targetPath,
-                    DisplayFileName = fileName,
-                };
-            }),
-        ];
-    }
-
-
-
-
-
-
     private async Task DownloadGeoFiles(List<FileDownloadRequest> requests, bool blProxy, CancellationToken cancellationToken = default)
     {
         var tmpFilePathDict = new Dictionary<string, string>();

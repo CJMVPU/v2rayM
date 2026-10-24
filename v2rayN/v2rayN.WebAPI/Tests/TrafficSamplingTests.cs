@@ -11,6 +11,20 @@ namespace v2rayN.WebAPI.Tests;
 public class TrafficSamplingTests
 {
     [Test]
+    public async Task ClosingSamplerWaitsForTheInFlightCallbackToFinish()
+    {
+        var sampler = new StatisticsXrayService(new Config(), _ => Task.CompletedTask);
+        var finished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        typeof(StatisticsXrayService).GetField("_runTask", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(sampler, finished.Task);
+        var close = sampler.CloseAsync();
+        await close.IsCompleted.Should().BeFalse();
+        finished.SetResult();
+        await close.WaitAsync(TimeSpan.FromSeconds(1));
+        await sampler.CloseAsync();
+    }
+
+    [Test]
     public async Task ReenabledSamplerUsesBaselineInsteadOfDuplicatingLifetimeCounters()
     {
         var instance = (StatisticsXrayService)RuntimeHelpers.GetUninitializedObject(typeof(StatisticsXrayService));
@@ -53,6 +67,6 @@ public class TrafficSamplingTests
         var sample = new ServerSpeedItem { ProxyUp = 10, ProxyDown = 20 };
         await (Task)type.GetMethod("UpdateServerStat", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(manager, [sample])!;
         await ReferenceEquals(observed, sample).Should().BeTrue();
-        await (type.GetField("_serverStatItem", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(manager) is null).Should().BeTrue();
+        await manager.ServerStat.Count.Should().BeEqualTo(0);
     }
 }

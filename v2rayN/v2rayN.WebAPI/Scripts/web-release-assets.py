@@ -42,35 +42,12 @@ EXECUTABLE_NAMES = {
     "win-arm64": "v2rayN.WebAPI.exe",
 }
 REQUIRED_FILES = {
-    "linux-x64": (
-        "v2rayN.WebAPI", BUILD_IDENTITY_NAME, "bin/sing_box/libcronet.so", "bin/geosite.dat",
-        "bin/geoip.dat", "bin/geoip.metadb", "bin/Country.mmdb", "bin/srss/geosite-category-ads-all.srs",
-    ),
-    "linux-arm64": (
-        "v2rayN.WebAPI", BUILD_IDENTITY_NAME, "bin/sing_box/libcronet.so", "bin/geosite.dat",
-        "bin/geoip.dat", "bin/geoip.metadb", "bin/Country.mmdb", "bin/srss/geosite-category-ads-all.srs",
-    ),
-    "linux-riscv64": (
-        "v2rayN.WebAPI", BUILD_IDENTITY_NAME, "bin/geosite.dat",
-        "bin/geoip.dat", "bin/geoip.metadb", "bin/Country.mmdb", "bin/srss/geosite-category-ads-all.srs",
-    ),
-    "linux-loongarch64": (
-        "v2rayN.WebAPI", BUILD_IDENTITY_NAME, "bin/geosite.dat",
-        "bin/geoip.dat", "bin/geoip.metadb", "bin/Country.mmdb", "bin/srss/geosite-category-ads-all.srs",
-    ),
-    "win-x64": (
-        "v2rayN.WebAPI.exe", BUILD_IDENTITY_NAME, "bin/xray/xray.exe", "bin/sing_box/sing-box.exe",
-        "bin/mihomo/mihomo.exe", "bin/geosite.dat", "bin/geoip.dat", "bin/geoip.metadb", "bin/Country.mmdb",
-    ),
-    "win-arm64": (
-        "v2rayN.WebAPI.exe", BUILD_IDENTITY_NAME, "bin/xray/xray.exe", "bin/sing_box/sing-box.exe",
-        "bin/mihomo/mihomo.exe", "bin/geosite.dat", "bin/geoip.dat", "bin/geoip.metadb", "bin/Country.mmdb",
-    ),
+    rid: (executable, BUILD_IDENTITY_NAME, "bin/geosite.dat", "bin/geoip.dat")
+    for rid, executable in EXECUTABLE_NAMES.items()
 }
-LINUX_REQUIRED_EXECUTABLES = ("bin/xray/xray", "bin/sing_box/sing-box", "bin/mihomo/mihomo")
-WINDOWS_REQUIRED_EXECUTABLES = (
-    "v2rayN.WebAPI.exe", "bin/xray/xray.exe", "bin/sing_box/sing-box.exe", "bin/mihomo/mihomo.exe",
-)
+LINUX_REQUIRED_EXECUTABLES = ("bin/xray/xray",)
+WINDOWS_REQUIRED_EXECUTABLES = ("v2rayN.WebAPI.exe", "bin/xray/xray.exe")
+CORE_ASSET_NAMES = {"geoip.dat", "geosite.dat", "core-bundle-source.json", "xray/LICENSE"}
 BLOCK_SIZE = 1024 * 1024
 
 
@@ -160,8 +137,12 @@ def create_full_zip(publish: Path, output: Path, rid: str) -> None:
     # never taken from the publish tree, even if a build tool happened to copy it there.
     entries = [
         entry for entry in collect_tree(publish)
-        if not any(segment in ENVIRONMENT_FILE_NAMES for segment in entry[0].split("/"))
+        if entry[0] != "bin/.keep" and not any(segment in ENVIRONMENT_FILE_NAMES for segment in entry[0].split("/"))
     ]
+    core_name = "xray/xray.exe" if is_windows_rid(rid) else "xray/xray"
+    for relative, _, kind in entries:
+        if relative.startswith("bin/") and (relative[4:] not in CORE_ASSET_NAMES | {core_name} or kind != "file"):
+            fail(f"unsupported Core/data asset in full package: {relative}")
     names = {relative for relative, _, _ in entries}
     for required in REQUIRED_FILES[rid]:
         if required not in names:

@@ -9,8 +9,7 @@ public class ProfileExManagerConcurrencyTests
         var exceptions = new List<Exception>();
         var threads = Environment.ProcessorCount * 2;
 
-        //Hammer the same manager from several streams at once: the queue is mutated while
-        //other threads keep pushing into it
+        // Hammer the same manager from several streams while creating and updating records.
         var barrier = new Barrier(threads);
         Parallel.For(0, threads, t =>
         {
@@ -35,7 +34,7 @@ public class ProfileExManagerConcurrencyTests
     }
 
     [Test]
-    public async Task SetTestDelay_FromManyThreads_ShouldNotLoseQueuedIds()
+    public async Task SetTestDelay_FromManyThreads_ShouldNotLoseEntries()
     {
         var manager = CreateManager();
         var ids = 500;
@@ -48,9 +47,9 @@ public class ProfileExManagerConcurrencyTests
             }
         });
 
-        var drained = Drain(manager);
-        await drained.Count.Should().BeGreaterThanOrEqualTo(ids);
-        await drained.Distinct().Count().Should().BeEqualTo(ids);
+        var snapshot = await manager.GetProfileExs();
+        await snapshot.Count.Should().BeEqualTo(ids);
+        await snapshot.Select(item => item.IndexId).Distinct().Count().Should().BeEqualTo(ids);
     }
 
     [Test]
@@ -75,17 +74,4 @@ public class ProfileExManagerConcurrencyTests
         return (ProfileExManager)Activator.CreateInstance(typeof(ProfileExManager), nonPublic: true)!;
     }
 
-    private static List<string> Drain(ProfileExManager manager)
-    {
-        var queue = (System.Collections.Concurrent.ConcurrentQueue<string>)typeof(ProfileExManager)
-            .GetField("_queIndexIds", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .GetValue(manager)!;
-
-        var result = new List<string>();
-        while (queue.TryDequeue(out var id))
-        {
-            result.Add(id);
-        }
-        return result;
-    }
 }

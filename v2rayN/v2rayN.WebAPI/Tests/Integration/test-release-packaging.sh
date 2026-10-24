@@ -11,7 +11,7 @@ trap 'rm -rf "$temporary"' EXIT HUP INT TERM
 make_publish_fixture() {
   local rid="$1"
   local publish="$temporary/publish-$rid"
-  local app_executable="v2rayN.WebAPI" xray="bin/xray/xray" sing_box="bin/sing_box/sing-box" mihomo="bin/mihomo/mihomo"
+  local app_executable="v2rayN.WebAPI" xray="bin/xray/xray"
   local pe_machine=""
   case "$rid" in
     win-x64) pe_machine="0x8664" ;;
@@ -20,12 +20,11 @@ make_publish_fixture() {
   if [[ -n "$pe_machine" ]]; then
     app_executable="v2rayN.WebAPI.exe"
     xray="bin/xray/xray.exe"
-    sing_box="bin/sing_box/sing-box.exe"
-    mihomo="bin/mihomo/mihomo.exe"
   fi
-  mkdir -p "$publish/bin/xray" "$publish/bin/sing_box" "$publish/bin/mihomo" "$publish/bin/srss"
+  mkdir -p "$publish/bin/xray"
+  touch "$publish/bin/.keep"
   if [[ -n "$pe_machine" ]]; then
-    python3 - "$publish/$app_executable" "$publish/$xray" "$publish/$sing_box" "$publish/$mihomo" "$pe_machine" <<'PY'
+    python3 - "$publish/$app_executable" "$publish/$xray" "$pe_machine" <<'PY'
 from pathlib import Path
 import struct
 import sys
@@ -46,7 +45,7 @@ PY
   else
     printf '#!/bin/sh\nexit 0\n' > "$publish/$app_executable"
     chmod 755 "$publish/$app_executable"
-    for executable in "$xray" "$sing_box" "$mihomo"; do
+    for executable in "$xray"; do
       printf '#!/bin/sh\nexit 0\n' > "$publish/$executable"
       chmod 755 "$publish/$executable"
     done
@@ -55,8 +54,7 @@ PY
   # repository template may be copied into a full install ZIP.
   printf 'V2RAYN_WEB_API_KEY=fixture-secret\n' > "$publish/.env"
   printf 'unreviewed template\n' > "$publish/.env.example"
-  local assets=(bin/geosite.dat bin/geoip.dat bin/geoip.metadb bin/Country.mmdb bin/srss/geosite-category-ads-all.srs)
-  if [[ "$rid" == linux-x64 || "$rid" == linux-arm64 ]]; then assets+=(bin/sing_box/libcronet.so); fi
+  local assets=(bin/geosite.dat bin/geoip.dat)
   for asset in "${assets[@]}"; do
     printf 'asset\n' > "$publish/$asset"
   done
@@ -129,6 +127,7 @@ with zipfile.ZipFile(full) as archive:
     env_example_data = archive.read(".env.example")
 for required in ("v2rayN.WebAPI", "v2rayN.WebAPI.build.json", ".env.example", "bin/xray/xray"):
     assert required in names, required
+assert "bin/.keep" not in names, names
 assert names.count(".env.example") == 1, names
 assert env_example_data == Path(env_example_source).read_bytes()
 assert not any(".env" in name.split("/") for name in names), names

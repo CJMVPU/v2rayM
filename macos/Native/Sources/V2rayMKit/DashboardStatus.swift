@@ -49,9 +49,8 @@ public enum DashboardStatus: Equatable {
     public var active: Bool { self == .tun || self == .system }
     public static func date(_ value: String?) -> Date? {
         guard let value else { return nil }
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter.date(from: value) ?? ISO8601DateFormatter().date(from: value)
+        return (try? Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse(value))
+            ?? (try? Date.ISO8601FormatStyle().parse(value))
     }
     public static func duration(since value: String?, now: Date) -> String {
         guard let start = date(value) else { return "—" }

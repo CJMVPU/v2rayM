@@ -9,10 +9,22 @@ final class GlobeTelemetryTests: XCTestCase {
         let domain = GlobeConnection.parse(log("from tcp:127.0.0.1:1234 accepted tcp:example.com:443 [socks >> proxy]"))
         XCTAssertEqual(domain?.host, "example.com"); XCTAssertEqual(domain?.routeTitle, "代理")
         let v6 = GlobeConnection.parse(log("from udp:[::1]:1234 accepted udp:[2606:4700::1111]:443 [tun -> direct]"))
-        XCTAssertEqual(v6?.host, "2606:4700::1111"); XCTAssertEqual(v6?.port, 443)
+        XCTAssertEqual(v6?.host, "2606:4700::1111"); XCTAssertEqual(v6?.port, 443); XCTAssertEqual(v6?.route, "direct"); XCTAssertEqual(v6?.routeTitle, "直连")
         XCTAssertNil(GlobeConnection.parse(log("failed to connect to example.com:443")))
         XCTAssertNil(GlobeConnection.parse(log("accepted tcp:example.com:443 [proxy]")))
         XCTAssertNil(GlobeConnection.parse(log("from udp:127.0.0.1:1 accepted udp:8.8.8.8:53 [tun -> dns]")))
+    }
+    func testBurstKeepsLatestUniqueConnectionsInOrder() {
+        let entries = (0..<10_000).map { log("from tcp:127.0.0.1:1 accepted tcp:host\($0).example:443 [socks >> proxy]") }
+        let recent = GlobeConnection.recent(entries, previous: [], since: .distantPast)
+        XCTAssertEqual(recent.count, 24)
+        XCTAssertEqual(recent.first?.host, "host9999.example")
+        XCTAssertEqual(recent.last?.host, "host9976.example")
+        let duplicate = log("from tcp:127.0.0.1:1 accepted tcp:host9990.example:8443 [socks >> proxy]")
+        let updated = GlobeConnection.recent([duplicate], previous: recent, since: .distantPast)
+        XCTAssertEqual(updated.count, 24); XCTAssertEqual(updated.first?.port, 8443)
+        XCTAssertEqual(updated.filter { $0.host == "host9990.example" }.count, 1)
+        XCTAssertTrue(GlobeConnection.recent(entries, previous: recent, since: .distantFuture).isEmpty)
     }
     func testPrivateAndFakeIPDoNotGetInventedLocations() {
         for ip in ["127.0.0.1", "10.1.1.1", "198.18.0.1", "172.18.0.2", "192.168.0.1", "::1", "fc00::1", "fe80::1", "::ffff:192.168.1.1"] {

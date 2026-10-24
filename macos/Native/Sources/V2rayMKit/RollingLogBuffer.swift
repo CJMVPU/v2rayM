@@ -9,8 +9,10 @@ public struct RollingLogBuffer {
     public init(maximumLines: Int = 10_000, maximumCharacters: Int = 8_000_000) {
         self.maximumLines = max(1, maximumLines); self.maximumCharacters = max(1, maximumCharacters)
     }
-    public mutating func append(_ incoming: [LogEntry]) {
+    @discardableResult public mutating func append(_ incoming: [LogEntry]) -> Bool {
+        var changed = false
         for entry in incoming where ids.insert(entry.id).inserted {
+            changed = true
             entries.append(entry); characters += entry.message.utf16.count + entry.source.utf16.count
         }
         var remove = 0
@@ -19,5 +21,6 @@ public struct RollingLogBuffer {
             characters -= entry.message.utf16.count + entry.source.utf16.count; remove += 1
         }
         if remove > 0 { entries.removeFirst(remove) }
+        return changed
     }
 }

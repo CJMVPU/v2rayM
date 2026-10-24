@@ -6,9 +6,10 @@ ARG WEB_REPOSITORY=2dust/v2rayN
 
 FROM --platform=$BUILDPLATFORM docker.io/library/alpine:3.22 AS core-assets
 ARG RID
-RUN apk add --no-cache ca-certificates curl unzip
-COPY v2rayN/v2rayN.WebAPI/Scripts/fetch-core-bundle.sh /usr/local/bin/fetch-core-bundle
-RUN sh /usr/local/bin/fetch-core-bundle "$RID" /out/bin
+RUN apk add --no-cache ca-certificates python3
+COPY contracts/macos-build-inputs.json /src/contracts/macos-build-inputs.json
+COPY v2rayN/v2rayN.WebAPI/Scripts/fetch-core-bundle.py /src/v2rayN/v2rayN.WebAPI/Scripts/fetch-core-bundle.py
+RUN python3 /src/v2rayN/v2rayN.WebAPI/Scripts/fetch-core-bundle.py "$RID" /out/bin
 
 FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0 AS publish
 ARG RID
@@ -30,7 +31,7 @@ RUN NUGET_PACKAGES=/src/.packages/nuget dotnet publish v2rayN/v2rayN.WebAPI/v2ra
     -p:WebRepository="$WEB_REPOSITORY" \
     --output /out \
     && mkdir -p /runtime-data
-# Copy the complete upstream bin/ payload; do not curate or enumerate Core files here.
+# The asset stage has already enforced the Xray and DAT allowlist.
 COPY --from=core-assets /out/bin/ /out/bin/
 
 FROM mcr.microsoft.com/dotnet/runtime-deps:10.0 AS runtime

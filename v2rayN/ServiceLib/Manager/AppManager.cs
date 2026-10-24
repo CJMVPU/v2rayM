@@ -7,7 +7,6 @@ public sealed class AppManager
     private static readonly Lazy<AppManager> _instance = new(() => new());
     private Config _config;
     private int? _statePort;
-    private int? _statePort2;
     public static AppManager Instance => _instance.Value;
     public Config Config => _config;
 
@@ -17,15 +16,6 @@ public sealed class AppManager
         {
             _statePort ??= Utils.GetFreePort(GetLocalPort(EInboundProtocol.api));
             return _statePort.Value;
-        }
-    }
-
-    public int StatePort2
-    {
-        get
-        {
-            _statePort2 ??= Utils.GetFreePort(GetLocalPort(EInboundProtocol.api2));
-            return _statePort2.Value + (_config.TunModeItem.EnableTun ? 1 : 0);
         }
     }
 
@@ -100,7 +90,6 @@ public sealed class AppManager
 
         //First determine the port value
         _ = StatePort;
-        _ = StatePort2;
 
         Task.Run(async () =>
         {
@@ -113,7 +102,6 @@ public sealed class AppManager
     public bool Reset()
     {
         _statePort = null;
-        _statePort2 = null;
         return true;
     }
 
@@ -172,20 +160,19 @@ public sealed class AppManager
                         from ProfileItem a
                         left join SubItem b on a.subid = b.id
                         where 1=1 ";
+        var arguments = new List<object>();
         if (subid.IsNotEmpty())
         {
-            sql += $" and a.subid = '{subid}'";
+            sql += " and a.subid = ?";
+            arguments.Add(subid);
         }
         if (filter.IsNotEmpty())
         {
-            if (filter.Contains('\''))
-            {
-                filter = filter.Replace("'", "");
-            }
-            sql += string.Format(" and (a.remarks like '%{0}%' or a.address like '%{0}%') ", filter);
+            sql += " and (a.remarks like ? or a.address like ?)";
+            arguments.Add($"%{filter}%");
+            arguments.Add($"%{filter}%");
         }
-
-        return await SQLiteHelper.Instance.QueryAsync<ProfileItemModel>(sql);
+        return await SQLiteHelper.Instance.QueryAsync<ProfileItemModel>(sql, arguments.ToArray());
     }
 
     public async Task<ProfileItem?> GetProfileItem(string indexId)

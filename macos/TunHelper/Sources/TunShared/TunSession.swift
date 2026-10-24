@@ -115,8 +115,7 @@ public final class TunSession {
     private var prepared: PreparedLaunch?
     private var state = "idle"
     private var forced = false
-    private var logs: [String] = []
-    private var logBytes = 0
+    private var logs = BoundedCoreLogs()
     private let graceSeconds: TimeInterval
 
     public init(limiter: SlotLimiter, graceSeconds: TimeInterval = 8,
@@ -158,9 +157,10 @@ public final class TunSession {
         }
     }
 
-    public func disconnect() {
+    @discardableResult public func disconnect(requireConfirmedRecovery: Bool = false) -> Bool {
         lock.lock(); defer { lock.unlock() }
         stopLocked()
+        return core == nil && prepared == nil && cleanupFailure == nil && (!requireConfirmedRecovery || !forced)
     }
 
     private func stopLocked() {
@@ -191,17 +191,17 @@ public final class TunSession {
     private func cleanup() {
         do { try network.restore(); cleanupFailure = nil }
         catch { cleanupFailure = "tun_dns_cleanup_failed"; state = "faulted"; return }
-        if let directory = prepared?.directory { try? FileManager.default.removeItem(at: directory) }
+        if let directory = prepared?.directory, FileManager.default.fileExists(atPath: directory.path) {
+            do { try FileManager.default.removeItem(at: directory) }
+            catch { cleanupFailure = "session_directory_cleanup_failed"; state = "faulted"; return }
+        }
         prepared = nil; core = nil; limiter.release(id)
     }
 
     private func appendLog(_ text: String) {
         logLock.lock(); defer { logLock.unlock() }
         let entry = String(text.prefix(16_384))
-        logs.append(entry); logBytes += entry.utf8.count
-        while logs.count > 10_000 || logBytes > 1_000_000 {
-            logBytes -= logs.removeFirst().utf8.count
-        }
+        logs.append(entry)
     }
 
     private func response() -> HelperResponse {
@@ -209,7 +209,7 @@ public final class TunSession {
         result.pid = core?.pid
         result.executablePath = prepared?.executable.path
         result.forced = forced
-        logLock.lock(); result.logs = logs; logs.removeAll(); logBytes = 0; logLock.unlock()
+        logLock.lock(); result.logs = logs.drain(); logLock.unlock()
         return result
     }
 }

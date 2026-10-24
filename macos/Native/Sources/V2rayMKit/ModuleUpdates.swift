@@ -6,7 +6,7 @@ public enum RuntimeUpdateActivity {
     }
 }
 
-public struct ModuleUpdateProgress: Decodable, Identifiable {
+public struct ModuleUpdateProgress: Decodable, Identifiable, Equatable {
     public var id: String { coreType }
     public var coreType: String
     public var phase: String

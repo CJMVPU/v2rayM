@@ -1,10 +1,14 @@
 import XCTest
 import Foundation
+import Combine
 import V2rayMKit
 @testable import V2rayM
 
 private actor RuntimeFixtureAPI: NativeAPI {
     var running = false
+    var stopTimeouts = 0
+    var stopCalls = 0
+    var failTunRead = false
     var tunEnabled = false
     var failures = Set<String>()
     var starts = 0
@@ -20,12 +24,16 @@ private actor RuntimeFixtureAPI: NativeAPI {
     var holdNextStart = false
     var startHeld: CheckedContinuation<Void, Never>?
     var freshTunReads = 0
+    var losePostRestartObservation = false
+    func loseObservationAfterRestart() { losePostRestartObservation = true }
     func holdRestart() { holdNextRestart = true }
     func restartIsHeld() -> Bool { restartHeld != nil }
     func releaseRestart() { restartHeld?.resume(); restartHeld = nil }
     func holdStart() { holdNextStart = true }
     func startIsHeld() -> Bool { startHeld != nil }
     func releaseStart() { startHeld?.resume(); startHeld = nil }
+    func timeoutStops(_ count: Int) { stopTimeouts = count }
+    func failTunObservation() { failTunRead = true }
     func fail(_ path: String) { failures.insert(path) }
     func recover(_ path: String) { failures.remove(path) }
     func faultCore() { running = false }
@@ -46,6 +54,10 @@ private actor RuntimeFixtureAPI: NativeAPI {
         case "/api/operations": result = tasks
         case "/api/macos/tun?fresh=true":
             freshTunReads += 1
+            if losePostRestartObservation && restarts > 0 {
+                losePostRestartObservation = false
+                throw URLError(.timedOut)
+            }
             return try JSONSerialization.data(withJSONObject: ["success": true, "data": tunObject()])
         case "/api/core/restart":
             restarts += 1; running = true; startedAt = "2026-10-24T10:00:0\(restarts)Z"
@@ -55,9 +67,9 @@ private actor RuntimeFixtureAPI: NativeAPI {
             }
             if loseRestartResponse { loseRestartResponse = false; throw URLError(.timedOut) }
         case "/api/core/start": await startTunCore()
-        case "/api/core/stop": stopProxyCore()
+        case "/api/core/stop": try stopProxyCore()
         default:
-            if path.hasPrefix("/api/logs/tail") { result = ["items": [], "latestSequence": 0] as [String: Any] }
+            if path.hasPrefix("/api/logs/tail") { result = ["items": [], "latestSequence": 0, "generation": 0] as [String: Any] }
         }
         let data = try JSONSerialization.data(withJSONObject: ["success": true, "data": result])
         if path == "/api/status", holdNextStatus {
@@ -67,7 +79,8 @@ private actor RuntimeFixtureAPI: NativeAPI {
         return data
     }
     func tunStatus() throws -> MacTunStatus {
-        try JSONDecoder().decode(MacTunStatus.self, from: JSONSerialization.data(withJSONObject: tunObject()))
+        if failTunRead { throw URLError(.timedOut) }
+        return try JSONDecoder().decode(MacTunStatus.self, from: JSONSerialization.data(withJSONObject: tunObject()))
     }
     private func tunObject() -> [String: Any] {
         ["platformSupported": true, "helperAvailable": true, "helperCode": "ok",
@@ -82,7 +95,11 @@ private actor RuntimeFixtureAPI: NativeAPI {
             await withCheckedContinuation { startHeld = $0 }
         }
     }
-    func stopProxyCore() { running = false }
+    func stopProxyCore() throws {
+        stopCalls += 1
+        if stopTimeouts > 0 { stopTimeouts -= 1; throw URLError(.timedOut) }
+        running = false
+    }
     func proxyConnection() -> ProxyConnection { ProxyConnection(running: running, port: 10808) }
 }
 private actor RuntimeFixtureBackend: NativeBackend {
@@ -135,6 +152,16 @@ private final class RuntimeFixtureClock: NativeClock, @unchecked Sendable {
             try? await Task.sleep(for: .milliseconds(1))
         }
         XCTFail("Expected suspended fixture request")
+    }
+    func testEmptyLogPollDoesNotRepublishUnchangedLogDocument() async {
+        let (model, _, _, _, _, _) = await fixture()
+        var publications = 0
+        let observation = model.$logs.dropFirst().sink { _ in publications += 1 }
+        _ = try? await model.refresh(); await model.waitForObservations()
+        XCTAssertNil(model.observationErrors["logs"])
+        XCTAssertEqual(publications, 0)
+        observation.cancel()
+        _ = await model.shutdown()
     }
     func testMetadataAndRuntimeObservationFailuresDoNotDisconnectHealthyProxy() async {
         let (model, api, _, proxy, clock, _) = await fixture()
@@ -207,6 +234,8 @@ private final class RuntimeFixtureClock: NativeClock, @unchecked Sendable {
         clock.advance(31); await model.pollOnce()
         let after = await api.restarts
         XCTAssertEqual(after, 1); XCTAssertFalse(model.networkRecovery.active)
+        XCTAssertNil(model.error)
+        XCTAssertEqual(MenuBarMode(model.displayStatus(at: clock.now())), .system)
         XCTAssertEqual(model.desiredMode, .system)
         _ = await model.shutdown()
     }
@@ -245,6 +274,110 @@ private final class RuntimeFixtureClock: NativeClock, @unchecked Sendable {
         XCTAssertFalse(enabled); XCTAssertFalse(running)
         await model.waitForObservations()
         XCTAssertFalse(model.status?.coreRunning ?? true)
+    }
+
+    func testWifiReconnectPublishesMatchingHomeAndMenuStatesForBothModes() async {
+        for mode in [ProxyMode.system, .tun] {
+            let (model, api, _, _, clock, network) = await fixture()
+            network.change?(true)
+            if mode == .system { model.toggleProxy(true) } else { model.toggleTun(true) }
+            await settle(model)
+            network.change?(false)
+            XCTAssertEqual(model.displayStatus(at: clock.now()), .recovering)
+            XCTAssertEqual(MenuBarMode(model.displayStatus(at: clock.now())), .recovering)
+            clock.advance(31); await model.pollOnce()
+            let offlineRestarts = await api.restarts
+            XCTAssertEqual(offlineRestarts, 0)
+            network.change?(true)
+            await model.pollOnce()
+            let beforeDebounce = await api.restarts
+            XCTAssertEqual(beforeDebounce, 0)
+            clock.advance(4); await model.pollOnce(); await model.waitForObservations()
+            XCTAssertFalse(model.networkRecovery.active)
+            XCTAssertEqual(model.displayStatus(at: clock.now()), mode == .system ? .system : .tun)
+            XCTAssertEqual(MenuBarMode(model.displayStatus(at: clock.now())), mode == .system ? .system : .tun)
+            XCTAssertNil(model.error)
+            _ = await model.shutdown()
+        }
+    }
+    func testOffDuringDisconnectedWifiDoesNotNeedTunObservation() async {
+        for mode in [ProxyMode.system, .tun] {
+            let (model, api, _, _, clock, network) = await fixture()
+            if mode == .system { model.toggleProxy(true) } else { model.toggleTun(true) }
+            await settle(model)
+            network.change?(false)
+            await api.failTunObservation()
+            if mode == .system { model.toggleProxy(false) } else { model.toggleTun(false) }
+            await settle(model)
+            XCTAssertEqual(model.desiredMode, .off)
+            XCTAssertFalse(model.networkRecovery.active)
+            let running = await api.running
+            XCTAssertFalse(running); XCTAssertNil(model.error)
+            network.change?(true); clock.advance(31); await model.pollOnce()
+            let restarts = await api.restarts
+            XCTAssertEqual(restarts, 0)
+            XCTAssertEqual(MenuBarMode(model.displayStatus(at: clock.now())), .inactive)
+            _ = await model.shutdown()
+        }
+    }
+    func testStopTimeoutKeepsOffIntentRetriesAndNeverRestartsOldMode() async {
+        for mode in [ProxyMode.system, .tun] {
+            let (model, api, _, proxy, clock, network) = await fixture()
+            if mode == .system { model.toggleProxy(true) } else { model.toggleTun(true) }
+            await settle(model)
+            let starts = await api.starts
+            network.sleep?(true); network.sleep?(false)
+            await api.timeoutStops(2)
+            if mode == .system { model.toggleProxy(false) } else { model.toggleTun(false) }
+            await settle(model)
+            XCTAssertEqual(model.desiredMode, .off); XCTAssertNil(model.error)
+            XCTAssertEqual(model.displayStatus(at: clock.now()), .changing)
+            XCTAssertFalse(model.canToggle(.system)); XCTAssertFalse(model.canToggle(.tun))
+            var mutationRan = false
+            model.run { _ in mutationRan = true }; await model.waitForOperation()
+            XCTAssertFalse(mutationRan)
+            clock.advance(3); await model.pollOnce(); await settle(model)
+            XCTAssertNil(model.error); XCTAssertEqual(model.desiredMode, .off)
+            clock.advance(3); await model.pollOnce(); await settle(model)
+            let afterStarts = await api.starts, restarts = await api.restarts
+            let running = await api.running, enabled = await proxy.isEnabled
+            XCTAssertEqual(afterStarts, starts); XCTAssertEqual(restarts, 0)
+            XCTAssertFalse(running); XCTAssertFalse(enabled)
+            XCTAssertEqual(model.displayStatus(at: clock.now()), .stopped)
+            XCTAssertEqual(MenuBarMode(model.displayStatus(at: clock.now())), .inactive)
+            XCTAssertNil(model.error); XCTAssertNil(model.observationErrors["disconnect"])
+            _ = await model.shutdown()
+        }
+    }
+
+    func testRecoveryRetriesCoreThatStopsAfterAcceptedRestart() async {
+        let (model, api, _, _, clock, network) = await fixture()
+        model.toggleProxy(true); await settle(model)
+        network.sleep?(true); network.sleep?(false); clock.advance(4)
+        await api.loseObservationAfterRestart()
+        await model.pollOnce()
+        XCTAssertTrue(model.networkRecovery.active); XCTAssertNil(model.error)
+        await api.faultCore()
+        clock.advance(31); await model.pollOnce()
+        XCTAssertFalse(model.networkRecovery.active)
+        XCTAssertEqual(model.displayStatus(at: clock.now()), .system)
+        XCTAssertNil(model.error)
+        _ = await model.shutdown()
+    }
+
+    func testOffWithLostObservationsDoesNotPublishOldRunningState() async {
+        let (model, api, _, _, clock, network) = await fixture()
+        model.toggleTun(true); await settle(model)
+        network.change?(false)
+        await api.fail("/api/status"); await api.failTunObservation()
+        model.toggleTun(false); await settle(model)
+        XCTAssertEqual(model.desiredMode, .off)
+        XCTAssertEqual(model.displayStatus(at: clock.now()), .stale)
+        XCTAssertEqual(MenuBarMode(model.displayStatus(at: clock.now())), .attention)
+        XCTAssertNil(model.error)
+        await api.recover("/api/status"); await model.pollOnce()
+        XCTAssertEqual(model.displayStatus(at: clock.now()), .stopped)
+        _ = await model.shutdown()
     }
 
 }

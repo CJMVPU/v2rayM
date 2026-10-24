@@ -941,7 +941,7 @@
     <value>فایل TTF/TTC فونت را در دایرکتوری guiFonts کپی کنید. پنجره تنظیمات را دوباره باز کنید</value>
   </data>
   <data name="TbSettingsSocksPortTip" xml:space="preserve">
-    <value>پورت Pac = +3; پورت Xray API = +4; پورت mihomo API = +5;</value>
+    <value>پورت Pac = +3; پورت Xray API = +4;</value>
   </data>
   <data name="TbSettingsStartBootTip" xml:space="preserve">
     <value>این را با امتیازات ادمین تنظیم کنید، پس از راه اندازی، امتیازات مدیر را دریافت کنید</value>

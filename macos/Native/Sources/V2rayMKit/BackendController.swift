@@ -4,7 +4,7 @@ import Darwin
 
 public actor BackendController {
     private var process: Process?
-    private var log: FileHandle?
+    private var log: RotatingProcessLog?
     public private(set) var client: APIClient?
     public let dataDirectory: URL
     private let backend: URL
@@ -26,12 +26,7 @@ public actor BackendController {
         try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true,
                                               attributes: [.posixPermissions: 0o700])
         let logURL = logs.appendingPathComponent("native-backend.log")
-        // Keep a single previous startup log instead of growing indefinitely.
-        let previous = logs.appendingPathComponent("native-backend.previous.log")
-        try? FileManager.default.removeItem(at: previous)
-        if FileManager.default.fileExists(atPath: logURL.path) { try FileManager.default.moveItem(at: logURL, to: previous) }
-        FileManager.default.createFile(atPath: logURL.path, contents: nil, attributes: [.posixPermissions: 0o600])
-        log = try FileHandle(forWritingTo: logURL)
+        log = try RotatingProcessLog(current: logURL, previous: logs.appendingPathComponent("native-backend.previous.log"))
         var bytes = [UInt8](repeating: 0, count: 32)
         guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else { throw ClientFailure("random_failed") }
         let key = Data(bytes).base64EncodedString()
@@ -55,8 +50,9 @@ public actor BackendController {
         environment["V2RAYN_WEB_PROXY_LISTEN_ALL"] = "false"
         environment["DOTNET_BUNDLE_EXTRACT_BASE_DIR"] = dataDirectory.appendingPathComponent("guiTemps/dotnet").path
         child.environment = environment
-        child.standardInput = FileHandle.nullDevice; child.standardOutput = log; child.standardError = log
-        try child.run(); process = child
+        child.standardInput = FileHandle.nullDevice; child.standardOutput = log?.pipe; child.standardError = log?.pipe
+        do { try child.run(); process = child; log?.didStart() }
+        catch { log?.finish(); log = nil; throw error }
         do {
             for _ in 0..<200 {
                 guard child.isRunning else { throw ClientFailure("backend_exited") }
@@ -85,6 +81,6 @@ public actor BackendController {
         }
         await client?.logout()
         process = nil; client = nil
-        try? log?.close(); log = nil
+        log?.finish(); log = nil
     }
 }

@@ -21,7 +21,6 @@ def main():
     parser.add_argument("--go", default="go")
     parser.add_argument("--source-archive", type=Path)
     parser.add_argument("--output", required=True, type=Path)
-    parser.add_argument("--process-lookup-fix", action="store_true", default=True, help="Include process lookup fix (M2, enabled by default)")
     args = parser.parse_args()
     if args.output.exists():
         parser.error("output must not exist")
@@ -30,9 +29,7 @@ def main():
         parser.error("use the verified Go " + INPUTS["goVersion"] + " Darwin toolchain")
     repo = Path(__file__).resolve().parent.parent
     marker = MARKER
-    patches = ["darwin-bound-interface.patch"]
-    if args.process_lookup_fix:
-        patches.append("darwin-process-lookup.patch")
+    patches = ["darwin-bound-interface.patch", "darwin-process-lookup.patch"]
     for filename in patches:
         if hashlib.sha256((repo / "patches/xray" / filename).read_bytes()).hexdigest() != INPUTS["xray"]["patches"][filename]:
             raise RuntimeError("Reviewed Darwin patch checksum mismatch: " + filename)
@@ -58,10 +55,9 @@ def main():
         for filename in patches:
             with (repo / "patches/xray" / filename).open("rb") as patch:
                 subprocess.run(["patch", "-p1", "--batch"], stdin=patch, cwd=tree, check=True)
-        if args.process_lookup_fix:
-            shutil.copyfile(repo / "scripts/xray/process_darwin_test.go", tree / "common/net/v2raym_process_darwin_test.go")
-            shutil.copyfile(repo / "scripts/xray/process_router_test.go", tree / "app/router/v2raym_process_test.go")
-            run([go, "test", "./common/net", "./app/router", "-run", "^(TestV2rayM|TestFindProcessDarwin|TestDarwinSocketInfo)", "-count=1", "-v"])
+        shutil.copyfile(repo / "scripts/xray/process_darwin_test.go", tree / "common/net/v2raym_process_darwin_test.go")
+        shutil.copyfile(repo / "scripts/xray/process_router_test.go", tree / "app/router/v2raym_process_test.go")
+        run([go, "test", "./common/net", "./app/router", "-run", "^(TestV2rayM|TestFindProcessDarwin|TestDarwinSocketInfo)", "-count=1", "-v"])
         run([go, "test", "./proxy/tun", "-run", "^TestDarwin(OutboundSocket|WildcardUDP)Binding$", "-count=1", "-v"])
         binary = root / "xray"
         run([go, "build", "-trimpath", "-buildvcs=false", "-ldflags", "-s -w -X github.com/xtls/xray-core/core.build=" + marker,

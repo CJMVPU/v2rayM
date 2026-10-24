@@ -540,56 +540,11 @@ public class Global
         "reno"
     ];
 
-    public static readonly List<string> allowSelectType =
-    [
-        "selector",
-        "urltest",
-        "loadbalance",
-        "fallback"
-    ];
-
-    public static readonly List<string> notAllowTestType =
-    [
-        "selector",
-        "urltest",
-        "direct",
-        "reject",
-        "compatible",
-        "pass",
-        "loadbalance",
-        "fallback"
-    ];
-
-    public static readonly List<string> proxyVehicleType =
-    [
-        "file",
-        "http"
-    ];
-
     public static readonly Dictionary<ECoreType, string> CoreUrls = new()
     {
-        { ECoreType.v2fly, "v2fly/v2ray-core" },
-        { ECoreType.v2fly_v5, "v2fly/v2ray-core" },
         { ECoreType.Xray, "XTLS/Xray-core" },
-        { ECoreType.mihomo, "MetaCubeX/mihomo" },
-        { ECoreType.hysteria, "HyNetworks/hysteria" },
-        { ECoreType.hysteria2, "HyNetworks/hysteria" },
-        { ECoreType.naiveproxy, "klzgrad/naiveproxy" },
-        { ECoreType.tuic, "tuic-protocol/tuic" },
-        { ECoreType.juicity, "juicity/juicity" },
-        { ECoreType.brook, "txthinking/brook" },
-        { ECoreType.overtls, "ShadowsocksR-Live/overtls" },
-        { ECoreType.shadowquic, "spongebob888/shadowquic" },
-        { ECoreType.mieru, "enfein/mieru" },
         { ECoreType.v2rayN, "2dust/v2rayN" },
     };
-
-    public static readonly List<string> OtherGeoUrls =
-    [
-        @"https://raw.githubusercontent.com/Loyalsoldier/geoip/release/geoip-only-cn-private.dat",
-        @"https://raw.githubusercontent.com/Loyalsoldier/geoip/release/Country.mmdb",
-        @"https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.metadb"
-    ];
 
     public static readonly List<string> IPAPIUrls =
     [

@@ -40,6 +40,19 @@ public enum ProxyModeSwitch {
     public static func apply(_ target: ProxyMode, systemProxyEnabled: Bool, hasSelectedProfile: Bool,
                              backend: any ProxyModeBackend, preferences: any ProxyModePreferences,
                              checkOtherTunnel: @Sendable () async throws -> Void = { try await TunnelConflict.check() }) async throws -> Bool {
+        // Disconnect is monotonic: a failed observation/stop must never restart
+        // the mode that the user explicitly turned off.
+        if target == .off {
+            var enabled = systemProxyEnabled
+            do {
+                try await preferences.restoreProxy(); enabled = false
+                try await backend.stopProxyCore()
+                try await backend.setTunEnabled(false)
+                return false
+            } catch {
+                throw ProxyModeFailure(systemProxyEnabled: enabled, rollbackFailed: false, underlying: error)
+            }
+        }
         let original = try await backend.tunStatus()
         let previous: ProxyMode = systemProxyEnabled ? .system : original.isRunning ? .tun : .off
         if target != .off && !hasSelectedProfile { throw ClientFailure("profile_not_selected") }
@@ -51,9 +64,7 @@ public enum ProxyModeSwitch {
         do {
             switch target {
             case .off:
-                try await preferences.restoreProxy(); proxyEnabled = false
-                try await backend.stopProxyCore()
-                try await backend.setTunEnabled(false)
+                return false // Disconnect was handled before observing the old mode.
             case .system:
                 if original.enabled {
                     try await backend.stopProxyCore()

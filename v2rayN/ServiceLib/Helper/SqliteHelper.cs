@@ -9,11 +9,12 @@ public sealed class SQLiteHelper
     private readonly string _connstr;
     private SQLiteConnection _db;
     private SQLiteAsyncConnection _dbAsync;
-    private readonly string _configDB = "guiNDB.db";
 
-    public SQLiteHelper()
+    public SQLiteHelper() : this(Utils.GetConfigPath("guiNDB.db")) { }
+
+    public SQLiteHelper(string databasePath)
     {
-        _connstr = Utils.GetConfigPath(_configDB);
+        _connstr = databasePath;
         _db = new SQLiteConnection(_connstr, false);
         _dbAsync = new SQLiteAsyncConnection(_connstr, false);
     }
@@ -61,14 +62,14 @@ public sealed class SQLiteHelper
         return await _dbAsync.DeleteAllAsync<T>();
     }
 
-    public async Task<int> ExecuteAsync(string sql)
+    public async Task<int> ExecuteAsync(string sql, params object[] arguments)
     {
-        return await _dbAsync.ExecuteAsync(sql);
+        return await _dbAsync.ExecuteAsync(sql, arguments);
     }
 
-    public async Task<List<T>> QueryAsync<T>(string sql) where T : new()
+    public async Task<List<T>> QueryAsync<T>(string sql, params object[] arguments) where T : new()
     {
-        return await _dbAsync.QueryAsync<T>(sql);
+        return await _dbAsync.QueryAsync<T>(sql, arguments);
     }
 
     public AsyncTableQuery<T> TableAsync<T>() where T : new()

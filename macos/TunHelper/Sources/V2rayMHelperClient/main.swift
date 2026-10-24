@@ -28,7 +28,7 @@ final class Client {
         let proxy = connection.remoteObjectProxyWithErrorHandler { _ in finish(.failure(HelperFailure("helper_unavailable"))) }
         guard let remote = proxy as? TunHelperProtocol else { throw HelperFailure("helper_unavailable") }
         remote.request(try JSONEncoder().encode(request)) { finish(.success($0)) }
-        guard completion.wait(timeout: .now() + (request.action == "update-stage" ? 110 : 20)) == .success else { throw HelperFailure("helper_timeout") }
+        guard completion.wait(timeout: .now() + (request.action == "update-stage" ? HelperOperationContext.stageClientTimeout : 20)) == .success else { throw HelperFailure("helper_timeout") }
         lock.lock(); let value = result; lock.unlock()
         return try JSONDecoder().decode(HelperResponse.self, from: value!.get())
     }
