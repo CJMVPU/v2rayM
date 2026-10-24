@@ -1,6 +1,6 @@
 # v2rayM
 
-基于 [v2rayN](https://github.com/2dust/v2rayN) 的原生 macOS 代理客户端，采用 **SwiftUI + Xray**，保留上游 fork 和提交历史。当前版本 **0.3.6**，要求 macOS 15 或以上。
+基于 [v2rayN](https://github.com/2dust/v2rayN) 的原生 macOS 代理客户端，采用 **SwiftUI + Xray**，保留上游 fork 和提交历史。当前版本 **0.3.7**，要求 macOS 15 或以上。
 
 ## 使用
 
@@ -44,7 +44,7 @@ swift test --package-path macos/Native
 swift test --package-path macos/TunHelper
 ```
 
-隔离回环使用临时数据和真实 Xray，不修改系统代理或 TUN。真实 TUN、休眠、切网与长期运行需单独验收。当前本机包为 **Apple Development 开发签名，未公证**；对外分发需 Developer ID、公证和干净机器验收。未推送或公开发布。
+隔离回环使用临时数据和真实 Xray，不修改系统代理或 TUN。真实 TUN、休眠、切网与长期运行需单独验收。当前本机包为 **Apple Development 开发签名，未公证**；对外分发需 Developer ID、公证和干净机器验收。尚未公开发布安装包。
 
 ## 维护文档
 

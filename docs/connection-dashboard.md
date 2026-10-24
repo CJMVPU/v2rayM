@@ -51,6 +51,15 @@ scale changes ease over 1.2 seconds. Bounded cubic segments smooth the curve
 without overshoot or bridging missing data. A single sample is a dot,
 not an invented line across the chart.
 
+## Recent connections
+
+The card shows up to five records in evenly spaced rows, with a continuous
+route-colored background from the host to its route label: cyan for proxy,
+green for direct and orange for blocked connections. The lower inset is eight
+points. Long hosts truncate in the middle while the route label remains visible;
+hover retains the complete destination and estimated location. Empty-state
+messages, record ordering and Reduce Motion behavior are unchanged.
+
 ## Location and historical map
 
 The node city and recent-connection location details still use system DNS and

@@ -150,22 +150,34 @@ private struct DashboardContent: View {
         }.foregroundStyle(color).frame(maxWidth: .infinity, alignment: .leading)
     }
     private var recentCard: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("近期连接").font(AppFont.size(13)).padding(.bottom, 5)
+        RecentConnectionsCard(connections: monitor.connections, coreRunning: model.status?.coreRunning == true)
+    }
+}
+
+struct RecentConnectionsCard: View {
+    let connections: [GlobeConnection]
+    let coreRunning: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("近期连接").font(AppFont.size(13))
             GeometryReader { geometry in
-                if monitor.connections.isEmpty {
-                    Text(model.status?.coreRunning == true ? "等待新的连接记录" : "开启代理后显示连接")
+                if connections.isEmpty {
+                    Text(coreRunning ? "等待新的连接记录" : "开启代理后显示连接")
                         .font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    VStack(spacing: 0) {
-                        ForEach(Array(monitor.connections.prefix(5))) { connection in
-                            recentConnectionRow(connection, height: geometry.size.height / 5)
+                    VStack(spacing: 4) {
+                        ForEach(Array(connections.prefix(5))) { connection in
+                            recentConnectionRow(connection, height: max(0, (geometry.size.height - 16) / 5))
                         }
-                    }.animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: Array(monitor.connections.prefix(5).map(\.id)))
+                    }.animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: Array(connections.prefix(5).map(\.id)))
                 }
             }.clipped()
-        }.padding(14).frame(maxHeight: .infinity).dashboardPanel()
+        }.padding(.horizontal, 12).padding(.top, 12).padding(.bottom, 8)
+            .frame(maxHeight: .infinity).dashboardPanel()
     }
 
     private func recentConnectionRow(_ connection: GlobeConnection, height: CGFloat) -> some View {
@@ -173,12 +185,11 @@ private struct DashboardContent: View {
         let location: String = connection.place.map { " · " + $0.displayCity + "（IP/DNS 估计）" } ?? " · 位置未知"
         let tooltip: String = connection.host + ":\(connection.port) · " + connection.routeTitle + location
         return HStack(spacing: 8) {
-            Circle().fill(color).frame(width: 6, height: 6)
             Text(connection.host).font(AppFont.caption).lineLimit(1).truncationMode(.middle)
             Spacer(minLength: 4)
-            Text(connection.routeTitle).font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
-        }.frame(height: height)
-            .overlay(alignment: .top) { rule }
+            Text(connection.routeTitle).font(AppFont.caption).foregroundStyle(DashboardTheme.muted).fixedSize()
+        }.padding(.horizontal, 8).frame(maxWidth: .infinity).frame(height: height)
+            .background(color.opacity(colorScheme == .dark ? 0.13 : 0.10), in: RoundedRectangle(cornerRadius: 5))
             .help(tooltip)
             .transition(.asymmetric(insertion: .move(edge: .top).combined(with: .opacity),
                                    removal: .opacity))

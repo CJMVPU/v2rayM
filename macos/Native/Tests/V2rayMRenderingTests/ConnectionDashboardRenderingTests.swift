@@ -1,10 +1,41 @@
 import XCTest
 import SwiftUI
 import AppKit
-import V2rayMKit
+@testable import V2rayMKit
 @testable import V2rayM
 
 final class ConnectionDashboardRenderingTests: XCTestCase {
+    @MainActor func testRecentConnectionsSnapshot() throws {
+        guard let output = ProcessInfo.processInfo.environment["V2RAYM_RECENT_RENDER_DIRECTORY"] else {
+            throw XCTSkip("Set V2RAYM_RECENT_RENDER_DIRECTORY for recent-connection layout snapshots")
+        }
+        AppFont.register()
+        let destinations = [("57.144.5.32", "proxy"), ("89.208.253.211", "proxy"),
+                            ("[2606:4700:1234:5678:abcd:ef01:2345:6789]", "proxy"),
+                            ("35.190.80.1", "block"), ("112.19.242.77", "direct")]
+        let connections = try destinations.map { host, route in
+            try XCTUnwrap(GlobeConnection.parse(LogEntry(timestamp: "2026-10-24T12:00:00Z", source: "core",
+                message: "from tcp:127.0.0.1:1234 accepted tcp:\(host):443 [socks >> \(route)]", sequence: 1)))
+        }
+        for dark in [true, false] {
+            let view = HStack(spacing: 12) {
+                RecentConnectionsCard(connections: connections, coreRunning: true).frame(width: 280)
+                RecentConnectionsCard(connections: [], coreRunning: true).frame(width: 280)
+                RecentConnectionsCard(connections: Array(connections.prefix(1)), coreRunning: false).frame(width: 280)
+            }.frame(height: 150).padding(12)
+                .background(Color(nsColor: .controlBackgroundColor))
+                .environment(\.colorScheme, dark ? .dark : .light)
+            let host = NSHostingView(rootView: view)
+            host.frame = CGRect(x: 0, y: 0, width: 888, height: 174)
+            host.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+            host.layoutSubtreeIfNeeded()
+            let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: bitmap)
+            let path = URL(fileURLWithPath: output).appendingPathComponent(dark ? "recent-dark.png" : "recent-light.png")
+            try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: path)
+        }
+    }
+
     @MainActor func testDiscHoverSnapshot() throws {
         guard let output = ProcessInfo.processInfo.environment["V2RAYM_HOVER_RENDER"] else {
             throw XCTSkip("Set V2RAYM_HOVER_RENDER for an offline hover comparison")
