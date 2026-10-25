@@ -42,10 +42,9 @@ import V2rayMKit
     private var disconnectRetryAt = Date.distantPast
     private var recoveringInFlight = false
     private var sleeping = false
+    private var lastWakeAt: Date?
     private var networkAvailable = true
     private var networkObserved = false
-    private var restartBaseline: String?
-    private var restartSubmitted = false
     private var proxyRequested: Bool { connection.requested }
     private var polling: Task<Void, Never>?
     private var operation: Task<Void, Never>?
@@ -72,7 +71,13 @@ import V2rayMKit
         lifecycle = network ?? NetworkLifecycle()
         lifecycle.observe(sleep: { [weak self] asleep in
             guard let self else { return }
+            if asleep && self.sleeping { return }
+            if !asleep && !self.sleeping, let lastWakeAt = self.lastWakeAt {
+                let elapsed = self.clock.now().timeIntervalSince(lastWakeAt)
+                if elapsed >= 0 && elapsed < 5 { return }
+            }
             self.sleeping = asleep
+            if !asleep { self.lastWakeAt = self.clock.now() }
             self.beginNetworkRecovery(restart: true)
         }, change: { [weak self] available in
             guard let self else { return }
@@ -80,6 +85,14 @@ import V2rayMKit
             self.networkObserved = true
             self.networkAvailable = available
             if shouldRecover { self.beginNetworkRecovery(restart: true) }
+        }, resume: { [weak self] in
+            guard let self else { return }
+            // A visible/session wake also releases the sleep gate if macOS did
+            // not deliver didWake. Plain display wake only probes health.
+            let missedSystemWake = self.sleeping
+            self.sleeping = false
+            if missedSystemWake { self.lastWakeAt = self.clock.now() }
+            self.beginNetworkRecovery(restart: missedSystemWake)
         })
     }
     func connect() async {
@@ -103,9 +116,9 @@ import V2rayMKit
     }
     private func beginNetworkRecovery(restart: Bool) {
         guard !shuttingDown, proxyRequested else { return }
+        let generation = connection.recovery.generation
         connection.recovery.begin(restart: restart, now: clock.now())
-        restartSubmitted = false
-        lastStatusRefresh = nil
+        if generation != connection.recovery.generation { lastStatusRefresh = nil }
     }
     private func attemptNetworkRecovery() async throws {
         guard let api, networkRecovery.canAttempt(awake: !sleeping, networkAvailable: networkAvailable, now: clock.now()) else { return }
@@ -126,34 +139,53 @@ import V2rayMKit
         guard generation == networkRecovery.generation, !sleeping, networkAvailable else { return }
         guard proxyRequested else { connection.recovery.cancel(); return }
         guard !moduleUpdateActive, !RuntimeUpdateActivity.isActive(operations) else { return }
-        // A previous restart can finish and then lose its core before recovery
-        // is confirmed. A fresh terminal state must re-enter the start path.
-        guard !["starting", "stopping"].contains(status?.runtimeState ?? "") else { return }
-        let coreStopped = status?.coreRunning == false && ["stopped", "faulted"].contains(status?.runtimeState ?? "")
-        if networkRecovery.needsRestart || coreStopped {
-            // A timed-out POST may have succeeded. Observe its result before
-            // retrying, rather than blindly restarting the same core again.
-            if restartSubmitted, status?.coreRunning == true, status?.coreStartedAt != restartBaseline {
-                connection.recovery.restarted(generation: generation)
-            } else {
-                try await TunModeChange.checkBeforeConnecting(backend: api, checkOtherTunnel: checkTunnel)
-                try Task.checkCancellation()
-                guard generation == networkRecovery.generation, !sleeping, networkAvailable else { return }
-                restartBaseline = status?.coreStartedAt
-                restartSubmitted = true
-                if status?.runtimeState == "running" || status?.runtimeState == "faulted" {
-                    try await api.perform("/api/core/restart")
-                } else {
-                    try await api.startTunCore()
+        let action = networkRecovery.action(desiredMode: desiredMode, systemProxyEnabled: systemProxyEnabled,
+            tunEnabled: tun?.enabled == true, coreRunning: status?.coreRunning == true,
+            runtimeState: status?.runtimeState ?? "", coreStartedAt: status?.coreStartedAt)
+        let previousCoreStart = status?.coreStartedAt
+        switch action {
+        case .wait: return
+        case .reconcileMode:
+            guard !proxyNeedsRecovery else { throw ClientFailure("proxy_recovery") }
+            do {
+                systemProxyEnabled = try await ProxyModeSwitch.apply(desiredMode, systemProxyEnabled: systemProxyEnabled,
+                    hasSelectedProfile: status?.currentProfileId?.isEmpty == false || !profiles.isEmpty,
+                    backend: api, preferences: proxy, checkOtherTunnel: checkTunnel)
+            } catch {
+                if let failure = error as? ProxyModeFailure {
+                    systemProxyEnabled = failure.systemProxyEnabled
+                    proxyNeedsRecovery = await proxy.needsRecovery
                 }
-                connection.recovery.restarted(generation: generation)
+                throw error
             }
+        case .restart:
+            try await TunModeChange.checkBeforeConnecting(backend: api, checkOtherTunnel: checkTunnel)
+            try Task.checkCancellation()
+            guard generation == networkRecovery.generation, !sleeping, networkAvailable else { return }
+            connection.recovery.submitted(startedAt: status?.coreStartedAt, generation: generation)
+            if status?.runtimeState == "running" || status?.runtimeState == "faulted" {
+                try await api.perform("/api/core/restart")
+            } else {
+                try await api.startTunCore()
+            }
+            connection.recovery.restarted(generation: generation)
+        case .verify: break
+        }
+        if action == .restart || action == .reconcileMode {
+            guard generation == networkRecovery.generation, !sleeping, networkAvailable else { return }
             try await refresh()
             tun = try await api.freshTunStatus()
+            if action == .reconcileMode, networkRecovery.needsRestart {
+                // Restoring only the system proxy preference may reuse a live
+                // core. A physical network change still requires its restart.
+                guard let currentCoreStart = status?.coreStartedAt, currentCoreStart != previousCoreStart else { return }
+                connection.recovery.restarted(generation: generation)
+            }
         }
         guard generation == networkRecovery.generation, !sleeping, networkAvailable else { return }
         guard status?.coreRunning == true,
-              systemProxyEnabled || tun?.isRunning == true else {
+              desiredMode == .system ? (systemProxyEnabled && tun?.enabled != true)
+                : (tun?.isRunning == true && !systemProxyEnabled) else {
             throw ClientFailure("core_start_failed")
         }
         try await synchronizeProxyPort()
@@ -191,11 +223,22 @@ import V2rayMKit
         }
         do {
             if networkRecovery.active && !moduleUpdateActive {
-                try await attemptNetworkRecovery()
+                if networkRecovery.canAttempt(awake: !sleeping, networkAvailable: networkAvailable, now: clock.now()) {
+                    try await attemptNetworkRecovery()
+                } else {
+                    // Connectivity gates mutations, not diagnostics against our
+                    // local backend. Keep status and logs observable offline.
+                    try await refresh(forceMetadata: false)
+                }
                 return
             }
             try await refresh(forceMetadata: false)
             guard !busy, !sleeping, connection.isCurrent(revision: revision, recoveryGeneration: generation) else { return }
+            if proxyRequested, !moduleUpdateActive, !RuntimeUpdateActivity.isActive(operations),
+               status?.coreRunning == false, ["stopped", "faulted"].contains(status?.runtimeState ?? "") {
+                beginNetworkRecovery(restart: true)
+                return
+            }
             if !moduleUpdateActive && !RuntimeUpdateActivity.isActive(operations) && systemProxyEnabled,
                let status, observationErrors["operations"] == nil {
                 busy = true; defer { busy = false }

@@ -5,7 +5,8 @@ public protocol ManagedCore: AnyObject {
     var pid: Int32 { get }
     var isRunning: Bool { get }
     var exitCode: Int32 { get }
-    func terminate()
+    var exitSignal: Int32? { get }
+    func terminate() -> Bool
     func forceKill()
 }
 
@@ -22,6 +23,11 @@ public final class NativeCore: ManagedCore {
     public var exitCode: Int32 {
         lock.lock(); defer { lock.unlock() }; reap()
         return status & 0x7f == 0 ? (status >> 8) & 0xff : 128 + (status & 0x7f)
+    }
+    public var exitSignal: Int32? {
+        lock.lock(); defer { lock.unlock() }; reap()
+        let value = status & 0x7f
+        return !running && value != 0 ? value : nil
     }
 
     public init(_ launch: PreparedLaunch, log: @escaping (String) -> Void) throws {
@@ -75,12 +81,12 @@ public final class NativeCore: ManagedCore {
             if result == child { running = false }
         }
     }
-    private func signal(_ value: Int32) {
+    @discardableResult private func signal(_ value: Int32) -> Bool {
         lock.lock(); defer { lock.unlock() }; reap()
         // Only this object reaps the owned child; a live/zombie child PID cannot be reused.
-        if running && child > 0 { _ = Darwin.kill(child, value) }
+        return running && child > 0 && Darwin.kill(child, value) == 0
     }
-    public func terminate() { signal(SIGTERM) }
+    public func terminate() -> Bool { signal(SIGTERM) }
     public func forceKill() { signal(SIGKILL) }
     deinit {
         signal(SIGTERM)
@@ -115,6 +121,11 @@ public final class TunSession {
     private var prepared: PreparedLaunch?
     private var state = "idle"
     private var forced = false
+    // Resource cleanup and evidence of graceful core exit are independent.
+    // Retrying DNS/directory cleanup must never turn a previously observed crash
+    // into a successful stop merely because the process is no longer running.
+    private enum ExitEvidence { case notStarted, running, graceful, unconfirmed }
+    private var exitEvidence = ExitEvidence.notStarted
     private var logs = BoundedCoreLogs()
     private let graceSeconds: TimeInterval
 
@@ -136,11 +147,13 @@ public final class TunSession {
             case "status": break
             case "start":
                 guard core == nil else { throw HelperFailure("session_already_running") }
+                guard cleanupFailure == nil, exitEvidence != .unconfirmed else { throw HelperFailure("session_cleanup_unconfirmed") }
                 guard limiter.acquire(id) else { throw HelperFailure("helper_busy") }
                 do {
                     let prepared = try prepare(request)
                     self.prepared = prepared
                     core = try launch(prepared, { [weak self] in self?.appendLog($0) })
+                    exitEvidence = .running
                     try network.install(prepared.tunDNS)
                     guard core?.isRunning == true else { throw HelperFailure("core_exited_during_start") }
                     state = "running"; forced = false; cleanupFailure = nil
@@ -160,7 +173,22 @@ public final class TunSession {
     @discardableResult public func disconnect(requireConfirmedRecovery: Bool = false) -> Bool {
         lock.lock(); defer { lock.unlock() }
         stopLocked()
-        return core == nil && prepared == nil && cleanupFailure == nil && (!requireConfirmedRecovery || !forced)
+        return core == nil && prepared == nil && cleanupFailure == nil && (!requireConfirmedRecovery || cleanupConfirmedLocked)
+    }
+
+    public var cleanupConfirmed: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return cleanupConfirmedLocked
+    }
+
+    private var cleanupConfirmedLocked: Bool {
+        core == nil && prepared == nil && cleanupFailure == nil && !forced
+            && (exitEvidence == .notStarted || exitEvidence == .graceful)
+    }
+
+    private func recordExitedCore(_ core: ManagedCore) {
+        guard exitEvidence == .running else { return }
+        exitEvidence = core.exitCode == 0 && !forced ? .graceful : .unconfirmed
     }
 
     private func stopLocked() {
@@ -168,22 +196,33 @@ public final class TunSession {
         do { try network.restore(); cleanupFailure = nil }
         catch { cleanupFailure = "tun_dns_cleanup_failed"; state = "faulted"; return }
         guard let core else { cleanup(); return }
-        core.terminate()
+        guard core.isRunning else {
+            recordExitedCore(core)
+            cleanup()
+            return
+        }
+        let terminationRequested = core.terminate()
         let deadline = ProcessInfo.processInfo.systemUptime + graceSeconds
         while core.isRunning && ProcessInfo.processInfo.systemUptime < deadline { Thread.sleep(forTimeInterval: 0.05) }
         if core.isRunning {
-            forced = true; core.forceKill()
+            forced = true; exitEvidence = .unconfirmed; core.forceKill()
             let killDeadline = ProcessInfo.processInfo.systemUptime + 2
             while core.isRunning && ProcessInfo.processInfo.systemUptime < killDeadline { Thread.sleep(forTimeInterval: 0.05) }
         }
         if core.isRunning { state = "faulted"; return }
-        state = forced ? "faulted" : "stopped"
+        if !forced {
+            // The child can crash between isRunning and terminate's locked
+            // reap. Even a successfully sent signal does not prove the final
+            // exit was graceful (e.g. SIGSEGV racing with SIGTERM).
+            exitEvidence = core.exitCode == 0 || (terminationRequested && core.exitSignal == SIGTERM)
+                ? .graceful : .unconfirmed
+        }
         cleanup()
     }
 
     private func refreshExited() {
         if let core, !core.isRunning {
-            state = core.exitCode == 0 && !forced ? "stopped" : "faulted"
+            recordExitedCore(core)
             cleanup()
         }
     }
@@ -196,6 +235,7 @@ public final class TunSession {
             catch { cleanupFailure = "session_directory_cleanup_failed"; state = "faulted"; return }
         }
         prepared = nil; core = nil; limiter.release(id)
+        state = cleanupConfirmedLocked ? "stopped" : "faulted"
     }
 
     private func appendLog(_ text: String) {

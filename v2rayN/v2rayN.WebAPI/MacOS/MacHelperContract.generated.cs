@@ -2,8 +2,8 @@
 namespace v2rayN.WebAPI.MacOS;
 internal static class MacHelperContract
 {
-    internal const int Version = 2;
-    internal static readonly string[] Actions = ["status", "start", "stop", "update-stage", "update-activate", "update-rollback", "update-finish", "update-discard", "update-status"];
+    internal const int Version = 3;
+    internal static readonly string[] Actions = ["status", "start", "stop", "cleanup-status", "update-stage", "update-activate", "update-rollback", "update-finish", "update-discard", "update-status"];
     internal static readonly string[] ResourceExtensions = ["dat", "pem", "crt", "key"];
     internal const int ConfigBytes = 4194304;
     internal const int ResourceBytes = 33554432;

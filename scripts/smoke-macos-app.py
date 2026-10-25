@@ -2,6 +2,7 @@
 """Exercise the native client against loopback fixtures, without changing system proxy settings."""
 import argparse
 import http.server
+import random
 from pathlib import Path
 import select
 import socket
@@ -12,9 +13,25 @@ import threading
 
 
 def free_port():
-    with socket.socket() as sock:
-        sock.bind(('127.0.0.1', 0))
-        return sock.getsockname()[1]
+    # The checker also binds adjacent settings/metrics ports. Avoid the macOS
+    # ephemeral client range: a health request can otherwise claim port + 4
+    # between fixture setup and a core restart.
+    for _ in range(100):
+        port = random.SystemRandom().randrange(20000, 45000)
+        sockets = []
+        try:
+            for offset in range(6):
+                for kind in (socket.SOCK_STREAM, socket.SOCK_DGRAM):
+                    sock = socket.socket(socket.AF_INET, kind)
+                    sockets.append(sock)
+                    sock.bind(('127.0.0.1', port + offset))
+            return port
+        except OSError:
+            pass
+        finally:
+            for sock in sockets:
+                sock.close()
+    raise RuntimeError('No free loopback fixture port block')
 
 
 def receive(sock, count):

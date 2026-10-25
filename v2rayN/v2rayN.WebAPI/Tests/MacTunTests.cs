@@ -130,12 +130,12 @@ public class MacTunTests
                 IFS= read -r request
                 /bin/sleep 30 &
                 owned_pid=$!
-                printf '{"success":true,"code":"ok","state":"running","protocolVersion":2,"pid":%s,"executablePath":"/bin/sleep"}\n' "$owned_pid"
+                printf '{"success":true,"code":"ok","state":"running","protocolVersion":__PROTOCOL__,"pid":%s,"executablePath":"/bin/sleep"}\n' "$owned_pid"
                 IFS= read -r stop
                 kill -TERM "$owned_pid"
                 wait "$owned_pid" 2>/dev/null
-                printf '{"success":true,"code":"ok","state":"stopped","protocolVersion":2}\n'
-                """);
+                printf '{"success":true,"code":"ok","state":"stopped","protocolVersion":__PROTOCOL__}\n'
+                """.Replace("__PROTOCOL__", MacHelperContract.Version.ToString()));
             File.SetUnixFileMode(bridge, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
             var failures = new List<string>();
             using var process = await MacTunProcess.StartAsync(bridge, "{}", null, failures.Add);

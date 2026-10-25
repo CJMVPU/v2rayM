@@ -20,9 +20,11 @@ internal sealed partial class MacTunCoreLauncher : IPrivilegedCoreLauncher
 {
     private readonly string? bridgePath;
     private readonly MacHelperProbe _probe;
-    internal MacTunCoreLauncher(string? bridgePath)
+    private readonly Func<string, Task<MacHelperResponse>> _cleanupStatus;
+    internal MacTunCoreLauncher(string? bridgePath, Func<string, Task<MacHelperResponse>>? cleanupStatus = null)
     {
         this.bridgePath = bridgePath;
+        _cleanupStatus = cleanupStatus ?? ReadCleanupStatusAsync;
         _probe = new MacHelperProbe(ProbeCoreAsync);
     }
     internal Task<MacHelperResponse> ProbeCachedAsync() => _probe.ReadAsync();
@@ -30,7 +32,7 @@ internal sealed partial class MacTunCoreLauncher : IPrivilegedCoreLauncher
     public Task<MacHelperResponse> ProbeAsync() => _probe.ReadAsync(fresh: true);
     internal static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly ConcurrentDictionary<int, MacTunProcess> _processes = new();
-    private readonly ConcurrentQueue<string> _cleanupFailures = new();
+    private readonly ConcurrentDictionary<string, string> _cleanupFailures = new();
 
     public static MacTunCoreLauncher ForCurrentApp()
     {
@@ -74,8 +76,9 @@ internal sealed partial class MacTunCoreLauncher : IPrivilegedCoreLauncher
             ECoreType.Xray => "xray",
             _ => throw new InvalidOperationException("mac_tun_core_not_supported"),
         };
-        var request = BuildRequest(kind, configPath);
-        var process = await MacTunProcess.StartAsync(bridgePath, request, log, failure => { _cleanupFailures.Enqueue(failure); InvalidateProbe(); });
+        var token = Guid.NewGuid().ToString();
+        var request = BuildRequest(kind, configPath, token);
+        var process = await MacTunProcess.StartAsync(bridgePath, request, log, failure => RecordCleanupFailure(token, failure));
         _processes[process.Id] = process;
         return process;
     }
@@ -83,10 +86,63 @@ internal sealed partial class MacTunCoreLauncher : IPrivilegedCoreLauncher
     public CoreProcessIdentity[] CaptureIdentities() => _processes.Values
         .Where(process => !process.HasExited).Select(process => process.Identity).ToArray();
 
-    public void ConfirmCleanup()
+    internal void RecordCleanupFailure(string token, string failure)
+    {
+        _cleanupFailures[token] = failure;
+        InvalidateProbe();
+    }
+
+    public async Task ConfirmCleanupAsync(CancellationToken cancellationToken)
     {
         foreach (var entry in _processes.Where(entry => entry.Value.HasExited).ToArray()) _processes.TryRemove(entry.Key, out _);
-        if (_cleanupFailures.TryPeek(out var failure)) throw new IOException(failure);
+        foreach (var entry in _cleanupFailures.ToArray())
+        {
+            var deadline = Stopwatch.GetTimestamp() + 12 * Stopwatch.Frequency;
+            while (true)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var response = await _cleanupStatus(entry.Key);
+                cancellationToken.ThrowIfCancellationRequested();
+                // A healthy new session is not evidence about the lost lease.
+                if (response.ProtocolVersion == MacHelperContract.Version && response.Success
+                    && response.Code == "session_cleanup_confirmed" && response.State == "stopped" && !response.Forced)
+                {
+                    _cleanupFailures.TryRemove(entry);
+                    break;
+                }
+                if (response.ProtocolVersion != MacHelperContract.Version || response.Code != "session_cleanup_pending"
+                    || Stopwatch.GetTimestamp() >= deadline)
+                    throw new IOException(entry.Value + ":" + response.Code);
+                await Task.Delay(250, cancellationToken);
+            }
+        }
+        if (!_cleanupFailures.IsEmpty) throw new IOException("helper_cleanup_unconfirmed");
+    }
+
+    private async Task<MacHelperResponse> ReadCleanupStatusAsync(string token)
+    {
+        if (bridgePath is null) return new(false, "signed_app_bundle_required", "unavailable");
+        using var process = new Process { StartInfo = BridgeStartInfo(bridgePath, "cleanup-status") };
+        process.Start();
+        var output = process.StandardOutput.ReadToEndAsync();
+        var error = process.StandardError.ReadToEndAsync();
+        try
+        {
+            await process.StandardInput.WriteLineAsync(token);
+            process.StandardInput.Close();
+            await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
+            var line = (await output).Split('\n', StringSplitOptions.RemoveEmptyEntries).LastOrDefault();
+            return line is null ? new(false, "helper_protocol_invalid", "unavailable")
+                : JsonSerializer.Deserialize<MacHelperResponse>(line, JsonOptions)
+                  ?? new(false, "helper_protocol_invalid", "unavailable");
+        }
+        catch (Exception exception) when (exception is TimeoutException or JsonException or IOException)
+        {
+            if (!process.HasExited) process.Kill(entireProcessTree: true);
+            await process.WaitForExitAsync();
+            return new(false, "helper_unavailable", "unavailable");
+        }
+        finally { await error; }
     }
 
     internal static ProcessStartInfo BridgeStartInfo(string path, string action)
@@ -101,7 +157,7 @@ internal sealed partial class MacTunCoreLauncher : IPrivilegedCoreLauncher
         return start;
     }
 
-    internal static string BuildRequest(string kind, string configPath)
+    internal static string BuildRequest(string kind, string configPath, string? sessionToken = null)
     {
         if (kind != "xray") throw new IOException("mac_tun_core_not_supported");
         var bytes = File.ReadAllBytes(configPath);
@@ -150,6 +206,6 @@ internal sealed partial class MacTunCoreLauncher : IPrivilegedCoreLauncher
         }
         if (resources.Count > MacHelperContract.ResourceCount || resources.Values.Sum(value => (long)value.Length) > MacHelperContract.ResourcesBytes)
             throw new IOException("mac_tun_resources_too_large");
-        return JsonSerializer.Serialize(new { action = "start", core = kind, config = bytes, resources, paths, configureSystemDNS = kind == "xray" }, JsonOptions);
+        return JsonSerializer.Serialize(new { action = "start", sessionToken, core = kind, config = bytes, resources, paths, configureSystemDNS = kind == "xray" }, JsonOptions);
     }
 }

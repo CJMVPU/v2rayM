@@ -6,11 +6,18 @@ final class FakeCore: ManagedCore {
     var pid: Int32 = 12345
     var isRunning = true
     var exitCode: Int32 = 0
+    var exitSignal: Int32?
     var ignoresTerminate = false
     var terminated = false
     var killed = false
     var beforeTerminate: (() -> Void)?
-    func terminate() { beforeTerminate?(); terminated = true; if !ignoresTerminate { isRunning = false } }
+    func terminate() -> Bool {
+        beforeTerminate?()
+        guard isRunning else { return false }
+        terminated = true
+        if !ignoresTerminate { isRunning = false }
+        return true
+    }
     func forceKill() { killed = true; isRunning = false }
 }
 
@@ -33,6 +40,7 @@ final class TunSessionTests: XCTestCase {
         session.disconnect()
         XCTAssertTrue(core.terminated)
         XCTAssertFalse(core.killed)
+        XCTAssertTrue(session.cleanupConfirmed)
         XCTAssertFalse(FileManager.default.fileExists(atPath: temporary.path))
     }
     func testForcedStopIsReportedAsUnconfirmedCleanup() throws {
@@ -43,6 +51,71 @@ final class TunSessionTests: XCTestCase {
         XCTAssertFalse(response.success)
         XCTAssertTrue(response.forced)
         XCTAssertEqual(response.code, "forced_stop_cleanup_unconfirmed")
+        XCTAssertFalse(session.cleanupConfirmed)
+    }
+    func testCrashBeforeFirstStatusCannotBeConfirmedByDisconnect() throws {
+        let core = FakeCore()
+        let session = TunSession(limiter: SlotLimiter(), prepare: { _ in self.prepared() }, launch: { _, _ in core })
+        XCTAssertTrue(session.handle(try data("start")).success)
+        core.exitCode = 1; core.isRunning = false
+        XCTAssertTrue(session.disconnect(), "owned resources can be released after a crash")
+        XCTAssertFalse(session.cleanupConfirmed, "resource release does not prove graceful route recovery")
+        XCTAssertFalse(session.disconnect(requireConfirmedRecovery: true))
+        XCTAssertEqual(session.handle(try data("status")).state, "faulted")
+        XCTAssertEqual(session.handle(try data("start")).code, "session_cleanup_unconfirmed")
+    }
+    func testDnsRetryPreservesUnexpectedExitEvidence() throws {
+        let core = FakeCore(), network = FakeTunNetwork()
+        let session = TunSession(limiter: SlotLimiter(), network: network, prepare: { _ in self.prepared() }, launch: { _, _ in core })
+        XCTAssertTrue(session.handle(try data("start")).success)
+        core.exitCode = 1; core.isRunning = false; network.restoreFails = true
+        XCTAssertFalse(session.disconnect())
+        XCTAssertFalse(session.cleanupConfirmed)
+        network.restoreFails = false
+        XCTAssertTrue(session.disconnect())
+        XCTAssertFalse(session.cleanupConfirmed)
+        XCTAssertEqual(session.handle(try data("status")).state, "faulted")
+    }
+    func testCrashBetweenRunningCheckAndTerminateCannotConfirmCleanup() throws {
+        let core = FakeCore()
+        let session = TunSession(limiter: SlotLimiter(), prepare: { _ in self.prepared() }, launch: { _, _ in core })
+        XCTAssertTrue(session.handle(try data("start")).success)
+        core.beforeTerminate = { [weak core] in core?.exitCode = 1; core?.isRunning = false }
+        XCTAssertFalse(session.disconnect(requireConfirmedRecovery: true))
+        XCTAssertFalse(core.terminated)
+        XCTAssertFalse(session.cleanupConfirmed)
+        XCTAssertEqual(session.handle(try data("status")).state, "faulted")
+    }
+    func testSendingTerminateCannotConfirmAnUnrelatedFailureExit() throws {
+        for (code, signal) in [(Int32(1), nil), (128 + SIGSEGV, Optional(SIGSEGV)), (Int32(143), nil)] {
+            let core = FakeCore()
+            let session = TunSession(limiter: SlotLimiter(), prepare: { _ in self.prepared() }, launch: { _, _ in core })
+            XCTAssertTrue(session.handle(try data("start")).success)
+            core.exitCode = code; core.exitSignal = signal
+            XCTAssertFalse(session.disconnect(requireConfirmedRecovery: true))
+            XCTAssertTrue(core.terminated)
+            XCTAssertFalse(session.cleanupConfirmed)
+        }
+    }
+    func testCleanupRetryPreservesPreviouslyConfirmedGracefulTermination() throws {
+        let core = FakeCore(), network = FakeTunNetwork()
+        let session = TunSession(limiter: SlotLimiter(), network: network, prepare: { _ in self.prepared() }, launch: { _, _ in core })
+        XCTAssertTrue(session.handle(try data("start")).success)
+        core.exitCode = 143
+        core.exitSignal = SIGTERM
+        core.beforeTerminate = { network.restoreFails = true }
+        XCTAssertFalse(session.handle(try data("stop")).success)
+        XCTAssertFalse(core.isRunning)
+        XCTAssertFalse(session.cleanupConfirmed)
+        network.restoreFails = false
+        XCTAssertTrue(session.disconnect(requireConfirmedRecovery: true))
+        XCTAssertTrue(session.cleanupConfirmed)
+    }
+    func testRejectedStartCanConfirmThatNoCoreWasLaunched() throws {
+        let session = TunSession(limiter: SlotLimiter(), prepare: { _ in throw HelperFailure("invalid_config") })
+        XCTAssertFalse(session.handle(try data("start")).success)
+        XCTAssertTrue(session.disconnect(requireConfirmedRecovery: true))
+        XCTAssertTrue(session.cleanupConfirmed)
     }
     func testUnknownActionsCannotExecuteCommands() throws {
         let session = TunSession(limiter: SlotLimiter(), prepare: { _ in XCTFail(); return self.prepared() })
@@ -72,6 +145,8 @@ final class TunSessionTests: XCTestCase {
         XCTAssertTrue(session.handle(try data("start")).success)
         core.exitCode = 1; core.isRunning = false
         XCTAssertEqual(session.handle(try data("status")).state, "faulted")
+        session.disconnect()
+        XCTAssertFalse(session.cleanupConfirmed)
         XCTAssertFalse(FileManager.default.fileExists(atPath: temporary.path))
     }
     func testDnsIsRestoredBeforeStoppingCoreAndAfterUnexpectedExit() throws {
@@ -105,9 +180,11 @@ final class TunSessionTests: XCTestCase {
         let failed = session.handle(try data("stop"))
         XCTAssertFalse(failed.success); XCTAssertEqual(failed.code, "tun_dns_cleanup_failed")
         XCTAssertTrue(core.isRunning); XCTAssertTrue(network.active)
+        XCTAssertFalse(session.cleanupConfirmed)
         network.restoreFails = false
         XCTAssertTrue(session.handle(try data("stop")).success)
         XCTAssertFalse(core.isRunning); XCTAssertFalse(network.active)
+        XCTAssertTrue(session.cleanupConfirmed)
     }
     func testDisconnectRestoresTemporaryDns() throws {
         let core = FakeCore(), network = FakeTunNetwork()

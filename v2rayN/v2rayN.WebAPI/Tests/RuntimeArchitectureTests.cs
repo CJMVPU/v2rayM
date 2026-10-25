@@ -91,7 +91,7 @@ public class RuntimeArchitectureTests
         var execution = new RuntimeExecutionContext(new RuntimeOperationCoordinator());
         var store = new MemoryConfigStore();
         var transaction = new CoreSettingsTransaction(execution, store);
-        var lifecycle = new CoreLifecycleService(execution, () => Task.CompletedTask, () => { },
+        var lifecycle = new CoreLifecycleService(execution, () => Task.CompletedTask, _ => Task.CompletedTask,
             (_, _) => Task.FromResult(true), _ => { }, _ => { }, processes => processes);
         var context = await transaction.BeginAsync(() => lifecycle.Snapshot, () => false, CancellationToken.None);
         var entered = false;
@@ -114,7 +114,7 @@ public class RuntimeArchitectureTests
         var cleaned = false;
         var listeningCalls = 0;
         var lifecycle = new CoreLifecycleService(execution, () => { exited = true; return Task.CompletedTask; },
-            () => cleaned = true, (_, _) => { listeningCalls++; return Task.FromResult(true); },
+            _ => { cleaned = true; return Task.CompletedTask; }, (_, _) => { listeningCalls++; return Task.FromResult(true); },
             _ => { }, _ => { }, processes => exited ? [] : processes);
         lifecycle.SetTrackedProcesses([new CoreProcessIdentity(123, "xray", 1, "/isolated/xray")]);
         lifecycle.SetSnapshot(CoreRuntimeSnapshot.Stopped with { State = CoreRuntimeState.Running, ProxyPort = 10808 });

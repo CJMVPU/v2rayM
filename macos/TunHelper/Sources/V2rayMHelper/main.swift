@@ -8,7 +8,11 @@ final class SessionEndpoint: NSObject, TunHelperProtocol {
     let updates: TrustedCoreStore
     let queue = DispatchQueue(label: "v2rayM.tun.session")
     let cancellation = HelperCancellation()
-    init(_ session: TunSession, updates: TrustedCoreStore) { self.session = session; self.updates = updates }
+    let recovery: SessionRecoveryStore
+    private var sessionToken: String?
+    init(_ session: TunSession, updates: TrustedCoreStore, recovery: SessionRecoveryStore) {
+        self.session = session; self.updates = updates; self.recovery = recovery
+    }
     func request(_ data: Data, withReply reply: @escaping (Data) -> Void) {
         queue.async {
             guard !self.cancellation.isCancelled else {
@@ -17,15 +21,30 @@ final class SessionEndpoint: NSObject, TunHelperProtocol {
             }
             let response: HelperResponse
             if data.count <= HelperContract.wireBytes,
-               let request = try? JSONDecoder().decode(HelperRequest.self, from: data), request.action.hasPrefix("update-") {
-                response = self.updates.handle(request, cancellation: self.cancellation)
+               let request = try? JSONDecoder().decode(HelperRequest.self, from: data) {
+                if request.action == "cleanup-status" {
+                    response = self.recovery.status(request.sessionToken)
+                } else if request.action == "start" {
+                    if self.sessionToken == nil && self.recovery.begin(request.sessionToken) {
+                        self.sessionToken = request.sessionToken
+                        response = self.session.handle(data)
+                    } else {
+                        response = HelperResponse(success: false, code: "session_token_invalid", state: "unavailable")
+                    }
+                } else if request.action.hasPrefix("update-") {
+                    response = self.updates.handle(request, cancellation: self.cancellation)
+                } else { response = self.session.handle(data) }
             } else { response = self.session.handle(data) }
             reply((try? JSONEncoder().encode(response)) ?? Data())
         }
     }
     func stopAndWait(requireConfirmedRecovery: Bool = false) -> Bool {
         cancellation.cancel()
-        return queue.sync { session.disconnect(requireConfirmedRecovery: requireConfirmedRecovery) }
+        return queue.sync {
+            let clean = session.disconnect(requireConfirmedRecovery: requireConfirmedRecovery)
+            if clean, let token = sessionToken { recovery.finish(token, confirmed: session.cleanupConfirmed) }
+            return clean
+        }
     }
 }
 
@@ -35,6 +54,7 @@ final class ListenerDelegate: NSObject, NSXPCListenerDelegate {
     let updates: TrustedCoreStore
     let limiter = SlotLimiter()
     let cleanup = SessionCleanupCoordinator()
+    let recovery = SessionRecoveryStore()
     private let lock = NSLock()
     private var sessions: [UUID: SessionEndpoint] = [:]
     private var stopping = false
@@ -55,7 +75,7 @@ final class ListenerDelegate: NSObject, NSXPCListenerDelegate {
     }
     func listener(_ listener: NSXPCListener, shouldAcceptNewConnection connection: NSXPCConnection) -> Bool {
         connection.setCodeSigningRequirement(signing.requirement(identifiers: [HelperIdentity.app, HelperIdentity.app + ".bridge"]))
-        let endpoint = SessionEndpoint(TunSession(limiter: limiter, prepare: policy.prepare), updates: updates)
+        let endpoint = SessionEndpoint(TunSession(limiter: limiter, prepare: policy.prepare), updates: updates, recovery: recovery)
         let id = UUID()
         lock.lock()
         guard !stopping else { lock.unlock(); return false }

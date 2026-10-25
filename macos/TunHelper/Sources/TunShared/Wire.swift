@@ -18,6 +18,7 @@ public struct HelperRequest: Codable {
     public var resources: [String: Data]?
     public var paths: [String: String]?
     public var configureSystemDNS: Bool?
+    public var sessionToken: String?
     public var releaseURL: String?
     public var archive: Data?
     public var updateToken: String?

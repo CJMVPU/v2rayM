@@ -14,7 +14,7 @@ internal sealed class MacTunProcess : ProcessService
     private Task _reader = Task.CompletedTask;
     private Task _errors = Task.CompletedTask;
     private bool _stopped;
-    private bool _terminal;
+    private bool _requestSubmitted;
     private int _pid;
     private CoreProcessIdentity? _identity;
     public override int Id => _pid;
@@ -36,6 +36,9 @@ internal sealed class MacTunProcess : ProcessService
             service._bridge.Start();
             service._errors = service._bridge.StandardError.ReadToEndAsync();
             service._reader = service.ReadMessagesAsync(log);
+            // Once any start bytes may have reached the bridge, a missing PID
+            // is not proof that the privileged helper never launched a core.
+            service._requestSubmitted = true;
             await service._bridge.StandardInput.WriteLineAsync(request);
             await service._bridge.StandardInput.FlushAsync();
             var response = await service._started.Task.WaitAsync(TimeSpan.FromSeconds(25));
@@ -48,9 +51,23 @@ internal sealed class MacTunProcess : ProcessService
         }
         catch
         {
-            try { service._bridge.StandardInput.Close(); } catch (InvalidOperationException) { }
-            try { await service._bridge.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(25)); }
-            catch (TimeoutException) { service._bridge.Kill(entireProcessTree: true); }
+            try { service._bridge.StandardInput.Close(); }
+            catch (Exception exception) when (exception is IOException or InvalidOperationException) { }
+            if (!service.HasExited)
+            {
+                try { await service._bridge.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(25)); }
+                catch (TimeoutException)
+                {
+                    service._bridge.Kill(entireProcessTree: true);
+                    await service._bridge.WaitForExitAsync();
+                }
+            }
+            // Drain before disposal/return so the launcher cannot miss cleanup
+            // evidence published by an EOF racing with the failed handshake.
+            await service._reader;
+            await service._errors;
+            if (service._requestSubmitted && !service._stopped)
+                service._cleanupFailure("helper_start_cleanup_unconfirmed");
             service.Dispose();
             throw;
         }
@@ -67,11 +84,13 @@ internal sealed class MacTunProcess : ProcessService
                     ?? throw new IOException("helper_protocol_invalid");
                 if (response.ProtocolVersion != MacHelperContract.Version) throw new IOException("helper_protocol_mismatch");
                 if (response.State == "running" && response.Success && response.Pid is > 1 && Path.IsPathRooted(response.ExecutablePath))
+                {
+                    _pid = response.Pid.Value;
                     _started.TrySetResult(response);
+                }
                 else if (!response.Success) _started.TrySetException(new IOException(response.Code));
                 if (response.State is "stopped" or "faulted")
                 {
-                    _terminal = true;
                     _stopped = response.Success && !response.Forced && response.State == "stopped";
                 }
                 if (response.Forced) _cleanupFailure("forced_stop_cleanup_unconfirmed");
@@ -85,7 +104,7 @@ internal sealed class MacTunProcess : ProcessService
         finally
         {
             _started.TrySetException(new IOException("helper_exited_before_start"));
-            if (!_terminal && _pid > 0) _cleanupFailure("helper_connection_lost_cleanup_unconfirmed");
+            if (_requestSubmitted && !_stopped) _cleanupFailure("helper_connection_lost_cleanup_unconfirmed");
         }
     }
 

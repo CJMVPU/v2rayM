@@ -6,6 +6,11 @@ import V2rayMKit
 
 private actor RuntimeFixtureAPI: NativeAPI {
     var running = false
+    var faulted = false
+    var failNextStart = false
+    var reuseRunningCore = false
+    var proxyPort = 10808
+    var statusReads = 0
     var stopTimeouts = 0
     var stopCalls = 0
     var failTunRead = false
@@ -36,7 +41,10 @@ private actor RuntimeFixtureAPI: NativeAPI {
     func failTunObservation() { failTunRead = true }
     func fail(_ path: String) { failures.insert(path) }
     func recover(_ path: String) { failures.remove(path) }
-    func faultCore() { running = false }
+    func faultCore() { running = false; faulted = true }
+    func failStartOnce() { failNextStart = true }
+    func reuseLiveCoreOnStart() { reuseRunningCore = true }
+    func changeProxyPort(_ port: Int) { proxyPort = port }
     func setTasks(_ values: [String]) { tasks = values }
     func holdStatus() { holdNextStatus = true }
     func statusIsHeld() -> Bool { held != nil }
@@ -47,8 +55,9 @@ private actor RuntimeFixtureAPI: NativeAPI {
         var result: Any = [:]
         switch path {
         case "/api/status":
-            result = ["coreRunning": running, "xrayAvailable": true, "runtimeState": running ? "running" : "stopped",
-                      "currentProfileId": "fixture", "runningProfileId": "fixture", "runningProxyPort": 10808,
+            statusReads += 1
+            result = ["coreRunning": running, "xrayAvailable": true, "runtimeState": running ? "running" : faulted ? "faulted" : "stopped",
+                      "currentProfileId": "fixture", "runningProfileId": "fixture", "runningProxyPort": proxyPort,
                       "coreStartedAt": startedAt] as [String: Any]
         case "/api/profiles?subscriptionId=", "/api/settings/routing-profiles", "/api/core-updates/progress": result = []
         case "/api/operations": result = tasks
@@ -66,7 +75,7 @@ private actor RuntimeFixtureAPI: NativeAPI {
                 await withCheckedContinuation { restartHeld = $0 }
             }
             if loseRestartResponse { loseRestartResponse = false; throw URLError(.timedOut) }
-        case "/api/core/start": await startTunCore()
+        case "/api/core/start": try await startTunCore()
         case "/api/core/stop": try stopProxyCore()
         default:
             if path.hasPrefix("/api/logs/tail") { result = ["items": [], "latestSequence": 0, "generation": 0] as [String: Any] }
@@ -85,11 +94,13 @@ private actor RuntimeFixtureAPI: NativeAPI {
     private func tunObject() -> [String: Any] {
         ["platformSupported": true, "helperAvailable": true, "helperCode": "ok",
             "helperState": "ready", "enabled": tunEnabled, "supportedCores": ["xray"], "coreSource": "fixture",
-            "runtimeState": running ? "running" : "stopped", "privilegedCoreProcessIds": tunEnabled && running ? [42] : []]
+            "runtimeState": running ? "running" : faulted ? "faulted" : "stopped", "privilegedCoreProcessIds": tunEnabled && running ? [42] : []]
     }
     func setTunEnabled(_ enabled: Bool) { tunEnabled = enabled }
-    func startTunCore() async {
-        starts += 1; running = true
+    func startTunCore() async throws {
+        if failNextStart { failNextStart = false; throw ClientFailure("core_start_failed") }
+        if running && reuseRunningCore { return }
+        starts += 1; running = true; startedAt = "start-\(starts)"
         if holdNextStart {
             holdNextStart = false
             await withCheckedContinuation { startHeld = $0 }
@@ -98,9 +109,9 @@ private actor RuntimeFixtureAPI: NativeAPI {
     func stopProxyCore() throws {
         stopCalls += 1
         if stopTimeouts > 0 { stopTimeouts -= 1; throw URLError(.timedOut) }
-        running = false
+        running = false; faulted = false
     }
-    func proxyConnection() -> ProxyConnection { ProxyConnection(running: running, port: 10808) }
+    func proxyConnection() -> ProxyConnection { ProxyConnection(running: running, port: proxyPort) }
 }
 private actor RuntimeFixtureBackend: NativeBackend {
     let api: RuntimeFixtureAPI
@@ -113,10 +124,11 @@ private actor RuntimeFixtureProxy: NativeProxy {
     var isEnabled = false
     var needsRecovery = false
     var restores = 0
-    func enableProxy(port: Int) { isEnabled = true }
+    var boundPort: Int?
+    func enableProxy(port: Int) { isEnabled = true; boundPort = port }
     func restoreProxy() { restores += 1; isEnabled = false }
     func restore() -> Bool { restores += 1; isEnabled = false; return false }
-    func rebind(port: Int) throws { if !isEnabled { throw ClientFailure("proxy_recovery") } }
+    func rebind(port: Int) throws { if !isEnabled { throw ClientFailure("proxy_recovery") }; boundPort = port }
 }
 private final class RuntimeFixtureClock: NativeClock, @unchecked Sendable {
     private let lock = NSLock()
@@ -128,8 +140,10 @@ private final class RuntimeFixtureClock: NativeClock, @unchecked Sendable {
 @MainActor private final class RuntimeFixtureNetwork: NetworkEvents {
     var sleep: ((Bool) -> Void)?
     var change: ((Bool) -> Void)?
-    func observe(sleep: @escaping @MainActor (Bool) -> Void, change: @escaping @MainActor (Bool) -> Void) {
-        self.sleep = sleep; self.change = change
+    var resume: (() -> Void)?
+    func observe(sleep: @escaping @MainActor (Bool) -> Void, change: @escaping @MainActor (Bool) -> Void,
+                 resume: @escaping @MainActor () -> Void) {
+        self.sleep = sleep; self.change = change; self.resume = resume
     }
 }
 
@@ -237,6 +251,212 @@ private final class RuntimeFixtureClock: NativeClock, @unchecked Sendable {
         XCTAssertNil(model.error)
         XCTAssertEqual(MenuBarMode(model.displayStatus(at: clock.now())), .system)
         XCTAssertEqual(model.desiredMode, .system)
+        _ = await model.shutdown()
+    }
+    func testLostTunLeaseRecoversWithoutWakeNotificationAndOffCancelsRetry() async {
+        let (model, api, _, _, clock, _) = await fixture()
+        model.toggleTun(true); await settle(model)
+        await api.faultCore()
+        await model.pollOnce()
+        XCTAssertTrue(model.networkRecovery.active)
+        XCTAssertEqual(model.desiredMode, .tun)
+        clock.advance(4)
+        await model.pollOnce()
+        XCTAssertFalse(model.networkRecovery.active)
+        XCTAssertTrue(model.tun?.isRunning == true)
+        XCTAssertNil(model.error)
+
+        await api.faultCore(); await model.pollOnce()
+        XCTAssertTrue(model.networkRecovery.active)
+        model.toggleTun(false); await settle(model)
+        let starts = await api.starts
+        clock.advance(31); await model.pollOnce()
+        let after = await api.starts
+        XCTAssertEqual(after, starts)
+        XCTAssertEqual(model.desiredMode, .off)
+        XCTAssertFalse(model.networkRecovery.active)
+        XCTAssertNil(model.error)
+        _ = await model.shutdown()
+    }
+
+    func testWakeRecoveryRetriesWhileHelperCleanupIsUnconfirmed() async {
+        let (model, api, _, _, clock, network) = await fixture()
+        model.toggleTun(true); await settle(model)
+        network.sleep?(true); network.sleep?(false); clock.advance(4)
+        await api.fail("/api/core/restart")
+        await model.pollOnce()
+        XCTAssertTrue(model.networkRecovery.active)
+        XCTAssertNil(model.error)
+        let before = await api.restarts
+        await model.pollOnce()
+        let duringBackoff = await api.restarts
+        XCTAssertEqual(before, duringBackoff)
+        await api.recover("/api/core/restart")
+        clock.advance(31); await model.pollOnce()
+        XCTAssertFalse(model.networkRecovery.active)
+        XCTAssertTrue(model.tun?.isRunning == true)
+        XCTAssertEqual(model.desiredMode, .tun)
+        XCTAssertNil(model.error)
+        _ = await model.shutdown()
+    }
+    func testFailedSwitchFromFaultedTunReconcilesTheOriginalIntent() async {
+        let (model, api, _, _, clock, _) = await fixture()
+        model.toggleTun(true); await settle(model)
+        await api.faultCore(); _ = try? await model.refresh(); await model.waitForObservations()
+        await api.failStartOnce()
+        model.toggleProxy(true); await settle(model)
+        XCTAssertEqual(model.desiredMode, .tun)
+        let enabledAfterRollback = await api.tunEnabled
+        XCTAssertFalse(enabledAfterRollback, "rollback selected off because no core was running")
+        await model.pollOnce(); clock.advance(4); await model.pollOnce()
+        XCTAssertFalse(model.networkRecovery.active)
+        XCTAssertTrue(model.tun?.isRunning == true)
+        XCTAssertFalse(model.systemProxyEnabled)
+        _ = await model.shutdown()
+    }
+    func testDisplayResumeChecksHealthyModesWithoutRestarting() async {
+        for mode in [ProxyMode.system, .tun] {
+            let (model, api, _, _, clock, network) = await fixture()
+            if mode == .system { model.toggleProxy(true) } else { model.toggleTun(true) }
+            await settle(model)
+            network.resume?()
+            let generation = model.networkRecovery.generation
+            network.resume?(); network.resume?()
+            XCTAssertEqual(model.networkRecovery.generation, generation)
+            clock.advance(4); await model.pollOnce()
+            let restarts = await api.restarts
+            XCTAssertEqual(restarts, 0)
+            XCTAssertFalse(model.networkRecovery.active)
+            XCTAssertEqual(model.displayStatus(at: clock.now()), mode == .system ? .system : .tun)
+            _ = await model.shutdown()
+        }
+    }
+    func testDisplayResumeRecoversFaultAndReleasesMissedSystemWakeGate() async {
+        for missedSystemWake in [false, true] {
+            let (model, api, _, _, clock, network) = await fixture()
+            model.toggleTun(true); await settle(model)
+            if missedSystemWake { network.sleep?(true) }
+            await api.faultCore()
+            network.resume?(); clock.advance(4); await model.pollOnce()
+            XCTAssertFalse(model.networkRecovery.active)
+            XCTAssertTrue(model.tun?.isRunning == true)
+            let beforeDuplicate = await api.restarts
+            if missedSystemWake { network.sleep?(false) }
+            network.resume?(); clock.advance(4); await model.pollOnce()
+            let afterDuplicate = await api.restarts
+            XCTAssertEqual(beforeDuplicate, afterDuplicate)
+            _ = await model.shutdown()
+        }
+    }
+    func testResumeSignalsDoNotInvalidateAnInFlightWakeRestart() async {
+        let (model, api, _, _, clock, network) = await fixture()
+        model.toggleTun(true); await settle(model)
+        network.sleep?(true); network.sleep?(false); clock.advance(4)
+        await api.holdRestart()
+        let recovery = Task { await model.pollOnce() }
+        await waitUntil { await api.restartIsHeld() }
+        let generation = model.networkRecovery.generation
+        network.resume?(); network.sleep?(false); network.resume?()
+        XCTAssertEqual(model.networkRecovery.generation, generation)
+        await api.releaseRestart(); await recovery.value
+        clock.advance(31); await model.pollOnce()
+        let restarts = await api.restarts
+        XCTAssertEqual(restarts, 1); XCTAssertFalse(model.networkRecovery.active)
+        _ = await model.shutdown()
+    }
+    func testLaterSystemWakeStillRestartsWhenWillSleepWasNotDelivered() async {
+        let (model, api, _, _, clock, network) = await fixture()
+        model.toggleTun(true); await settle(model)
+        network.sleep?(false); clock.advance(4); await model.pollOnce()
+        let first = await api.restarts
+        XCTAssertEqual(first, 1)
+        clock.advance(60)
+        network.sleep?(false); clock.advance(4); await model.pollOnce()
+        let second = await api.restarts
+        XCTAssertEqual(second, 2)
+        XCTAssertFalse(model.networkRecovery.active)
+        _ = await model.shutdown()
+    }
+    func testOffDuringModeReconciliationStopsTheLateStartedCore() async {
+        let (model, api, _, _, clock, _) = await fixture()
+        model.toggleTun(true); await settle(model)
+        await api.faultCore(); _ = try? await model.refresh(); await model.waitForObservations()
+        await api.failStartOnce(); model.toggleProxy(true); await settle(model)
+        await model.pollOnce(); clock.advance(4)
+        await api.holdStart()
+        let recovery = Task { await model.pollOnce() }
+        await waitUntil { await api.startIsHeld() }
+        model.toggleTun(false)
+        XCTAssertEqual(model.desiredMode, .off)
+        await api.releaseStart(); await recovery.value; await settle(model)
+        let running = await api.running, tunEnabled = await api.tunEnabled
+        XCTAssertFalse(running); XCTAssertFalse(tunEnabled)
+        XCTAssertFalse(model.networkRecovery.active)
+        clock.advance(31); await model.pollOnce()
+        let stillRunning = await api.running
+        XCTAssertFalse(stillRunning)
+        _ = await model.shutdown()
+    }
+    func testPhysicalNetworkChangeDuringRestartRequiresNewGenerationRecovery() async {
+        let (model, api, _, _, clock, network) = await fixture()
+        network.change?(true)
+        model.toggleTun(true); await settle(model)
+        network.sleep?(true); network.sleep?(false); clock.advance(4)
+        await api.holdRestart()
+        let recovery = Task { await model.pollOnce() }
+        await waitUntil { await api.restartIsHeld() }
+        network.change?(false); network.change?(true); network.resume?()
+        await api.releaseRestart(); await recovery.value
+        XCTAssertTrue(model.networkRecovery.active)
+        clock.advance(4); await model.pollOnce()
+        let restarts = await api.restarts
+        XCTAssertEqual(restarts, 2); XCTAssertFalse(model.networkRecovery.active)
+        _ = await model.shutdown()
+    }
+    func testOfflineRecoveryKeepsLocalObservationsAndCoalescesWifiFlapping() async {
+        let (model, api, _, _, clock, network) = await fixture()
+        network.change?(true)
+        model.toggleTun(true); await settle(model)
+        network.change?(false); network.resume?()
+        let before = await api.statusReads
+        clock.advance(31); await model.pollOnce(); await model.waitForObservations()
+        let after = await api.statusReads, offlineRestarts = await api.restarts
+        XCTAssertGreaterThan(after, before); XCTAssertEqual(offlineRestarts, 0)
+        for _ in 0..<4 { network.change?(true); network.change?(false) }
+        network.change?(true); network.resume?()
+        await model.pollOnce()
+        let earlyRestarts = await api.restarts
+        XCTAssertEqual(earlyRestarts, 0)
+        clock.advance(4); await model.pollOnce()
+        let finalRestarts = await api.restarts
+        XCTAssertEqual(finalRestarts, 1); XCTAssertFalse(model.networkRecovery.active)
+        _ = await model.shutdown()
+    }
+    func testSystemRecoveryRebindsAChangedProxyPort() async {
+        let (model, api, _, proxy, clock, network) = await fixture()
+        model.toggleProxy(true); await settle(model)
+        network.sleep?(true); network.sleep?(false)
+        await api.changeProxyPort(20808)
+        clock.advance(4); await model.pollOnce()
+        let port = await proxy.boundPort
+        XCTAssertEqual(port, 20808); XCTAssertFalse(model.networkRecovery.active)
+        XCTAssertTrue(model.systemProxyEnabled)
+        _ = await model.shutdown()
+    }
+    func testReattachingSystemProxyDoesNotSkipRequiredWakeRestart() async {
+        let (model, api, _, _, clock, network) = await fixture()
+        model.toggleProxy(true); await settle(model)
+        model.systemProxyEnabled = false
+        await api.reuseLiveCoreOnStart()
+        network.sleep?(true); network.sleep?(false); clock.advance(4)
+        await model.pollOnce()
+        XCTAssertTrue(model.systemProxyEnabled)
+        XCTAssertTrue(model.networkRecovery.active)
+        XCTAssertTrue(model.networkRecovery.needsRestart)
+        await model.pollOnce()
+        let restarts = await api.restarts
+        XCTAssertEqual(restarts, 1)
+        XCTAssertFalse(model.networkRecovery.active)
         _ = await model.shutdown()
     }
     func testOffDuringRecoveryWaitsForAcceptedRestartThenStopsIt() async {

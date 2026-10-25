@@ -44,7 +44,7 @@ public sealed partial class V2rayRuntime
         _execution = new RuntimeExecutionContext(operations);
         _configStore = configStore ?? new ServiceLibRuntimeConfigStore();
         _coreLifecycle = new CoreLifecycleService(_execution, () => CoreManager.Instance.CoreStop(),
-            () => _macTunLauncher.ConfirmCleanup(), IsListeningAsync, OnCoreRuntimeChanged,
+            _macTunLauncher.ConfirmCleanupAsync, IsListeningAsync, OnCoreRuntimeChanged,
             message => AddLog("core", message), CoreProcessTracker.GetActiveProcesses);
         _settingsTransaction = new CoreSettingsTransaction(_execution, _configStore);
         _moduleUpdates = new ModuleUpdateCoordinator(_execution);

@@ -5,7 +5,7 @@ namespace v2rayN.WebAPI.Services;
 internal sealed class CoreLifecycleService(
     RuntimeExecutionContext execution,
     Func<Task> stopCore,
-    Action confirmCleanup,
+    Func<CancellationToken, Task> confirmCleanup,
     Func<int, CancellationToken, Task<bool>> isListening,
     Action<CoreRuntimeSnapshot> changed,
     Action<string> log,
@@ -72,7 +72,7 @@ internal sealed class CoreLifecycleService(
     public async Task StopAndConfirmAsync(CancellationToken cancellationToken)
     {
         await stopCore();
-        confirmCleanup();
+        await confirmCleanup(cancellationToken);
 
         var deadline = DateTimeOffset.UtcNow.AddSeconds(5);
         while (true)

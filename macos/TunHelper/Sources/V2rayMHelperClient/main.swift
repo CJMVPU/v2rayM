@@ -72,6 +72,12 @@ do {
         let client = try Client(); let response = try client.call(HelperRequest(action: "status"))
         emit(response)
         if !response.success { exit(1) }
+    } else if action == "cleanup-status" {
+        guard let token = readLine(), UUID(uuidString: token) != nil else { throw HelperFailure("session_token_invalid") }
+        var request = HelperRequest(action: action); request.sessionToken = token
+        let response = try Client().call(request)
+        emit(response)
+        if !response.success { exit(1) }
     } else if action == "update" {
         guard let line = readLine(), line.utf8.count <= HelperContract.wireBytes,
               let data = line.data(using: .utf8) else { throw HelperFailure("update_request_required") }

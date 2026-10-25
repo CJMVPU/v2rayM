@@ -22,7 +22,7 @@ public class MacHelperContractTests
     [Test]
     public async Task CSharpRequestMatchesTheSwiftFixture()
     {
-        var request = new { action = "start", core = "xray", config = "{\"inbounds\":[]}"u8.ToArray(),
+        var request = new { action = "start", sessionToken = "11111111-1111-4111-8111-111111111111", core = "xray", config = "{\"inbounds\":[]}"u8.ToArray(),
             resources = new Dictionary<string, byte[]> { ["certificate.pem"] = "cert"u8.ToArray() },
             paths = new Dictionary<string, string> { ["/fixture/certificate.pem"] = "certificate.pem" }, configureSystemDNS = true };
         await JsonNode.DeepEquals(JsonNode.Parse(Fixture("start-request.json")),

@@ -2,6 +2,33 @@ import XCTest
 @testable import V2rayMKit
 
 final class NetworkRecoveryTests: XCTestCase {
+    func testHealthChecksPreserveAcceptedRestartReceiptAndGeneration() {
+        var recovery = NetworkRecovery()
+        recovery.begin(restart: true)
+        let generation = recovery.generation
+        recovery.submitted(startedAt: "before", generation: generation)
+        recovery.begin(restart: false)
+        XCTAssertEqual(recovery.generation, generation)
+        XCTAssertEqual(recovery.action(desiredMode: .tun, systemProxyEnabled: false, tunEnabled: true,
+            coreRunning: true, runtimeState: "running", coreStartedAt: "after"), .verify)
+        XCTAssertEqual(recovery.action(desiredMode: .tun, systemProxyEnabled: false, tunEnabled: true,
+            coreRunning: true, runtimeState: "running", coreStartedAt: nil), .restart,
+            "a missing timestamp cannot prove a timed-out restart succeeded")
+        recovery.begin(restart: true)
+        XCTAssertEqual(recovery.action(desiredMode: .tun, systemProxyEnabled: false, tunEnabled: true,
+            coreRunning: true, runtimeState: "running", coreStartedAt: "after"), .restart)
+    }
+    func testDecisionAlignsIntentBeforeRestartAndWaitsForTransitions() {
+        var recovery = NetworkRecovery(); recovery.begin(restart: true)
+        XCTAssertEqual(recovery.action(desiredMode: .tun, systemProxyEnabled: false, tunEnabled: false,
+            coreRunning: false, runtimeState: "stopped", coreStartedAt: nil), .reconcileMode)
+        XCTAssertEqual(recovery.action(desiredMode: .system, systemProxyEnabled: false, tunEnabled: false,
+            coreRunning: true, runtimeState: "running", coreStartedAt: "now"), .reconcileMode)
+        XCTAssertEqual(recovery.action(desiredMode: .tun, systemProxyEnabled: false, tunEnabled: false,
+            coreRunning: false, runtimeState: "stopping", coreStartedAt: nil), .wait)
+        XCTAssertEqual(recovery.action(desiredMode: .off, systemProxyEnabled: false, tunEnabled: true,
+            coreRunning: false, runtimeState: "faulted", coreStartedAt: nil), .wait)
+    }
     func testWakeWaitsForNetworkAndDebouncesBeforeRestart() {
         let now = Date(timeIntervalSince1970: 100)
         var recovery = NetworkRecovery()
@@ -43,7 +70,7 @@ final class NetworkRecoveryTests: XCTestCase {
         var recovery = NetworkRecovery()
         recovery.begin(restart: true, now: now)
         for _ in 0..<10 { recovery.retry(now: now) }
-        XCTAssertLessThanOrEqual(recovery.nextAttempt.timeIntervalSince(now), 30)
+        XCTAssertEqual(recovery.nextAttempt.timeIntervalSince(now), 30)
         XCTAssertFalse(recovery.canAttempt(awake: true, networkAvailable: true, now: now))
         let state = DashboardStatus.resolve(ready: true, updating: false, busy: true, recovery: false,
             state: nil, tunRunning: true, systemProxy: false, lastRefresh: nil, now: now, reconnecting: true)

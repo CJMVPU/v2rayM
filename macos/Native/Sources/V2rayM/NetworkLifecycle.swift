@@ -4,7 +4,8 @@ import Network
 /// Observe physical paths separately so our own utun restart does not trigger
 /// another recovery. No SSIDs or network credentials are read.
 @MainActor protocol NetworkEvents: AnyObject {
-    func observe(sleep: @escaping @MainActor (Bool) -> Void, change: @escaping @MainActor (Bool) -> Void)
+    func observe(sleep: @escaping @MainActor (Bool) -> Void, change: @escaping @MainActor (Bool) -> Void,
+                 resume: @escaping @MainActor () -> Void)
 }
 
 @MainActor final class NetworkLifecycle: NetworkEvents {
@@ -13,11 +14,16 @@ import Network
     private var paths: [Int: String] = [:]
     private var signature: String?
     func observe(sleep: @escaping @MainActor (Bool) -> Void,
-         change: @escaping @MainActor (Bool) -> Void) {
+         change: @escaping @MainActor (Bool) -> Void, resume: @escaping @MainActor () -> Void) {
         let center = NSWorkspace.shared.notificationCenter
         for (name, asleep) in [(NSWorkspace.willSleepNotification, true), (NSWorkspace.didWakeNotification, false)] {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { _ in
                 Task { @MainActor in sleep(asleep) }
+            })
+        }
+        for name in [NSWorkspace.screensDidWakeNotification, NSWorkspace.sessionDidBecomeActiveNotification] {
+            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { _ in
+                Task { @MainActor in resume() }
             })
         }
         for (index, type) in [NWInterface.InterfaceType.wifi, .wiredEthernet].enumerated() {
