@@ -257,7 +257,8 @@ public sealed partial class V2rayRuntime
         var saveServiceLibState = _initialized && !_restoring;
         if (saveServiceLibState)
         {
-            steps.Add(new("Core stop", async deadline =>
+            steps.AddRange(ShutdownStatisticsCheckpoint.WrapCoreStop(
+                () => StatisticsManager.Instance.SaveTo(), async deadline =>
             {
                 try
                 {
@@ -276,7 +277,7 @@ public sealed partial class V2rayRuntime
                     });
                     throw;
                 }
-            }));
+            }, message => AddLog("web", message)));
             steps.Add(new("profile save", async _ =>
             {
                 await ProfileExManager.Instance.SaveTo();
