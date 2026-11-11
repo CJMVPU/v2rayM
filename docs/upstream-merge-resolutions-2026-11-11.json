@@ -1,0 +1,1520 @@
+[
+  {
+    "path": ".github/workflows/build-WebAPI.yml",
+    "upstreamCommits": [
+      "ebabf790",
+      "4c8b865d",
+      "aac4520f",
+      "b13ae259",
+      "bf2584c9"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": ".github/workflows/build-linux.yml",
+    "upstreamCommits": [
+      "6e48e507",
+      "a74d10ba",
+      "3d0f45f6",
+      "78b0b222"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": ".github/workflows/build-osx.yml",
+    "upstreamCommits": [
+      "78b0b222"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": ".github/workflows/build-windows-desktop.yml",
+    "upstreamCommits": [
+      "78b0b222"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": ".github/workflows/build.yml",
+    "upstreamCommits": [
+      "78b0b222"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": false
+  },
+  {
+    "path": ".github/workflows/package-zip.yml",
+    "upstreamCommits": [
+      "78b0b222"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": ".github/workflows/update-cert.yml",
+    "upstreamCommits": [
+      "8c02b5f2"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": false
+  },
+  {
+    "path": "README.md",
+    "upstreamCommits": [
+      "6e48e507"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "package-debian-x86.sh",
+    "upstreamCommits": [
+      "6e48e507"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "package-debian.sh",
+    "upstreamCommits": [
+      "6e48e507",
+      "3d0f45f6"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "package-rhel-x86.sh",
+    "upstreamCommits": [
+      "6e48e507"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "package-rhel.sh",
+    "upstreamCommits": [
+      "6e48e507",
+      "3d0f45f6"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/AmazTool/AmazTool.csproj",
+    "upstreamCommits": [
+      "78b0b222"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/AmazTool/Resx/Resource.Designer.cs",
+    "upstreamCommits": [
+      "78b0b222"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/Directory.Build.props",
+    "upstreamCommits": [
+      "78b0b222"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/Directory.Packages.props",
+    "upstreamCommits": [
+      "e3457fa4",
+      "7188f36e",
+      "6e48e507",
+      "91d1cbe5",
+      "f1ef8dfb",
+      "7c49b236",
+      "b8458fdb",
+      "aa00b2c6",
+      "281f5ee3",
+      "7a52be41",
+      "a2a8a77f",
+      "2bc79bc5",
+      "3d44ba8e",
+      "e044b90c",
+      "3dce503a",
+      "8b93d357",
+      "78b0b222",
+      "e2f42923"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/GlobalHotKeys",
+    "upstreamCommits": [
+      "fcd31300"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/ServiceLib.Tests/Common/JsonUtilsMetadataTests.cs",
+    "upstreamCommits": [
+      "9a029a3f"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/ServiceLib.Tests/CoreConfig/DualStackFakeIPTests.cs",
+    "upstreamCommits": [
+      "2239982a"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/ServiceLib.Tests/CoreConfig/Singbox/CoreConfigSingboxServiceTests.cs",
+    "upstreamCommits": [
+      "cdcac040",
+      "73670c70",
+      "5211b9ce"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/ServiceLib.Tests/CoreConfig/V2ray/CoreConfigV2rayIPNetworkTests.cs",
+    "upstreamCommits": [
+      "2239982a",
+      "7a52be41"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/ServiceLib.Tests/CoreConfig/V2ray/CoreConfigV2rayServiceTests.cs",
+    "upstreamCommits": [
+      "0f71c46d",
+      "9a029a3f",
+      "75691697",
+      "ad3e24b6"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib.Tests/Fmt/AnytlsFmtTests.cs",
+    "upstreamCommits": [
+      "ff9fd7b9"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/ServiceLib.Tests/Fmt/NaiveFmtTests.cs",
+    "upstreamCommits": [
+      "ff9fd7b9"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/ServiceLib.Tests/Fmt/NaiveFmtUserInfoTests.cs",
+    "upstreamCommits": [
+      "2010477f"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/ServiceLib.Tests/Helper/HttpRequestHeadersHelperTests.cs",
+    "upstreamCommits": [
+      "9a029a3f"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib.Tests/Helper/SQLiteHelperTests.cs",
+    "upstreamCommits": [
+      "9a029a3f"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/ServiceLib.Tests/Manager/ProfileExManagerConcurrencyTests.cs",
+    "upstreamCommits": [
+      "4169c12a"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib.Tests/Manager/ProfileExManagerPersistenceTests.cs",
+    "upstreamCommits": [
+      "c436b998"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/ServiceLib.Tests/ServiceLib.Tests.csproj",
+    "upstreamCommits": [
+      "78b0b222"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib.Tests/Services/DownloadServiceHeadersTests.cs",
+    "upstreamCommits": [
+      "92a9da8b"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib.Tests/ViewModels/AddServerViewModelTests.cs",
+    "upstreamCommits": [
+      "0f71c46d"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/ServiceLib/Common/Extension.cs",
+    "upstreamCommits": [
+      "e2f42923"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Common/FakeIPUtils.cs",
+    "upstreamCommits": [
+      "2239982a"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/ServiceLib/Common/JsonUtils.cs",
+    "upstreamCommits": [
+      "9a029a3f",
+      "2239982a",
+      "78b0b222"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Common/NetworkUtils.cs",
+    "upstreamCommits": [
+      "968beb44",
+      "052f6f0f"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/ServiceLib/Common/Utils.cs",
+    "upstreamCommits": [
+      "36184045",
+      "78b0b222"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Common/YamlUtils.cs",
+    "upstreamCommits": [
+      "78b0b222"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Enums/ETransport.cs",
+    "upstreamCommits": [
+      "0f71c46d"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Global.cs",
+    "upstreamCommits": [
+      "0f71c46d",
+      "968beb44",
+      "5211b9ce",
+      "2239982a",
+      "19850f92",
+      "78b0b222"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Handler/AutoStartupHandler.cs",
+    "upstreamCommits": [
+      "fe54a73d",
+      "78b0b222"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/ServiceLib/Handler/Builder/CoreConfigContextBuilder.cs",
+    "upstreamCommits": [
+      "968beb44"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Handler/ConfigHandler.cs",
+    "upstreamCommits": [
+      "54ecc045",
+      "92a9da8b",
+      "2239982a",
+      "fe54a73d",
+      "0f1f82af",
+      "19850f92",
+      "59487dca",
+      "7e14cf97",
+      "8b93d357"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Handler/ConnectionHandler.cs",
+    "upstreamCommits": [
+      "92a9da8b"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Handler/Fmt/AnytlsFmt.cs",
+    "upstreamCommits": [
+      "ff9fd7b9"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Handler/Fmt/BaseFmt.cs",
+    "upstreamCommits": [
+      "78b0b222"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Handler/Fmt/InnerFmt.cs",
+    "upstreamCommits": [
+      "78b0b222"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Handler/Fmt/NaiveFmt.cs",
+    "upstreamCommits": [
+      "2010477f",
+      "ff9fd7b9"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Handler/Fmt/WireguardFmt.cs",
+    "upstreamCommits": [
+      "78b0b222"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Handler/SubscriptionHandler.cs",
+    "upstreamCommits": [
+      "92a9da8b"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Handler/SysProxy/ProxySettingWindows.cs",
+    "upstreamCommits": [
+      "78b0b222"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/ServiceLib/Helper/DownloaderHelper.cs",
+    "upstreamCommits": [
+      "92a9da8b",
+      "92aa3ba6"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Helper/HttpClientHelper.cs",
+    "upstreamCommits": [
+      "92a9da8b"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Helper/HttpRequestHeadersHelper.cs",
+    "upstreamCommits": [
+      "92a9da8b"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Helper/SqliteHelper.cs",
+    "upstreamCommits": [
+      "9a029a3f",
+      "c436b998"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Manager/ClashApiManager.cs",
+    "upstreamCommits": [
+      "92a9da8b"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/ServiceLib/Manager/EndpointResolveManager.cs",
+    "upstreamCommits": [
+      "92a9da8b",
+      "19850f92"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/ServiceLib/Manager/PacManager.cs",
+    "upstreamCommits": [
+      "e1c96335"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/ServiceLib/Manager/ProfileExManager.cs",
+    "upstreamCommits": [
+      "c436b998",
+      "57f17d59"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Manager/TaskManager.cs",
+    "upstreamCommits": [
+      "92a9da8b"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/ServiceLib/Models/Configs/Config.cs",
+    "upstreamCommits": [
+      "78b0b222"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Models/Configs/ConfigItems.cs",
+    "upstreamCommits": [
+      "54ecc045",
+      "5211b9ce",
+      "2239982a",
+      "78b0b222"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Models/CoreConfigs/CoreInfo.cs",
+    "upstreamCommits": [
+      "78b0b222"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Models/CoreConfigs/SingboxConfig.cs",
+    "upstreamCommits": [
+      "5211b9ce",
+      "78b0b222"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/ServiceLib/Models/CoreConfigs/V2rayConfig.cs",
+    "upstreamCommits": [
+      "0f71c46d",
+      "5ca37027",
+      "2239982a",
+      "59487dca",
+      "0856ffd7",
+      "75691697",
+      "78b0b222"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Models/Dto/ClashProxyModel.cs",
+    "upstreamCommits": [
+      "78b0b222"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/ServiceLib/Models/Dto/ProfileItemModel.cs",
+    "upstreamCommits": [
+      "78b0b222"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Models/Dto/RoutingItemModel.cs",
+    "upstreamCommits": [
+      "78b0b222"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Models/Dto/RoutingTemplate.cs",
+    "upstreamCommits": [
+      "78b0b222"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Models/Dto/RulesItemModel.cs",
+    "upstreamCommits": [
+      "78b0b222"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Models/Dto/ServerSpeedItem.cs",
+    "upstreamCommits": [
+      "78b0b222"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Models/Dto/ServerTestItem.cs",
+    "upstreamCommits": [
+      "78b0b222"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Models/Dto/SpeedTestResult.cs",
+    "upstreamCommits": [
+      "78b0b222"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Models/Dto/SsSIP008.cs",
+    "upstreamCommits": [
+      "78b0b222"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Models/Dto/VmessQRCode.cs",
+    "upstreamCommits": [
+      "78b0b222"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Models/Entities/DNSItem.cs",
+    "upstreamCommits": [
+      "78b0b222"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Models/Entities/FullConfigTemplateItem.cs",
+    "upstreamCommits": [
+      "78b0b222"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Models/Entities/ProfileExItem.cs",
+    "upstreamCommits": [
+      "78b0b222"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Models/Entities/ProfileGroupItem.cs",
+    "upstreamCommits": [
+      "78b0b222"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Models/Entities/ProfileItem.cs",
+    "upstreamCommits": [
+      "78b0b222"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Models/Entities/ProtocolExtraItem.cs",
+    "upstreamCommits": [
+      "59487dca"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Models/Entities/RoutingItem.cs",
+    "upstreamCommits": [
+      "78b0b222"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Models/Entities/RulesItem.cs",
+    "upstreamCommits": [
+      "78b0b222"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Models/Entities/ServerStatItem.cs",
+    "upstreamCommits": [
+      "78b0b222"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Models/Entities/SubItem.cs",
+    "upstreamCommits": [
+      "19850f92",
+      "78b0b222"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Models/Entities/TransportExtraItem.cs",
+    "upstreamCommits": [
+      "0f71c46d"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Resx/ResUI.Designer.cs",
+    "upstreamCommits": [
+      "f07e3dc4",
+      "0f71c46d",
+      "54ecc045",
+      "5211b9ce",
+      "66546700",
+      "2239982a",
+      "19850f92",
+      "59487dca",
+      "8b93d357"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Resx/ResUI.az.resx",
+    "upstreamCommits": [
+      "0f71c46d",
+      "5211b9ce",
+      "66546700"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Resx/ResUI.fa.resx",
+    "upstreamCommits": [
+      "0f71c46d",
+      "5211b9ce"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Resx/ResUI.fr.resx",
+    "upstreamCommits": [
+      "0f71c46d",
+      "5211b9ce"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Resx/ResUI.hu.resx",
+    "upstreamCommits": [
+      "0f71c46d",
+      "5211b9ce"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Resx/ResUI.id.resx",
+    "upstreamCommits": [
+      "0f71c46d",
+      "5211b9ce"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Resx/ResUI.resx",
+    "upstreamCommits": [
+      "f07e3dc4",
+      "0f71c46d",
+      "54ecc045",
+      "5211b9ce",
+      "2239982a",
+      "19850f92",
+      "59487dca",
+      "8b93d357"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Resx/ResUI.ru.resx",
+    "upstreamCommits": [
+      "0f71c46d",
+      "5211b9ce"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Resx/ResUI.zh-Hans.resx",
+    "upstreamCommits": [
+      "f07e3dc4",
+      "0f71c46d",
+      "54ecc045",
+      "5211b9ce",
+      "2239982a",
+      "19850f92",
+      "59487dca",
+      "8b93d357"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Resx/ResUI.zh-Hant.resx",
+    "upstreamCommits": [
+      "f07e3dc4",
+      "0f71c46d",
+      "1e167449",
+      "5211b9ce",
+      "2239982a"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Sample/TaskXmlTemplate",
+    "upstreamCommits": [
+      "78b0b222"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/ServiceLib/ServiceLib.csproj",
+    "upstreamCommits": [
+      "78b0b222",
+      "e2f42923"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Services/CoreConfig/CoreConfigClashService.cs",
+    "upstreamCommits": [
+      "fe54a73d",
+      "78b0b222"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/ServiceLib/Services/CoreConfig/Singbox/SingboxConfigTemplateService.cs",
+    "upstreamCommits": [
+      "968beb44"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/ServiceLib/Services/CoreConfig/Singbox/SingboxDnsService.cs",
+    "upstreamCommits": [
+      "cdcac040",
+      "2239982a"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/ServiceLib/Services/CoreConfig/Singbox/SingboxInboundService.cs",
+    "upstreamCommits": [
+      "5211b9ce"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/ServiceLib/Services/CoreConfig/Singbox/SingboxOutboundService.cs",
+    "upstreamCommits": [
+      "73670c70",
+      "78b0b222"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/ServiceLib/Services/CoreConfig/Singbox/SingboxRoutingService.cs",
+    "upstreamCommits": [
+      "cdcac040",
+      "5211b9ce"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/ServiceLib/Services/CoreConfig/V2ray/CoreConfigV2rayService.cs",
+    "upstreamCommits": [
+      "d4880dbe"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Services/CoreConfig/V2ray/V2rayConfigTemplateService.cs",
+    "upstreamCommits": [
+      "968beb44"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Services/CoreConfig/V2ray/V2rayDnsService.cs",
+    "upstreamCommits": [
+      "2239982a",
+      "0856ffd7",
+      "78b0b222"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Services/CoreConfig/V2ray/V2rayInboundService.cs",
+    "upstreamCommits": [
+      "968beb44",
+      "9593b289"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Services/CoreConfig/V2ray/V2rayOutboundService.cs",
+    "upstreamCommits": [
+      "0f71c46d",
+      "5ca37027",
+      "59487dca",
+      "d4880dbe",
+      "75691697",
+      "ad3e24b6",
+      "78b0b222"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Services/CoreConfig/V2ray/V2rayRoutingService.cs",
+    "upstreamCommits": [
+      "d4880dbe"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Services/DownloadService.cs",
+    "upstreamCommits": [
+      "92a9da8b"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Services/SpeedtestService.cs",
+    "upstreamCommits": [
+      "92a9da8b",
+      "70ab27e4",
+      "926790b0"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Services/Statistics/StatisticsXrayService.cs",
+    "upstreamCommits": [
+      "92a9da8b"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Services/UpdateService.cs",
+    "upstreamCommits": [
+      "92a9da8b",
+      "78b0b222"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/Services/WindowsJobService.cs",
+    "upstreamCommits": [
+      "78b0b222"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/ServiceLib/ViewModels/AddServerViewModel.cs",
+    "upstreamCommits": [
+      "0f71c46d",
+      "59487dca",
+      "e2f42923"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/ServiceLib/ViewModels/CheckUpdateViewModel.cs",
+    "upstreamCommits": [
+      "92a9da8b"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/ServiceLib/ViewModels/ClashProxiesViewModel.cs",
+    "upstreamCommits": [
+      "4c4449e7"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/ServiceLib/ViewModels/DNSSettingViewModel.cs",
+    "upstreamCommits": [
+      "2239982a",
+      "e2f42923"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/ServiceLib/ViewModels/MainWindowViewModel.cs",
+    "upstreamCommits": [
+      "92a9da8b"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/ServiceLib/ViewModels/OptionSettingViewModel.cs",
+    "upstreamCommits": [
+      "5211b9ce"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/ServiceLib/ViewModels/ProfilesViewModel.cs",
+    "upstreamCommits": [
+      "8b93d357",
+      "78b0b222"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/ServiceLib/ViewModels/RoutingRuleSettingViewModel.cs",
+    "upstreamCommits": [
+      "92a9da8b",
+      "78b0b222"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/v2rayN.Desktop/App.axaml",
+    "upstreamCommits": [
+      "66546700",
+      "8b93d357"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/v2rayN.Desktop/Assets/GlobalStyles.axaml",
+    "upstreamCommits": [
+      "66546700"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/v2rayN.Desktop/Common/QRCodeAvaloniaUtils.cs",
+    "upstreamCommits": [
+      "78b0b222"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/v2rayN.Desktop/Common/SimpleViewLocator.cs",
+    "upstreamCommits": [
+      "66546700"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/v2rayN.Desktop/TrimmerRoots.xml",
+    "upstreamCommits": [
+      "78b0b222"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/v2rayN.Desktop/ViewModels/ThemeSettingViewModel.cs",
+    "upstreamCommits": [
+      "15ed51f9",
+      "66546700",
+      "9d1063f3",
+      "749a7312"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/v2rayN.Desktop/Views/AddGroupServerWindow.axaml",
+    "upstreamCommits": [
+      "c01224c3",
+      "8b93d357"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/v2rayN.Desktop/Views/AddGroupServerWindow.axaml.cs",
+    "upstreamCommits": [
+      "8b93d357"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/v2rayN.Desktop/Views/AddServerWindow.axaml",
+    "upstreamCommits": [
+      "0f71c46d",
+      "59487dca"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/v2rayN.Desktop/Views/AddServerWindow.axaml.cs",
+    "upstreamCommits": [
+      "0f71c46d",
+      "59487dca",
+      "e2f42923"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/v2rayN.Desktop/Views/DNSSettingWindow.axaml",
+    "upstreamCommits": [
+      "2239982a"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/v2rayN.Desktop/Views/DNSSettingWindow.axaml.cs",
+    "upstreamCommits": [
+      "2239982a",
+      "e2f42923"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/v2rayN.Desktop/Views/JsonEditor.axaml",
+    "upstreamCommits": [
+      "66546700"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/v2rayN.Desktop/Views/JsonEditor.axaml.cs",
+    "upstreamCommits": [
+      "fe54a73d",
+      "78b0b222"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/v2rayN.Desktop/Views/MainWindow.axaml",
+    "upstreamCommits": [
+      "15ed51f9",
+      "66546700"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/v2rayN.Desktop/Views/MainWindow.axaml.cs",
+    "upstreamCommits": [
+      "15ed51f9",
+      "66546700"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/v2rayN.Desktop/Views/MessageBoxDialog.axaml",
+    "upstreamCommits": [
+      "66546700"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/v2rayN.Desktop/Views/MessageBoxDialog.axaml.cs",
+    "upstreamCommits": [
+      "5d2e339e"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/v2rayN.Desktop/Views/OptionSettingWindow.axaml",
+    "upstreamCommits": [
+      "968beb44",
+      "5211b9ce",
+      "052f6f0f"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/v2rayN.Desktop/Views/OptionSettingWindow.axaml.cs",
+    "upstreamCommits": [
+      "968beb44",
+      "5211b9ce",
+      "052f6f0f"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/v2rayN.Desktop/Views/ProfilesSelectWindow.axaml",
+    "upstreamCommits": [
+      "c01224c3",
+      "8b93d357"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/v2rayN.Desktop/Views/ProfilesSelectWindow.axaml.cs",
+    "upstreamCommits": [
+      "8b93d357"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/v2rayN.Desktop/Views/ProfilesView.axaml",
+    "upstreamCommits": [
+      "54ecc045",
+      "c01224c3",
+      "fe54a73d",
+      "8b93d357"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/v2rayN.Desktop/Views/ProfilesView.axaml.cs",
+    "upstreamCommits": [
+      "54ecc045",
+      "fe54a73d",
+      "8b93d357"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/v2rayN.Desktop/Views/SubEditWindow.axaml",
+    "upstreamCommits": [
+      "19850f92"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/v2rayN.Desktop/Views/SubEditWindow.axaml.cs",
+    "upstreamCommits": [
+      "19850f92"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/v2rayN.Desktop/v2rayN.Desktop.csproj",
+    "upstreamCommits": [
+      "8b93d357",
+      "78b0b222",
+      "e2f42923"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/v2rayN.WebAPI/Launcher/WebInstanceLock.cs",
+    "upstreamCommits": [
+      "ebabf790"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/v2rayN.WebAPI/Services/V2rayRuntime.CoreUpdate.cs",
+    "upstreamCommits": [
+      "92a9da8b"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/v2rayN.WebAPI/Services/V2rayRuntime.Scheduling.cs",
+    "upstreamCommits": [
+      "92a9da8b"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/v2rayN.WebAPI/Services/V2rayRuntime.Settings.cs",
+    "upstreamCommits": [
+      "92a9da8b"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/v2rayN.WebAPI/Services/V2rayRuntime.WebUpdate.cs",
+    "upstreamCommits": [
+      "92a9da8b"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/v2rayN.WebAPI/Services/V2rayRuntime.cs",
+    "upstreamCommits": [
+      "92a9da8b"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/v2rayN.WebAPI/Tests/SubscriptionParityTests.cs",
+    "upstreamCommits": [
+      "92a9da8b"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": true
+  },
+  {
+    "path": "v2rayN/v2rayN/Base/ViewHost.cs",
+    "upstreamCommits": [
+      "e2f42923"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/v2rayN/Common/SimpleViewLocator.cs",
+    "upstreamCommits": [
+      "e2f42923"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/v2rayN/Views/AddServerWindow.xaml",
+    "upstreamCommits": [
+      "59487dca"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/v2rayN/Views/AddServerWindow.xaml.cs",
+    "upstreamCommits": [
+      "59487dca",
+      "e2f42923"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/v2rayN/Views/DNSSettingWindow.xaml",
+    "upstreamCommits": [
+      "2239982a"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/v2rayN/Views/DNSSettingWindow.xaml.cs",
+    "upstreamCommits": [
+      "2239982a",
+      "e2f42923"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/v2rayN/Views/OptionSettingWindow.xaml",
+    "upstreamCommits": [
+      "5211b9ce",
+      "052f6f0f"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/v2rayN/Views/OptionSettingWindow.xaml.cs",
+    "upstreamCommits": [
+      "968beb44",
+      "5211b9ce",
+      "052f6f0f"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/v2rayN/Views/ProfilesSelectWindow.xaml",
+    "upstreamCommits": [
+      "a2a8a77f"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/v2rayN/Views/ProfilesView.xaml",
+    "upstreamCommits": [
+      "a2a8a77f"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/v2rayN/Views/StatusBarView.xaml.cs",
+    "upstreamCommits": [
+      "e2f42923"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/v2rayN/Views/SubEditWindow.xaml",
+    "upstreamCommits": [
+      "19850f92"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/v2rayN/Views/SubEditWindow.xaml.cs",
+    "upstreamCommits": [
+      "19850f92"
+    ],
+    "resolution": "Retain deletion: retired platform/UI/engine component",
+    "checkpointPresent": false
+  },
+  {
+    "path": "v2rayN/v2rayN/v2rayN.csproj",
+    "upstreamCommits": [
+      "e2f42923"
+    ],
+    "resolution": "Retain reviewed 0.4.2 integration: adopted portions already ported; remaining portions excluded/deferred per commit ledger",
+    "checkpointPresent": false
+  }
+]

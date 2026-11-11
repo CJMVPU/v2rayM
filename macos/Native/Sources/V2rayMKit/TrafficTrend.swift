@@ -12,6 +12,8 @@ public struct TrafficTrendSample: Equatable, Identifiable, Sendable {
 public struct TrafficTrend: Equatable, Sendable {
     public static let duration: TimeInterval = 300
     public private(set) var samples: [TrafficTrendSample] = []
+    public private(set) var pausedAt: Date?
+    public func displayDate(at now: Date) -> Date { pausedAt ?? now }
     private var session: String?
     private var segment = 0
     private var interrupted = false
@@ -19,12 +21,14 @@ public struct TrafficTrend: Equatable, Sendable {
     public init() {}
 
     public mutating func record(_ state: RuntimeStatus, now: Date) {
-        samples.removeAll { now.timeIntervalSince($0.date) > Self.duration }
         guard state.coreRunning, state.trafficEnabled == true,
               let start = state.coreStartedAt, let profile = state.runningProfileId else {
+            if pausedAt == nil { pausedAt = now }
             interrupted = true
             return
         }
+        pausedAt = nil
+        samples.removeAll { now.timeIntervalSince($0.date) > Self.duration }
         let identity = profile + "|" + start
         if session != identity {
             samples.removeAll(keepingCapacity: true)
@@ -50,11 +54,13 @@ public struct TrafficTrend: Equatable, Sendable {
 
     /// Directional maxima of the existing five-second samples in (now - 60s, now].
     public func peaks(at now: Date) -> [Double] {
+        let now = displayDate(at: now)
         let recent = samples.filter { $0.date <= now && now.timeIntervalSince($0.date) < 60 }
         return [recent.map(\.upload).max() ?? 0, recent.map(\.download).max() ?? 0]
     }
 
     public func visible(at now: Date) -> [TrafficTrendSample] {
-        samples.filter { now.timeIntervalSince($0.date) <= Self.duration && $0.date <= now }
+        let now = displayDate(at: now)
+        return samples.filter { now.timeIntervalSince($0.date) <= Self.duration && $0.date <= now }
     }
 }

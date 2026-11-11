@@ -54,7 +54,8 @@ struct ConnectionDashboard: View {
                         badge("延迟", value: (node?.delay ?? 0) > 0 ? "\(node?.delay ?? 0) ms" : "—")
                     }.padding(.horizontal, 12).padding(.bottom, 12).frame(maxHeight: .infinity, alignment: .bottom)
                 }.frame(height: gaugeHeight)
-                TrafficTrendView(trend: trend, now: now, animate: windowVisible && !reduceMotion,
+                TrafficTrendView(trend: trend, now: trend.displayDate(at: now),
+                    animate: running && trafficEnabled == true && windowVisible && !reduceMotion,
                     emptyTitle: DashboardStatus.trafficDescription(state: state, enabled: trafficEnabled, hasSample: false))
                     .frame(height: trendHeight)
             }

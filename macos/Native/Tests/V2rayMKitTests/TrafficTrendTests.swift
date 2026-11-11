@@ -54,7 +54,9 @@ final class TrafficTrendTests: XCTestCase {
         XCTAssertEqual(trend.samples.count, 61)
         XCTAssertTrue(trend.visible(at: Date(timeIntervalSince1970: 1801)).isEmpty)
         trend.record(try state(at: 1801, running: false), now: Date(timeIntervalSince1970: 1801))
-        XCTAssertTrue(trend.samples.isEmpty)
+        XCTAssertEqual(trend.samples.count, 61) // Stopping preserves bounded history.
+        trend.record(try state(at: 1802), now: Date(timeIntervalSince1970: 1802))
+        XCTAssertEqual(trend.samples.count, 1)
     }
     func testDirectionalMinutePeaksExpireWithoutNewSamples() throws {
         var trend = TrafficTrend()
@@ -71,6 +73,22 @@ final class TrafficTrendTests: XCTestCase {
         XCTAssertEqual(trend.peaks(at: Date(timeIntervalSince1970: 999)), [0, 0])
         trend.record(try state(at: 1005, profile: "b", upload: 0, download: 0), now: Date(timeIntervalSince1970: 1005))
         XCTAssertEqual(trend.peaks(at: Date(timeIntervalSince1970: 1005)), [0, 0])
+    }
+
+    func testStoppedClockFreezesHistoryAndResumesWhenEnabled() throws {
+        var trend = TrafficTrend()
+        trend.record(try state(at: 1000), now: Date(timeIntervalSince1970: 1000))
+        trend.record(try state(at: 1005, running: false), now: Date(timeIntervalSince1970: 1005))
+        let frozen = trend.visible(at: Date(timeIntervalSince1970: 1005))
+        for time in [1100.0, 1600, 2000] {
+            trend.record(try state(at: time, running: false), now: Date(timeIntervalSince1970: time))
+            XCTAssertEqual(trend.displayDate(at: Date(timeIntervalSince1970: time)), Date(timeIntervalSince1970: 1005))
+            XCTAssertEqual(trend.visible(at: Date(timeIntervalSince1970: time)), frozen)
+            XCTAssertEqual(trend.peaks(at: Date(timeIntervalSince1970: time)), [5, 10])
+        }
+        trend.record(try state(at: 2005), now: Date(timeIntervalSince1970: 2005))
+        XCTAssertNil(trend.pausedAt)
+        XCTAssertEqual(trend.samples.count, 1)
     }
 
 }

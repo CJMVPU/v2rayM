@@ -50,14 +50,29 @@ struct WindowControlButtons: NSViewRepresentable {
         override func updateTrackingAreas() {
             super.updateTrackingAreas()
             if let hoverTracking { removeTrackingArea(hoverTracking) }
-            let area = NSTrackingArea(rect: bounds, options: [.activeAlways, .mouseEnteredAndExited, .inVisibleRect], owner: self)
+            let area = NSTrackingArea(rect: bounds, options: [.activeAlways, .mouseEnteredAndExited, .mouseMoved, .inVisibleRect], owner: self)
             addTrackingArea(area); hoverTracking = area
+            updateHoverFromPointer()
         }
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            updateTrackingAreas()
+        }
+        private func updateHoverFromPointer() {
+            let inside = window.map { bounds.contains(convert($0.mouseLocationOutsideOfEventStream, from: nil)) } ?? false
+            if hovered != inside { hovered = inside; needsDisplay = true }
+        }
+        override var isEnabled: Bool { didSet { needsDisplay = true } }
+        override func mouseMoved(with event: NSEvent) { updateHoverFromPointer() }
         override func mouseEntered(with event: NSEvent) { hovered = true; needsDisplay = true }
         override func mouseExited(with event: NSEvent) { hovered = false; needsDisplay = true }
         override func draw(_ dirtyRect: NSRect) {
             let rect = NSRect(x: bounds.midX - diameter / 2, y: bounds.midY - diameter / 2, width: diameter, height: diameter)
             let highlight: NSColor = role == .close ? .systemRed : .systemYellow
+            if isEnabled && (hovered || isHighlighted) {
+                highlight.withAlphaComponent(0.22).setFill()
+                NSBezierPath(ovalIn: rect.insetBy(dx: -3, dy: -3)).fill()
+            }
             let base = !isEnabled ? NSColor(calibratedWhite: 0.28, alpha: 1)
                 : hovered || isHighlighted ? highlight : NSColor(calibratedWhite: 0.66, alpha: 1)
             (isHighlighted && isEnabled ? base.blended(withFraction: 0.18, of: .black)! : base).setFill()
