@@ -29,7 +29,7 @@ def main():
         parser.error("use the verified Go " + INPUTS["goVersion"] + " Darwin toolchain")
     repo = Path(__file__).resolve().parent.parent
     marker = MARKER
-    patches = ["darwin-bound-interface.patch", "darwin-process-lookup.patch"]
+    patches = list(INPUTS["xray"]["patches"])
     for filename in patches:
         if hashlib.sha256((repo / "patches/xray" / filename).read_bytes()).hexdigest() != INPUTS["xray"]["patches"][filename]:
             raise RuntimeError("Reviewed Darwin patch checksum mismatch: " + filename)

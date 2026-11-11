@@ -86,7 +86,7 @@ class ReviewedInputTests(unittest.TestCase):
         self.source = self.core.with_name('SOURCE.txt')
         self.source.write_text('Xray source: ' + pin['revision'] + '\nArchive SHA256: ' + pin['sourceSHA256'] +
                                '\nPatches: ' + ', '.join(pin['patches']) + '\nBuild: ' + pin['buildMarker'] + '\n')
-        self.version = 'Xray 26.10.21 (Xray, Penetrates Everything.) 1b1647c-v2raym-darwin-bind2 (go1.27.3 darwin/arm64)'
+        self.version = f"Xray {pin['version']} (Xray, Penetrates Everything.) {pin['buildMarker']} (go1.27.3 darwin/arm64)"
     def tearDown(self): self.temp.cleanup()
     def test_reviewed_m2_metadata_is_accepted(self):
         self.assertEqual(manifest.verify_core_input(self.core_bin, version_output=self.version)['toolchain'], '1.27.3')

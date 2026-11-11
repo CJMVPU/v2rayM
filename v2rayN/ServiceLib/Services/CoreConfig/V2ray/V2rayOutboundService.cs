@@ -337,11 +337,6 @@ public partial class CoreConfigV2rayService
                 {
                     tlsSettings.serverName = Utils.String2List(host)?.First();
                 }
-                if (!tlsSettings.echConfigList.IsNullOrEmpty())
-                {
-                    // For legacy xray compatibility, remove this in the future
-                    tlsSettings.echForceQuery = "full";
-                }
                 var certs = CertPemManager.ParsePemChain(_node.Cert);
                 if (certs.Count > 0)
                 {
@@ -527,16 +522,6 @@ public partial class CoreConfigV2rayService
                             : Global.Hysteria2DefaultHopInt).ToString();
                     var hy2Finalmask = new Finalmask4Ray();
                     var quicParams = new QuicParams4Ray();
-                    if (!ports.IsNullOrEmpty() &&
-                        (ports.Contains(':') || ports.Contains('-') || ports.Contains(',')))
-                    {
-                        var udpHop = new UdpHop4Ray
-                        {
-                            ports = ports.Replace(':', '-'),
-                            interval = hopInterval,
-                        };
-                        quicParams.udpHop = udpHop;
-                    }
                     if (upMbps > 0 || downMbps > 0)
                     {
                         quicParams.congestion = "brutal";
@@ -549,15 +534,6 @@ public partial class CoreConfigV2rayService
                     }
                     hy2Finalmask.quicParams = quicParams;
                     hy2Finalmask.udp ??= [];
-                    if (HyRealm.TryParse(protocolExtra.Hy2RealmUrl, out var realm)
-                        && realm is not null)
-                    {
-                        hy2Finalmask.udp.Add(new Mask4Ray
-                        {
-                            type = "realm",
-                            settings = new MaskSettings4Ray { url = realm.ToUriForFinalmask(), stunServers = realm.StunList },
-                        });
-                    }
                     if (!protocolExtra.SalamanderPass.IsNullOrEmpty())
                     {
                         var isGecko = !protocolExtra.GeckoMinPacketSize.IsNullOrEmpty() || !protocolExtra.GeckoMaxPacketSize.IsNullOrEmpty();
@@ -575,12 +551,33 @@ public partial class CoreConfigV2rayService
                             settings = salamanderSettings,
                         });
                     }
+                    if (HyRealm.TryParse(protocolExtra.Hy2RealmUrl, out var realm)
+                        && realm is not null)
+                    {
+                        hy2Finalmask.udp.Add(new Mask4Ray
+                        {
+                            type = "realm",
+                            settings = new MaskSettings4Ray { url = realm.ToUriForFinalmask(), stunServers = realm.StunList },
+                        });
+                    }
+                    else if (!ports.IsNullOrEmpty() && (ports.Contains(':') || ports.Contains('-') || ports.Contains(',')))
+                    {
+                        hy2Finalmask.udp.Add(new Mask4Ray
+                        {
+                            type = "udphop",
+                            settings = new MaskSettings4Ray
+                            {
+                                mode = "intervallocal,intervalremote",
+                                interval = hopInterval,
+                                remotePorts = ports.Replace(':', '-'),
+                            },
+                        });
+                    }
                     streamSettings.hysteriaSettings = new()
                     {
                         version = 2,
                         auth = _node.Password,
                     };
-                    hy2Finalmask.udp?.Reverse();
                     streamSettings.finalmask = hy2Finalmask;
                     break;
 
@@ -809,8 +806,6 @@ public partial class CoreConfigV2rayService
                                              && (n.streamSettings?.sockopt?.dialerProxy?.IsNullOrEmpty() ?? true))
                 .ToList();
 
-        var fragmentMask = BuildFragmentsMasks();
-
         foreach (var outbound in actOutboundWithTlsList)
         {
             var finalMaskJsonObj = JsonUtils.ParseJson(JsonUtils.Serialize(outbound.streamSettings?.finalmask)) as JsonObject ?? new JsonObject();
@@ -818,6 +813,13 @@ public partial class CoreConfigV2rayService
             var tcpFinalmaskList = finalMaskJsonObj["tcp"] as JsonArray ?? [];
             if (tcpFinalmaskList.Count == 0)
             {
+                var fragmentMask = BuildFragmentsMasks();
+                // Xray's tlshello fragment is incompatible with REALITY.
+                if (outbound.streamSettings.security == Global.StreamSecurityReality
+                    && fragmentMask.settings?.packets == "tlshello")
+                {
+                    fragmentMask.settings!.packets = "1-3";
+                }
                 tcpFinalmaskList.Add(JsonUtils.SerializeToNode(fragmentMask));
                 finalMaskJsonObj["tcp"] = tcpFinalmaskList;
             }

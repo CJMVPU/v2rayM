@@ -51,9 +51,8 @@ def check_no_existing_proxy(network):
     if re.search(r'\b(?:HTTP|HTTPS|SOCKS|ProxyAutoConfig|ProxyAutoDiscovery)Enable\s*:\s*1\b', network['proxy']):
         raise RuntimeError('系统代理仍开启。请先在 v2rayN 中关闭系统代理。')
     processes = command(['/bin/ps', '-axo', 'comm='])[1].splitlines()
-    if any('/Application Support/v2rayN/bin/' in p and
-           Path(p.strip()).name in {'xray', 'sing-box', 'mihomo'} for p in processes):
-        raise RuntimeError('v2rayN 内核仍在运行。请先断开连接。')
+    if any(Path(p.strip()).name.lower() in {'xray', 'sing-box', 'mihomo'} for p in processes):
+        raise RuntimeError('仍有代理内核在运行。请先断开其他代理和 v2rayM 的连接。')
 
 
 def restoration(before, after):
@@ -225,11 +224,19 @@ def main():
             report['stage'] = 'waiting-for-operator'
             save()
             say('现在手动暂停 v2rayN：关闭 TUN、断开内核、关闭系统代理。')
-            say('保持本终端打开。测试完成后，请手动恢复 v2rayN，再回到聊天。')
+            say('保持本终端打开；测试结束会停止测试连接，检查网络恢复。')
             input('准备好后在本终端按回车开始；按 Ctrl+C 取消：')
             before = capture_network()
             check_no_existing_proxy(before)
             helper_client = args.app / 'Contents/MacOS/V2rayMHelperClient'
+            cache = subprocess.run([str(helper_client), 'update'], input=json.dumps({'action': 'update-status', 'core': 'xray'})+'\n', capture_output=True, text=True, timeout=15)
+            cached = json.loads(cache.stdout)
+            if cache.returncode or not cached.get('success'):
+                raise RuntimeError('无法校验 helper 内核缓存。')
+            known_ignored_cache = cached.get('coreVersion', '').startswith('Xray 26.10.21 ') and not re.search(r'(?:^|\s)\S*-v2raym-darwin-bind[12](?:\s|$)', cached.get('coreVersion', ''))
+            if cached.get('verifiedSHA256') and cached['verifiedSHA256'] != report['bundledXraySHA256'] and not known_ignored_cache:
+                raise RuntimeError('helper 缓存内核与本次应用不一致，停止验收以免测试旧内核。')
+            report['verifiedCoreCache'] = cached
             helper_code, helper_output, _ = command([str(helper_client), 'status'])
             if helper_code != 0 or json.loads(helper_output).get('state') != 'idle':
                 raise RuntimeError('v2rayM 后台服务不是空闲状态，请先关闭 v2rayM 的代理。')
@@ -337,7 +344,7 @@ def main():
             say('测试通过：TUN 请求、重启及网络恢复检查均通过。')
         say('结果已保存：' + str(report_path))
         if not args.check_only:
-            say('现在请手动恢复 v2rayN；恢复联网后告诉我“读取本机 TUN 测试结果”。')
+            say('验证通过后可打开 v2rayM，启用系统代理或 TUN 使用新版。' if failure is None else '验证未通过，请先查看恢复结果；网络恢复后可重新使用 v2rayN。')
     return 0 if failure is None else 1
 
 

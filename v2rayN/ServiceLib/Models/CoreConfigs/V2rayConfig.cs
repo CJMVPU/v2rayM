@@ -344,7 +344,6 @@ public class TlsSettings4Ray
     public string? pinnedPeerCertSha256 { get; set; }
     public bool? disableSystemRoot { get; set; }
     public string? echConfigList { get; set; }
-    public string? echForceQuery { get; set; }
     public Sockopt4Ray? echSockopt { get; set; }
 }
 
@@ -454,12 +453,6 @@ public class MasqueSettings4Ray
     public Dictionary<string, string>? headers { get; set; }
 }
 
-public class UdpHop4Ray
-{
-    public string? ports { get; set; }
-    public string? interval { get; set; }
-}
-
 public class Finalmask4Ray
 {
     public List<Mask4Ray>? tcp { get; set; }
@@ -483,6 +476,11 @@ public class MaskSettings4Ray
     public string? url { get; set; }
     public List<string>? stunServers { get; set; }
     public string? packetSize { get; set; }
+
+    // Xray UDP hopping is a finalmask, not a quicParams property.
+    public string? mode { get; set; }
+    public string? interval { get; set; }
+    public string? remotePorts { get; set; }
 
     // fragment
     public string? packets { get; set; }
@@ -510,7 +508,6 @@ public class QuicParams4Ray
     public string? congestion { get; set; }
     public string? brutalUp { get; set; }
     public string? brutalDown { get; set; }
-    public UdpHop4Ray? udpHop { get; set; }
 }
 
 public class AccountsItem4Ray
