@@ -196,6 +196,7 @@ struct ContentView: View {
 
 }
 private struct ImportPane: View {
+    @EnvironmentObject private var model: AppModel
     let close: () -> Void
     let save: (String) -> Void
     @State private var content = ""
@@ -216,7 +217,8 @@ private struct ImportPane: View {
                 Spacer()
                 Button("取消", action: close).keyboardShortcut(.cancelAction)
                 Button("导入") { save(content); close() }.keyboardShortcut(.defaultAction)
-                    .disabled(content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        || !model.ready || model.busy || model.moduleUpdateActive)
             }
         }.padding(16).frame(maxWidth: .infinity, maxHeight: .infinity).font(AppFont.body)
             .background(HiddenScrollbars())
