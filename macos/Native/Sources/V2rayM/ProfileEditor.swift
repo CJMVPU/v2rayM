@@ -84,9 +84,9 @@ struct ProfileEditor: View {
             HStack {
                 Text(result).font(AppFont.caption).foregroundStyle(failed ? Color.orange : Color.secondary)
                     .lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
-                if saving { ProgressView().controlSize(.small) }
+                InlineActivityIndicator(active: saving)
                 Button("保存节点") { Task { await save() } }
-                    .disabled(!loaded || saving || model.busy || model.moduleUpdateActive || !dirty)
+                    .disabled(!loaded || saving || !model.ready || model.busy || model.moduleUpdateActive || !dirty)
             }.frame(height: 32)
         }.padding(16).frame(maxWidth: .infinity, maxHeight: .infinity).font(AppFont.body)
             .background(HiddenScrollbars())

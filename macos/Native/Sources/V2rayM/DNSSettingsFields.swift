@@ -10,7 +10,9 @@ struct DNSSettingsFields: SettingsFields {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             SettingsFormSection(title: "常规 DNS", subtitle: "关闭自定义 DNS 后生效；保存常规参数不会切换当前 DNS 模式。") {
-                if dns["enabled"].flag { Text("当前启用了自定义 DNS；关闭下方自定义 DNS 后，常规参数才会生效。").foregroundStyle(.orange).font(AppFont.caption) }
+                Text("当前启用了自定义 DNS；关闭下方自定义 DNS 后，常规参数才会生效。")
+                    .foregroundStyle(.orange).font(AppFont.caption)
+                    .opacity(dns["enabled"].flag ? 1 : 0).accessibilityHidden(!dns["enabled"].flag)
                 field("直连 DNS", $simpleDNS, "directDNS")
                 field("远程 DNS", $simpleDNS, "remoteDNS")
                 field("引导 DNS（纯 IP）", $simpleDNS, "bootstrapDNS")

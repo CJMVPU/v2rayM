@@ -19,7 +19,12 @@ struct ContentView: View {
     var body: some View {
         VStack(spacing: 0) {
             titleBar
-            if !model.ready && page != .home {
+            if importing {
+                ImportPane(close: { importing = false }, save: { model.importNodes($0) })
+                    .environmentObject(model)
+            } else if let profile = editingProfile {
+                ProfileEditor(profile: profile, close: { editingProfile = nil }).environmentObject(model)
+            } else if !model.ready && page != .home && !settingsEditing {
                 ContentUnavailableView {
                     Label(model.connecting ? "正在连接本地服务" : "本地服务尚未连接", systemImage: "desktopcomputer")
                 } description: { Text(model.connecting ? "首次启动可能需要几秒钟。" : "连接后即可管理节点。") }
@@ -96,11 +101,13 @@ struct ContentView: View {
                 Image(systemName: "square.and.arrow.down").frame(width: 26, height: 26)
             }.buttonStyle(HoverButtonStyle(plain: true)).disabled(controlsDisabled)
                 .help("导入节点").accessibilityLabel("导入节点").disabled(editingContent)
-            if model.proxyNeedsRecovery {
-                Button("恢复代理") { model.recoverProxy() }.disabled(model.busy || model.moduleUpdateActive)
-            } else {
+            ZStack {
                 Toggle("系统代理", isOn: Binding(get: { model.desiredMode == .system }, set: { model.toggleProxy($0) }))
-                    .toggleStyle(.switch).fixedSize().disabled(!model.canToggle(.system) || editingContent)
+                    .toggleStyle(.switch).fixedSize().disabled(!model.canToggle(.system) || editingContent || model.proxyNeedsRecovery)
+                    .opacity(model.proxyNeedsRecovery ? 0 : 1).accessibilityHidden(model.proxyNeedsRecovery)
+                if model.proxyNeedsRecovery {
+                    Button("恢复代理") { model.recoverProxy() }.disabled(model.busy || model.moduleUpdateActive)
+                }
             }
             Toggle("TUN", isOn: Binding(get: { model.desiredMode == .tun }, set: { model.toggleTun($0) }))
                 .toggleStyle(.switch).fixedSize().disabled(!model.canToggle(.tun) || model.tun == nil || editingContent)
@@ -200,10 +207,15 @@ private struct ImportPane: View {
     let close: () -> Void
     let save: (String) -> Void
     @State private var content = ""
+    @State private var discard = false
+    private func requestClose() {
+        if content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { close() }
+        else { discard = true }
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Button(action: close) { Label("返回", systemImage: "chevron.left") }
+                Button(action: requestClose) { Label("返回", systemImage: "chevron.left") }
                 Text("导入节点").font(AppFont.title)
                 Spacer()
             }
@@ -215,13 +227,17 @@ private struct ImportPane: View {
                 .accessibilityLabel("节点分享链接或配置")
             HStack {
                 Spacer()
-                Button("取消", action: close).keyboardShortcut(.cancelAction)
+                Button("取消", action: requestClose).keyboardShortcut(.cancelAction)
                 Button("导入") { save(content); close() }.keyboardShortcut(.defaultAction)
                     .disabled(content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                         || !model.ready || model.busy || model.moduleUpdateActive)
             }
         }.padding(16).frame(maxWidth: .infinity, maxHeight: .infinity).font(AppFont.body)
             .background(HiddenScrollbars())
+            .confirmationDialog("放弃尚未导入的内容？", isPresented: $discard) {
+                Button("放弃内容", role: .destructive, action: close)
+                Button("继续编辑", role: .cancel) {}
+            }
     }
 }
 

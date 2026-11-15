@@ -12,26 +12,9 @@ struct LoginItemSettings: View {
     private var bundled: Bool { Bundle.main.bundleURL.pathExtension == "app" }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("开机启动")
-                    Text("登录 macOS 后自动启动 v2rayM").font(AppFont.caption).foregroundStyle(.secondary)
-                }
-                Spacer()
-                Toggle("开机启动", isOn: Binding(get: { registered }, set: setEnabled))
-                    .labelsHidden().toggleStyle(.switch).disabled(updating || !bundled)
-            }
-            if status == .requiresApproval {
-                HStack {
-                    Text("等待系统批准登录项").font(AppFont.caption).foregroundStyle(.secondary)
-                    Button("打开登录项设置") { SMAppService.openSystemSettingsLoginItems() }
-                }
-            } else if !bundled {
-                Text("请运行打包后的 v2rayM.app 来设置开机启动。")
-                    .font(AppFont.caption).foregroundStyle(.secondary)
-            }
-        }
+        LoginItemStatusRow(registered: Binding(get: { registered }, set: setEnabled),
+            requiresApproval: status == .requiresApproval, bundled: bundled, updating: updating,
+            openSettings: { SMAppService.openSystemSettingsLoginItems() })
         .onAppear { status = SMAppService.mainApp.status }
         .onChange(of: scenePhase) {
             if scenePhase == .active { status = SMAppService.mainApp.status }
@@ -52,6 +35,34 @@ struct LoginItemSettings: View {
             } catch {
                 model.error = "无法修改开机启动：" + error.localizedDescription
             }
+        }
+    }
+}
+
+/// Status changes reuse the existing subtitle and action slot.
+struct LoginItemStatusRow: View {
+    @Binding var registered: Bool
+    let requiresApproval: Bool
+    let bundled: Bool
+    let updating: Bool
+    let openSettings: () -> Void
+    private var subtitle: String {
+        !bundled ? "请运行打包后的 v2rayM.app 来设置开机启动。" :
+            requiresApproval ? "等待系统批准登录项" : "登录 macOS 后自动启动 v2rayM"
+    }
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("开机启动")
+                Text(subtitle).font(AppFont.caption).foregroundStyle(.secondary)
+                    .lineLimit(1).help(subtitle)
+            }
+            Spacer()
+            Button("打开登录项设置", action: openSettings)
+                .disabled(!requiresApproval).opacity(requiresApproval ? 1 : 0)
+                .accessibilityHidden(!requiresApproval)
+            Toggle("开机启动", isOn: $registered)
+                .labelsHidden().toggleStyle(.switch).disabled(updating || !bundled)
         }
     }
 }

@@ -94,9 +94,10 @@ struct ConnectionDashboard: View {
                     .font(AppFont.size(24)).monospacedDigit().padding(.top, 4)
                 Text(connecting && state == .offline ? "正在连接本地服务" : state.title)
                     .font(AppFont.size(12)).foregroundStyle(statusColor).lineLimit(1)
-                if state == .offline && !connecting {
-                    Button("重新连接服务", action: reconnect).font(AppFont.caption)
-                }
+                Button("重新连接服务", action: reconnect).font(AppFont.caption)
+                    .disabled(state != .offline || connecting)
+                    .opacity(state == .offline && !connecting ? 1 : 0)
+                    .accessibilityHidden(state != .offline || connecting)
             }.padding(.horizontal, 44)
         }.frame(width: diameter, height: diameter)
             .contentShape(Circle())

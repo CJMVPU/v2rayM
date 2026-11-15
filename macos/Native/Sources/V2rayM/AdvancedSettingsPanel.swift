@@ -109,10 +109,10 @@ struct SettingsEditor: View {
             HStack {
                 Text(!model.ready ? "后台服务未就绪，草稿已保留" : result.isEmpty ? (working ? "正在处理…" : "修改后保存，设置将自动应用") : result).font(AppFont.caption).foregroundStyle(failed ? Color.orange : Color.secondary)
                     .lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
-                if working { ProgressView().controlSize(.small) }
-                if !model.ready {
-                    Button("重新连接服务") { Task { await model.connect() } }.disabled(working || model.connecting)
-                }
+                InlineActivityIndicator(active: working)
+                Button("重新连接服务") { Task { await model.connect() } }
+                    .disabled(model.ready || working || model.connecting)
+                    .opacity(model.ready ? 0 : 1).accessibilityHidden(model.ready)
                 if pane == .parameters { Button("保存参数") { saveParameters() }.disabled(!loaded || working || !dirty || !model.ready) }
                 if pane == .routing { Button("保存方案与规则") { saveRoute() }.disabled(!loaded || working || !dirty || !model.ready) }
             }.frame(height: 32)

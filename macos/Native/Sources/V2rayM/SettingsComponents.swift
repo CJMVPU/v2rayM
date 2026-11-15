@@ -45,3 +45,13 @@ struct SettingsFieldRow<Content: View>: View {
         }.frame(minHeight: 26)
     }
 }
+
+/// A busy indicator must not take width from adjacent status text when it starts.
+struct InlineActivityIndicator: View {
+    let active: Bool
+    var body: some View {
+        Color.clear.frame(width: 16, height: 16).overlay {
+            if active { ProgressView().controlSize(.small) }
+        }.accessibilityHidden(!active)
+    }
+}

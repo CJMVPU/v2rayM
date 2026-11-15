@@ -65,9 +65,8 @@ struct SettingsPage: View {
                         LabeledContent("运行状态", value: model.tun?.isRunning == true ? "运行中" : "已关闭")
                         LabeledContent("后台服务", value: model.tun?.helperDescription ?? "正在检查")
                         HStack {
-                            if model.tun?.helperAvailable != true {
-                                Button("安装并授权") { model.authorizeTun() }.disabled(disabled)
-                            }
+                            Button("安装并授权") { model.authorizeTun() }
+                                .disabled(disabled || model.tun?.helperAvailable == true)
                             Button("后台服务设置") { model.openTunApproval() }.disabled(disabled)
                         }
                         Text("开启前请先暂停其他软件的 TUN 或 VPN。")
