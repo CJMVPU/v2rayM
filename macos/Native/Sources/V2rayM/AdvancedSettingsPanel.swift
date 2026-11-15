@@ -19,15 +19,23 @@ struct AdvancedSettingsPanel: View {
         HStack(spacing: 10) {
             ForEach(SettingsPane.allCases) { item in
                 Button { select(item) } label: {
-                    VStack(alignment: .leading, spacing: 7) {
-                        HStack {
-                            Label(item.rawValue, systemImage: item.symbol)
-                            Spacer(minLength: 0)
-                            Image(systemName: "chevron.right").font(AppFont.caption).foregroundStyle(.secondary)
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: item.symbol)
+                            .font(.system(size: 19, weight: .medium))
+                            .foregroundStyle(DashboardTheme.cyan)
+                            .frame(width: 34, height: 34)
+                            .background(DashboardTheme.cyan.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(item.rawValue).font(AppFont.body)
+                            Text(item.detail).font(AppFont.caption).foregroundStyle(.secondary)
+                                .lineLimit(2).frame(height: 30, alignment: .topLeading)
                         }
-                        Text(item.detail).font(AppFont.caption).foregroundStyle(.secondary).lineLimit(1)
-                    }.padding(8).frame(maxWidth: .infinity, alignment: .leading)
-                }.disabled(!model.ready || model.busy || model.moduleUpdateActive)
+                        Spacer(minLength: 0)
+                    }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 14))
+                        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(DashboardTheme.cyan.opacity(0.18)))
+                }.buttonStyle(HoverButtonStyle(plain: true))
+                    .disabled(!model.ready || model.busy || model.moduleUpdateActive)
             }
         }
     }
