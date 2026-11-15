@@ -1,3 +1,5 @@
+using V2rayM.Application.Settings;
+using V2rayM.Domain.Runtime;
 using System.Reflection;
 using System.Text.Json.Nodes;
 using ServiceLib;
@@ -50,20 +52,23 @@ public class SniffingSettingsIntegrationTests
 
         var coreChanged = config.Inbound[0].SniffingEnabled != input.SniffingEnabled
             || !config.Inbound[0].DestOverride.SequenceEqual(normalized, StringComparer.OrdinalIgnoreCase);
-        var restartCount = 0;
-        var execution = await CoreSettingsApplyExecutor.ExecuteAsync(
-            CoreRuntimeState.Running,
-            hasActiveChild: true,
-            changed: coreChanged,
-            () =>
-            {
-                restartCount++;
-                return Task.FromResult(OperationView.Ok(ApiMessageKeys.CommonCompleted));
-            });
+        var runtime = new ApplyRuntime();
+        var execution = await new SettingsApplyService().CompleteAsync(runtime, "inbound", coreChanged,
+            _ => throw new InvalidOperationException("Unexpected rollback"));
 
         await coreChanged.Should().BeTrue();
-        await execution.Action.Should().BeEqualTo(CoreSettingsApplyAction.Restart);
-        await restartCount.Should().BeEqualTo(1);
+        await execution.Restarted.Should().BeTrue();
+        await runtime.RestartCount.Should().BeEqualTo(1);
+    }
+
+    private sealed class ApplyRuntime : ISettingsApplyRuntime
+    {
+        public int RestartCount;
+        public SettingsRuntimeState Current => new(CoreRuntimeState.Running, true);
+        public Task<RuntimeCommandResult> RestartAsync()
+        { RestartCount++; return Task.FromResult(new RuntimeCommandResult(true, "ok")); }
+        public void SetStopped() => throw new InvalidOperationException();
+        public void Log(string message) { }
     }
 
     [Test]

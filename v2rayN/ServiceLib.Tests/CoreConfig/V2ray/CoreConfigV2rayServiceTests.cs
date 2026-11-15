@@ -3,6 +3,56 @@ namespace ServiceLib.Tests.CoreConfig.V2ray;
 public class CoreConfigV2rayServiceTests
 {
     [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task InvalidEnabledFinalTemplateCannotReportSuccessfulGeneration(bool tun)
+    {
+        var config = CoreConfigTestFactory.CreateConfig(ECoreType.Xray);
+        CoreConfigTestFactory.BindAppManagerConfig(config);
+        var node = CoreConfigTestFactory.CreateVmessNode(ECoreType.Xray);
+        var context = CoreConfigTestFactory.CreateContext(config, node, ECoreType.Xray) with
+        {
+            IsTunEnabled = tun,
+            FullConfigTemplate = new FullConfigTemplateItem { Enabled = true, Config = "{", TunConfig = "{" },
+        };
+        var result = new CoreConfigV2rayService(context).GenerateClientConfigContent();
+        await result.Success.Should().BeFalse();
+        await result.Data.Should().BeNull();
+    }
+
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task InvalidCustomOutboundFinalizationCannotReportSuccess(bool speedtest)
+    {
+        var config = CoreConfigTestFactory.CreateConfig(ECoreType.Xray);
+        config.CoreBasicItem.BindInterface = "lo0";
+        CoreConfigTestFactory.BindAppManagerConfig(config);
+        var node = CoreConfigTestFactory.CreateCustomOutboundNode(ECoreType.Xray, "invalid-final", "invalid");
+        var context = CoreConfigTestFactory.CreateContext(config, node, ECoreType.Xray);
+        context.CustomOutboundContent[node.IndexId] = "{\"protocol\":\"socks\",\"streamSettings\":\"invalid\"}";
+        var generator = new CoreConfigV2rayService(context);
+        var result = speedtest ? generator.GenerateClientSpeedtestConfig(30000) : generator.GenerateClientConfigContent();
+        await result.Success.Should().BeFalse();
+        await result.Data.Should().BeNull();
+    }
+
+    [Test]
+    public async Task DisabledInvalidTemplateDoesNotAffectGeneration()
+    {
+        var config = CoreConfigTestFactory.CreateConfig(ECoreType.Xray);
+        CoreConfigTestFactory.BindAppManagerConfig(config);
+        var node = CoreConfigTestFactory.CreateVmessNode(ECoreType.Xray);
+        var context = CoreConfigTestFactory.CreateContext(config, node, ECoreType.Xray) with
+        {
+            FullConfigTemplate = new FullConfigTemplateItem { Enabled = false, Config = "{", TunConfig = "{" },
+        };
+        var result = new CoreConfigV2rayService(context).GenerateClientConfigContent();
+        await result.Success.Should().BeTrue();
+        await result.Data.Should().NotBeNull();
+    }
+
+    [Test]
     [Arguments(null)]
     [Arguments("")]
     [Arguments("AGH+DQBdAAAgACBAi73MnT3WWXWj4M9MUiTygpjSPUfM/Rj3Iasve4uFQAAkAAEAAQABAAIAAQADAAIAAQACAAIAAgADAAMAAQADAAIAAwADAA5vdXRlci5lY2gudGVzdAAA")]

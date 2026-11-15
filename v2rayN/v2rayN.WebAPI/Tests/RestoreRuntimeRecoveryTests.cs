@@ -1,3 +1,5 @@
+using V2rayM.Application.Runtime;
+using V2rayM.Domain.Runtime;
 using System.Text.Json;
 using v2rayN.WebAPI.Contracts;
 using v2rayN.WebAPI.Services;
@@ -18,7 +20,7 @@ public class RuntimeRestartRecoveryTests
             (id, _) =>
             {
                 started.Add(id);
-                return Task.FromResult(OperationView.Ok("core.started"));
+                return Task.FromResult(new RuntimeStartResult(true, "ok"));
             },
             _ => { },
             CancellationToken.None);
@@ -78,7 +80,7 @@ public class RuntimeRestartRecoveryTests
         await (result.Source == RuntimeRestartRecoverySource.DefaultProfile).Should().BeTrue();
         await (result.ProfileId == "default").Should().BeTrue();
         await started.Contains("default").Should().BeTrue();
-        await logs.Any(log => log.Contains("Falling back to the ServiceLib default profile default", StringComparison.Ordinal)).Should().BeTrue();
+        await logs.Any(log => log.Contains("Falling back to the default profile default", StringComparison.Ordinal)).Should().BeTrue();
     }
 
     [Test]
@@ -109,7 +111,7 @@ public class RuntimeRestartRecoveryTests
             (id, _) =>
             {
                 starts.Add(id);
-                return Task.FromResult(OperationView.Fail("profile_validation_failed", "errors.invalidInput"));
+                return Task.FromResult(new RuntimeStartResult(false, "profile_validation_failed"));
             },
             logs.Add,
             CancellationToken.None);
@@ -289,7 +291,7 @@ public class RuntimeRestartRecoveryTests
             startCore: (id, _) =>
             {
                 started.Add(id);
-                return Task.FromResult(OperationView.Ok("core.started"));
+                return Task.FromResult(new RuntimeStartResult(true, "ok"));
             },
             _ => { },
             CancellationToken.None);
@@ -317,7 +319,7 @@ public class RuntimeRestartRecoveryTests
             (id, _) =>
             {
                 started.Add(id);
-                return Task.FromResult(OperationView.Ok("core.started"));
+                return Task.FromResult(new RuntimeStartResult(true, "ok"));
             },
             logs.Add,
             CancellationToken.None);
@@ -341,14 +343,16 @@ public class RuntimeRestartRecoveryTests
 public class FailedRestoreRuntimeRecoveryTests
 {
     [Test]
-    public async Task TrackedCoreProcessKeepsTheRuntimeFaultedWithoutStartingAnotherCore()
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task TrackedCoreProcessKeepsTheRuntimeFaultedWithoutStartingAnotherCore(bool wasRunning)
     {
         var started = new List<string?>();
         var faulted = new List<(int[] ProcessIds, string Failure)>();
         var logs = new List<string>();
 
         var result = await V2rayRuntime.RecoverRuntimeAfterFailedRestoreAsync(
-            new RuntimeRestartIntent(true, "old"),
+            new RuntimeRestartIntent(wasRunning, "old"),
             [4242],
             (processIds, failure) => faulted.Add((processIds, failure)),
             (profileId, _) =>

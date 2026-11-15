@@ -1,4 +1,5 @@
 using v2rayN.WebAPI.Contracts;
+using V2rayM.Domain.Runtime;
 using System.Diagnostics;
 using System.Text.RegularExpressions;
 
@@ -6,37 +7,16 @@ namespace v2rayN.WebAPI.Services;
 
 public sealed class LogBuffer
 {
-    public const int Capacity = 10_000;
-    private const int MaximumMessageCharacters = 16 * 1024;
-    public const int MaximumRetainedCharacters = 8_000_000;
+    public const int Capacity = RuntimeLogHistory.Capacity;
+    public const int MaximumRetainedCharacters = RuntimeLogHistory.MaximumRetainedCharacters;
     private readonly object _gate = new();
-    private readonly Queue<LogView> _items = new();
-    private int _retainedCharacters;
-    private long _generation;
-    private long _sequence;
+    private readonly RuntimeLogHistory _history = new();
+
+    private static LogView View(RuntimeLogEntry entry) => new(entry.Timestamp, entry.Source, entry.Message, entry.Generation, entry.Sequence);
 
     public LogView Add(string source, string message)
     {
-        var normalized = message.TrimEnd();
-        if (normalized.Length > MaximumMessageCharacters)
-        {
-            const string marker = "… [log entry truncated]";
-            normalized = normalized[..(MaximumMessageCharacters - marker.Length)] + marker;
-        }
-        LogView entry;
-        lock (_gate)
-        {
-            entry = new LogView(DateTimeOffset.UtcNow, source, normalized, _generation, ++_sequence);
-            _items.Enqueue(entry);
-            _retainedCharacters += entry.Source.Length + entry.Message.Length;
-            while (_items.Count > Capacity || _retainedCharacters > MaximumRetainedCharacters)
-            {
-                var removed = _items.Dequeue();
-                _retainedCharacters -= removed.Source.Length + removed.Message.Length;
-            }
-        }
-
-        return entry;
+        lock (_gate) return View(_history.Add(DateTimeOffset.UtcNow, source, message));
     }
 
     public IReadOnlyList<LogView> Recent(int limit, string? filter = null) =>
@@ -57,7 +37,7 @@ public sealed class LogBuffer
     private LogView[] FilterSnapshot(string? filter)
     {
         LogView[] snapshot;
-        lock (_gate) snapshot = _items.ToArray();
+        lock (_gate) snapshot = _history.Snapshot().Select(View).ToArray();
         if (string.IsNullOrWhiteSpace(filter)) return snapshot;
         // Preserve fail-open search semantics, but abort the entire request's filter
         // on an invalid/expensive pattern instead of retrying it for every log entry.
@@ -82,22 +62,13 @@ public sealed class LogBuffer
     {
         lock (_gate)
         {
-            // A new backend session has its own sequence. Return its available history
-            // if a reconnecting client presents a cursor from the previous session.
-            var after = afterSequence > _sequence ? 0 : Math.Max(0, afterSequence);
-            if (after == _sequence) return new LogTailView([], _sequence, _generation);
-            var items = _items.Where(item => item.Sequence > after).TakeLast(Math.Clamp(limit, 1, Capacity)).ToArray();
-            return new LogTailView(items, _sequence, _generation);
+            var tail = _history.Tail(afterSequence, limit);
+            return new(tail.Items.Select(View).ToArray(), tail.LatestSequence, tail.Generation);
         }
     }
 
     public long Clear()
     {
-        lock (_gate)
-        {
-            _items.Clear();
-            _retainedCharacters = 0;
-            return ++_generation;
-        }
+        lock (_gate) return _history.Clear();
     }
 }

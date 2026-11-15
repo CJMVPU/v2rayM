@@ -16,6 +16,11 @@ private actor RuntimeFixtureAPI: NativeAPI {
     var failTunRead = false
     var tunEnabled = false
     var failures = Set<String>()
+    var holdNextRoutes = false
+    var routesHeld: CheckedContinuation<Void, Never>?
+    func holdRoutes() { holdNextRoutes = true }
+    func routesAreHeld() -> Bool { routesHeld != nil }
+    func releaseRoutes() { routesHeld?.resume(); routesHeld = nil }
     var starts = 0
     var restarts = 0
     var startedAt = "2026-10-24T10:00:00Z"
@@ -51,6 +56,10 @@ private actor RuntimeFixtureAPI: NativeAPI {
     func releaseStatus() { held?.resume(returning: heldData!); held = nil; heldData = nil }
     func loseNextRestartResponse() { loseRestartResponse = true }
     func encodedResponse(_ path: String, method: String, body: Data?) async throws -> Data {
+        if path == "/api/settings/routing-profiles", holdNextRoutes {
+            holdNextRoutes = false
+            await withCheckedContinuation { routesHeld = $0 }
+        }
         if failures.contains(path) { throw ClientFailure("fixture_observation_failed") }
         var result: Any = [:]
         switch path {
@@ -116,9 +125,19 @@ private actor RuntimeFixtureAPI: NativeAPI {
 private actor RuntimeFixtureBackend: NativeBackend {
     let api: RuntimeFixtureAPI
     var isRunning = true
+    var holdStart = false
+    var startHeld: CheckedContinuation<Void, Never>?
+    var stops = 0
+    func suspendStart() { holdStart = true }
+    func startIsHeld() -> Bool { startHeld != nil }
+    func releaseStart() { startHeld?.resume(); startHeld = nil }
     init(_ api: RuntimeFixtureAPI) { self.api = api }
-    func startClient() -> any NativeAPI { api }
-    func stop() { isRunning = false }
+    func startClient() async -> any NativeAPI {
+        if holdStart { await withCheckedContinuation { startHeld = $0 } }
+        isRunning = true
+        return api
+    }
+    func stop() { stops += 1; isRunning = false }
 }
 private actor RuntimeFixtureProxy: NativeProxy {
     var isEnabled = false
@@ -167,6 +186,40 @@ private final class RuntimeFixtureClock: NativeClock, @unchecked Sendable {
         }
         XCTFail("Expected suspended fixture request")
     }
+    func testShutdownDrainsInitialConnectionAndNeverPublishesLateReadiness() async {
+        let backend = RuntimeFixtureBackend(RuntimeFixtureAPI())
+        await backend.suspendStart()
+        let model = AppModel(backend: backend, proxy: RuntimeFixtureProxy(), clock: RuntimeFixtureClock(),
+                             network: RuntimeFixtureNetwork(), checkTunnel: {})
+        let start = Task { await model.connect() }
+        await waitUntil { await backend.startIsHeld() }
+        let exit = Task { await model.shutdown() }
+        await Task.yield()
+        let earlyStops = await backend.stops
+        XCTAssertEqual(earlyStops, 0)
+        await backend.releaseStart()
+        await start.value
+        let completed = await exit.value
+        XCTAssertTrue(completed); XCTAssertFalse(model.ready)
+        let running = await backend.isRunning
+        XCTAssertFalse(running)
+    }
+    func testShutdownDrainsSettingsCommandPostWriteObservation() async {
+        let (model, api, backend, _, _, _) = await fixture()
+        await api.holdStatus()
+        let write = Task { try await model.settingsWrite("/fixture/settings") }
+        await waitUntil { await api.statusIsHeld() }
+        let exit = Task { await model.shutdown() }
+        await Task.yield()
+        let earlyStops = await backend.stops
+        XCTAssertEqual(earlyStops, 0)
+        await api.releaseStatus()
+        do { try await write.value } catch { XCTFail("Unexpected settings failure: \(error)") }
+        let completed = await exit.value
+        XCTAssertTrue(completed)
+        let running = await backend.isRunning
+        XCTAssertFalse(running)
+    }
     func testEmptyLogPollDoesNotRepublishUnchangedLogDocument() async {
         let (model, _, _, _, _, _) = await fixture()
         var publications = 0
@@ -176,6 +229,22 @@ private final class RuntimeFixtureClock: NativeClock, @unchecked Sendable {
         XCTAssertEqual(publications, 0)
         observation.cancel()
         _ = await model.shutdown()
+    }
+    func testShutdownDrainsCanceledMetadataBeforeStoppingOwnedBackend() async {
+        let (model, api, backend, _, _, _) = await fixture()
+        await api.holdRoutes()
+        _ = try? await model.refresh()
+        await waitUntil { await api.routesAreHeld() }
+        let shutdown = Task { await model.shutdown() }
+        await Task.yield()
+        let stillRunning = await backend.isRunning
+        XCTAssertTrue(stillRunning)
+        await api.releaseRoutes()
+        let stopped = await shutdown.value
+        XCTAssertTrue(stopped)
+        let running = await backend.isRunning
+        XCTAssertFalse(running)
+        XCTAssertNil(model.observationErrors["routes"])
     }
     func testMetadataAndRuntimeObservationFailuresDoNotDisconnectHealthyProxy() async {
         let (model, api, _, proxy, clock, _) = await fixture()

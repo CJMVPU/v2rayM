@@ -71,9 +71,11 @@ public partial class CoreConfigV2rayService(CoreConfigContext context)
                 _coreConfig.routing.rules.Add(finalRule);
             }
 
+            // Final templates/modifiers can fail. Never report success before the
+            // complete document exists, or callers may reuse a previous config file.
+            ret.Data = ApplyFinalConfigModifiers();
             ret.Msg = string.Format(ResUI.SuccessfulConfiguration, "");
             ret.Success = true;
-            ret.Data = ApplyFinalConfigModifiers();
             return ret;
         }
         catch (Exception ex)
@@ -213,8 +215,8 @@ public partial class CoreConfigV2rayService(CoreConfigContext context)
             ApplyOutboundBindInterface();
             ApplyOutboundSendThrough();
             //ret.Msg =string.Format(ResUI.SuccessfulConfiguration"), node.getSummary());
-            ret.Success = true;
             ret.Data = ApplyCustomOutboundReplace();
+            ret.Success = true;
             return ret;
         }
         catch (Exception ex)
@@ -290,8 +292,8 @@ public partial class CoreConfigV2rayService(CoreConfigContext context)
             ApplyOutboundSendThrough();
 
             ret.Msg = string.Format(ResUI.SuccessfulConfiguration, "");
-            ret.Success = true;
             ret.Data = ApplyCustomOutboundReplace();
+            ret.Success = true;
             return ret;
         }
         catch (Exception ex)

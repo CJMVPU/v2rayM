@@ -24,6 +24,7 @@ public class RuntimeRequestOperationPolicyTests
     [Arguments("POST", "/api/core-updates/sing_box/update")]
     [Arguments("POST", "/api/core/geo/update")]
     [Arguments("POST", "/api/speedtests")]
+    [Arguments("POST", "/api/profiles/example/latency")]
     [Arguments("POST", "/api/subscriptions/example/update")]
     [Arguments("POST", "/api/backup/restore")]
     [Arguments("POST", "/api/backup/webdav/restore")]

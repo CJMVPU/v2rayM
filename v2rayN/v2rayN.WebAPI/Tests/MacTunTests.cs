@@ -1,3 +1,4 @@
+using V2rayM.Application.Runtime;
 using System.Diagnostics;
 using System.Text.Json;
 using ServiceLib.Enums;
@@ -72,11 +73,11 @@ public class MacTunTests
         var built = Built(true);
         var preflight = CoreLaunchPreflight.Validate(new ProfileItem(), built, _ => null,
             context => MacTunLaunchPolicy.Validate(context, true, false));
-        var stopped = false;
-        var result = await CoreRestartFlow.ExecuteAsync(() => Task.FromResult(preflight),
-            () => { stopped = true; return Task.CompletedTask; }, () => { }, _ => throw new InvalidOperationException());
-        await stopped.Should().BeFalse();
-        await result.Code.Should().BeEqualTo("mac_tun_helper_unavailable");
+        var runtime = new CoreConnectionTestRuntime { Preflight = preflight };
+        var result = await new CoreConnectionService(runtime).RestartAsync(default);
+        await runtime.Calls.Contains("stop").Should().BeFalse();
+        await result.Status.Should().BeEqualTo(CoreConnectionStatus.PreflightRejected);
+        await preflight.Failure!.Code.Should().BeEqualTo("mac_tun_helper_unavailable");
     }
 
     [Test]

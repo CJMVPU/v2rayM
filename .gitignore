@@ -415,3 +415,7 @@ macos/Native/.swiftpm/
 # Generated offline globe lookup tables (rebuild via scripts/prepare-globe-geo.py)
 macos/Native/Sources/V2rayM/Resources/Globe/*.bin
 macos/Native/Sources/V2rayM/Resources/Globe/places.json
+
+# DDD backup source contexts are not generated Visual Studio backups.
+!/v2rayN/V2rayM.Domain/Backups/
+!/v2rayN/V2rayM.Application/Backups/

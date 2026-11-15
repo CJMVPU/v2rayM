@@ -1102,7 +1102,7 @@ public static class ConfigHandler
     /// <param name="config">Current configuration</param>
     /// <param name="subId">Subscription ID to deduplicate</param>
     /// <returns>Tuple with total count and remaining count after deduplication</returns>
-    public static async Task<Tuple<int, int>> DedupServerList(Config config, string subId)
+    public static async Task<Tuple<int, int>> DedupServerList(Config config, string subId, Func<ProfileItem, bool>? eligible = null)
     {
         var lstProfile = await AppManager.Instance.ProfileItems(subId);
         if (lstProfile == null)
@@ -1119,13 +1119,13 @@ public static class ConfigHandler
 
         foreach (var item in lstProfile)
         {
-            if (item.IsComplex())
+            if (item.IsComplex() || eligible?.Invoke(item) == false)
             {
                 lstKeep.Add(item);
                 continue;
             }
 
-            if (lstKeep.Exists(i => CompareProfileItem(i, item, false)))
+            if (lstKeep.Exists(i => (eligible?.Invoke(i) ?? true) && CompareProfileItem(i, item, false)))
             {
                 lstRemove.Add(item);
             }
@@ -1417,10 +1417,16 @@ public static class ConfigHandler
     /// <param name="config">Current configuration</param>
     /// <param name="subid">Subscription ID to filter servers</param>
     /// <returns>Number of removed servers or -1 if failed</returns>
-    public static async Task<int> RemoveInvalidServerResult(Config config, string subid)
+    public static async Task<int> RemoveInvalidServerResult(Config config, string subid, Func<ProfileItem, bool>? eligible = null)
     {
         var lstModel = await AppManager.Instance.ProfileModels(subid, "");
         lstModel.RemoveAll(t => t.ConfigType.IsComplexType());
+        if (eligible is not null)
+        {
+            var allowed = (await AppManager.Instance.ProfileItems(subid) ?? [])
+                .Where(eligible).Select(item => item.IndexId).ToHashSet(StringComparer.Ordinal);
+            lstModel.RemoveAll(item => !allowed.Contains(item.IndexId));
+        }
         if (lstModel is { Count: <= 0 })
         {
             return -1;

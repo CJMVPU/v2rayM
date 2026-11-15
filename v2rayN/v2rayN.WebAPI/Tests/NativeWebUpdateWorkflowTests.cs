@@ -1,3 +1,4 @@
+using V2rayM.Domain.Runtime;
 using System.Text.Json;
 using v2rayN.WebAPI.Launcher;
 
@@ -52,12 +53,12 @@ public class NativeWebUpdateWorkflowTests
     [Test]
     public async Task UpdateHealthRequiresTheOriginalRunningOrStoppedRuntimeIntent()
     {
-        var runningIntent = new v2rayN.WebAPI.Services.RuntimeRestartIntent(true, "removed-profile");
+        var runningIntent = new V2rayM.Domain.Runtime.RuntimeRestartIntent(true, "removed-profile");
         var recoveredWithFallback = new WebHealthProbeResult(
             true, 42, CoreProcessIds: [99], CoreState: "running", WebVersion: "7.25.2-web.9", CoreProfileId: "fallback-profile");
         await NativeWebUpdateWorkflow.RuntimeIntentIsSatisfied(runningIntent, recoveredWithFallback).Should().BeTrue();
 
-        var stoppedIntent = new v2rayN.WebAPI.Services.RuntimeRestartIntent(false, "old-profile");
+        var stoppedIntent = new V2rayM.Domain.Runtime.RuntimeRestartIntent(false, "old-profile");
         var remainsStopped = new WebHealthProbeResult(true, 43, CoreProcessIds: [], CoreState: "stopped");
         await NativeWebUpdateWorkflow.RuntimeIntentIsSatisfied(stoppedIntent, remainsStopped).Should().BeTrue();
         await NativeWebUpdateWorkflow.RuntimeIntentIsSatisfied(stoppedIntent,

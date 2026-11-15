@@ -31,6 +31,7 @@ def main():
     manifest = ROOT / 'scripts/macos-build-manifest.py'
     run([sys.executable, manifest, 'verify-core', '--core-bin', core_bin])
     run([sys.executable, ROOT / 'scripts/check-macos-product-boundaries.py'])
+    run([sys.executable, ROOT / 'scripts/check-ddd-boundaries.py'])
     run([sys.executable, ROOT / 'scripts/generate-helper-contract.py', '--check'])
     geo = ROOT / 'scripts/prepare-macos-geo.py'
     if subprocess.run([sys.executable, str(geo), '--verify-only'], cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode:

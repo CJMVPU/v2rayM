@@ -70,26 +70,3 @@ internal static class CoreLaunchPreflight
             ? OperationView.Fail("tun_not_supported", ApiMessageKeys.CoreTunNotSupported)
             : null;
 }
-
-internal static class CoreRestartFlow
-{
-    public static async Task<OperationView> ExecuteAsync(
-        Func<Task<CoreLaunchPreflightResult>> buildAndValidate,
-        Func<Task> stopCore,
-        Action markCoreStopped,
-        Func<CoreLaunchPreflightResult, Task<OperationView>> launch)
-    {
-        var preflight = await buildAndValidate();
-        if (preflight.Failure is { } failure)
-        {
-            return failure;
-        }
-
-        await stopCore();
-        markCoreStopped();
-        var startResult = await launch(preflight);
-        return startResult.Success
-            ? OperationView.Ok(ApiMessageKeys.CoreRestarted, startResult.Data)
-            : startResult;
-    }
-}

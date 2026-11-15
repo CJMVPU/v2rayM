@@ -1,3 +1,5 @@
+using V2rayM.Application.Runtime;
+using V2rayM.Domain.Runtime;
 using ServiceLib.Common;
 using ServiceLib.Handler;
 using ServiceLib.Manager;
@@ -9,118 +11,67 @@ namespace v2rayN.WebAPI.Services;
 
 public sealed partial class V2rayRuntime
 {
-    private CancellationTokenSource? _scheduledOperationsCancellation;
-    private Task? _scheduledOperationsTask;
+    private ScheduledMaintenanceService? _scheduledMaintenance;
 
     private void StartScheduledOperations(CancellationToken hostToken)
     {
-        _scheduledOperationsCancellation = CancellationTokenSource.CreateLinkedTokenSource(hostToken, _operations.ShutdownToken);
-        var cancellationToken = _scheduledOperationsCancellation.Token;
-        _scheduledOperationsTask = Task.Run(() => RunScheduledOperationsAsync(cancellationToken));
+        _scheduledMaintenance ??= new(new ScheduledMaintenanceAdapter(this));
+        if (!_scheduledMaintenance.Start(hostToken, _operations.ShutdownToken))
+            throw new InvalidOperationException("Scheduled maintenance is already owned by an active run.");
     }
 
-    private async Task<bool> StopScheduledOperationsAsync(CancellationToken shutdownToken)
+    private Task<bool> StopScheduledOperationsAsync(CancellationToken shutdownToken) =>
+        _scheduledMaintenance?.StopAsync(shutdownToken) ?? Task.FromResult(true);
+
+    private sealed class ScheduledMaintenanceAdapter(V2rayRuntime owner) : IScheduledMaintenance
     {
-        var cancellation = _scheduledOperationsCancellation;
-        var task = _scheduledOperationsTask;
-        if (cancellation is null || task is null)
+        public int GeoUpdateIntervalHours => owner.Config.GuiItem.AutoUpdateInterval;
+        public async Task ExecuteAsync(MaintenanceAction action, CancellationToken token)
         {
-            return true;
-        }
-
-        cancellation.Cancel();
-        try
-        {
-            await task.WaitAsync(shutdownToken);
-        }
-        catch (OperationCanceledException) when (task.IsCompleted && cancellation.IsCancellationRequested)
-        {
-            // Expected during graceful service shutdown.
-        }
-        finally
-        {
-            if (task.IsCompleted)
+            switch (action)
             {
-                cancellation.Dispose();
-                _scheduledOperationsCancellation = null;
-                _scheduledOperationsTask = null;
-            }
-        }
-
-        return true;
-    }
-
-    private async Task RunScheduledOperationsAsync(CancellationToken cancellationToken)
-    {
-        var elapsedMinutes = 1;
-        while (true)
-        {
-            await Task.Delay(TimeSpan.FromMinutes(1), cancellationToken);
-            await RunScheduledStepAsync("subscription", RunScheduledSubscriptionUpdatesAsync, cancellationToken);
-
-            if (elapsedMinutes % 20 == 0)
-            {
-                await RunScheduledStepAsync("save", async token =>
-                {
-                    await using var operation = await _operations.EnterOperationAsync(token);
-                    await _mutations.RunAsync(async () =>
+                case MaintenanceAction.Subscriptions:
+                    await owner.RunScheduledSubscriptionUpdatesAsync(token);
+                    break;
+                case MaintenanceAction.SaveState:
+                    await using (var operation = await owner._operations.EnterOperationAsync(token))
                     {
-                        await EnsureConfigSaveSucceededAsync(() => _configStore.SaveAsync());
-                        await ProfileExManager.Instance.SaveTo();
-                    }, operation.Token);
-                }, cancellationToken);
+                        await owner._mutations.RunAsync(async () =>
+                        {
+                            await EnsureConfigSaveSucceededAsync(() => owner._configStore.SaveAsync());
+                            await ProfileExManager.Instance.SaveTo();
+                        }, operation.Token);
+                    }
+                    break;
+                case MaintenanceAction.CleanupFiles:
+                    await using (var operation = await owner._operations.EnterOperationAsync(token))
+                    {
+                        operation.Token.ThrowIfCancellationRequested();
+                        FileUtils.DeleteExpiredFiles(Utils.GetBinConfigPath(), DateTime.Now.AddHours(-1), "Test");
+                        FileUtils.DeleteExpiredFiles(Utils.GetLogPath(), DateTime.Now.AddDays(-7));
+                        FileUtils.DeleteExpiredFiles(Utils.GetTempPath(), DateTime.Now.AddDays(-7));
+                    }
+                    break;
+                case MaintenanceAction.GeoUpdate:
+                    await owner.RunScheduledGeoUpdateAsync(token);
+                    break;
+                case MaintenanceAction.CoreUpdateCheck:
+                    await owner.RunScheduledCoreUpdateCheckAsync(token);
+                    break;
+                default: throw new ArgumentOutOfRangeException(nameof(action));
             }
-
-            if (elapsedMinutes % 60 == 0)
-            {
-                await RunScheduledStepAsync("cleanup", async token =>
-                {
-                    await using var operation = await _operations.EnterOperationAsync(token);
-                    FileUtils.DeleteExpiredFiles(Utils.GetBinConfigPath(), DateTime.Now.AddHours(-1), "Test");
-                    FileUtils.DeleteExpiredFiles(Utils.GetLogPath(), DateTime.Now.AddDays(-7));
-                    FileUtils.DeleteExpiredFiles(Utils.GetTempPath(), DateTime.Now.AddDays(-7));
-                }, cancellationToken);
-
-                var elapsedHours = elapsedMinutes / 60;
-                if (Config.GuiItem.AutoUpdateInterval > 0 && elapsedHours % Config.GuiItem.AutoUpdateInterval == 0)
-                {
-                    await RunScheduledStepAsync("geo-update", RunScheduledGeoUpdateAsync, cancellationToken);
-                }
-            }
-
-            if (elapsedMinutes % 1440 == 1)
-            {
-                await RunScheduledStepAsync("core-update-check", RunScheduledCoreUpdateCheckAsync, cancellationToken);
-            }
-            elapsedMinutes++;
         }
-    }
-
-    private async Task RunScheduledStepAsync(string name, Func<CancellationToken, Task> step, CancellationToken cancellationToken)
-    {
-        try
-        {
-            await step(cancellationToken);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception exception)
-        {
-            AddLog("task", $"{name}: {exception.Message}");
-        }
+        public void Log(MaintenanceAction action, string detail) => owner.AddLog("task", $"{action}: {detail}");
     }
 
     private async Task RunScheduledSubscriptionUpdatesAsync(CancellationToken cancellationToken)
     {
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        IReadOnlyList<SubItem> subscriptions;
+        IReadOnlyList<V2rayM.Domain.Subscriptions.Subscription> subscriptions;
         await using (var operation = await _operations.EnterOperationAsync(cancellationToken))
         {
-            subscriptions = (await AppManager.Instance.SubItems() ?? [])
-                .Where(item => item.AutoUpdateInterval > 0
-                               && now - item.UpdateTime >= item.AutoUpdateInterval * 60L)
+            subscriptions = (await _subscriptions.ListAsync())
+                .Where(item => item.IsUpdateDue(now))
                 .ToArray();
         }
 
@@ -154,16 +105,6 @@ public sealed partial class V2rayRuntime
         if (task is not null) await task.WaitAsync(cancellationToken);
     }
 
-    private async Task RunScheduledCoreUpdateCheckAsync(CancellationToken cancellationToken)
-    {
-        await using var operation = await _operations.EnterOperationAsync(cancellationToken);
-        var updateService = new UpdateService(Config, (_, _) => Task.CompletedTask);
-        var messages = await updateService.CheckHasUpdateOnlyAll(
-            Config.CheckUpdateItem.UpdateViaProxy,
-            operation.Token);
-        foreach (var message in messages)
-        {
-            AddLog("update", message);
-        }
-    }
+    private Task RunScheduledCoreUpdateCheckAsync(CancellationToken cancellationToken) =>
+        new V2rayM.Application.Updates.ScheduledUpdateCheckService(new ScheduledUpdateCheckAdapter(this)).RunAsync(cancellationToken);
 }

@@ -5,7 +5,7 @@ namespace v2rayN.WebAPI.Services;
 /// Subscription updates hold the gate across ServiceLib's download/import operation so their
 /// profile, configuration, and timestamp changes remain ordered with other Web mutations.
 /// </summary>
-public sealed class RuntimeMutationGate
+public sealed class RuntimeMutationGate : V2rayM.Application.IMutationScope
 {
     private readonly SemaphoreSlim _semaphore = new(1, 1);
 

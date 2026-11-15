@@ -153,6 +153,53 @@ public class UpdatePreReleaseSettingsTests
         await JsonUtils.Serialize(fixture.Config).Should().BeEqualTo(previous);
     }
 
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task FailedSaveRestoresFullPreviousConfigurationAndReportsRecovery(bool restoreFails)
+    {
+        using var fixture = new RuntimeFixture { FailSave = true, FailRestore = restoreFails };
+        fixture.Config.CheckUpdateItem.SelectedCoreTypes = ["OtherPlatform", "v2rayN.Web", "Xray"];
+        fixture.Config.CheckUpdateItem.CheckPreReleaseCoreTypes = ["HiddenPreview"];
+        fixture.Config.IndexId = "unexposed-profile";
+        var original = JsonUtils.Serialize(fixture.Config);
+
+        var result = await fixture.Runtime.SaveCoreUpdateSettingsAsync(new(["GeoFiles"], false, false, []));
+
+        await result.Success.Should().BeFalse();
+        await result.Code.Should().BeEqualTo("core_update_settings_save_failed");
+        await fixture.Restores.Should().BeEqualTo(1);
+        using var data = JsonDocument.Parse(JsonSerializer.Serialize(result));
+        var detail = data.RootElement.GetProperty("Data");
+        await detail.GetProperty("configRestored").GetBoolean().Should().BeEqualTo(!restoreFails);
+        if (!restoreFails)
+        {
+            await JsonUtils.Serialize(fixture.Config).Should().BeEqualTo(original);
+            await JsonUtils.Serialize(await fixture.ReadSavedConfigAsync()).Should().BeEqualTo(original);
+        }
+        else await detail.GetProperty("rollbackDetail").GetString().Should().BeEqualTo("restore unavailable");
+    }
+
+    [Test]
+    public async Task InvalidSelectionDoesNotCaptureOrWriteConfiguration()
+    {
+        using var fixture = new RuntimeFixture { FailCapture = true };
+        var result = await fixture.Runtime.SaveCoreUpdateSettingsAsync(new(["UnknownTarget"], false, true));
+        await result.Code.Should().BeEqualTo("core_update_settings_invalid");
+        await fixture.Captures.Should().BeEqualTo(0);
+    }
+
+    [Test]
+    public async Task SnapshotFailureDoesNotMutatePreferencesOrAttemptRestore()
+    {
+        using var fixture = new RuntimeFixture { FailCapture = true };
+        var original = JsonUtils.Serialize(fixture.Config);
+        var result = await fixture.Runtime.SaveCoreUpdateSettingsAsync(new(["Xray"], false, false));
+        await result.Success.Should().BeFalse();
+        await JsonUtils.Serialize(fixture.Config).Should().BeEqualTo(original);
+        await fixture.Restores.Should().BeEqualTo(0);
+    }
+
     private sealed class RuntimeFixture : IDisposable, IRuntimeConfigStore
     {
         private string? _saved;
@@ -160,10 +207,31 @@ public class UpdatePreReleaseSettingsTests
         public Config Current => Config;
         public V2rayRuntime Runtime { get; }
         public RuntimeFixture() => Runtime = new(null!, null!, null!, null!, new RuntimeOperationCoordinator(), this);
-        public Task<int> SaveAsync() { _saved = JsonUtils.Serialize(Config); return Task.FromResult(0); }
-        public Task<RuntimeConfigSnapshot> CaptureAsync() => Task.FromResult(new RuntimeConfigSnapshot(
-            JsonUtils.DeepCopy(Config)!, [], [], []));
-        public Task RestoreAsync(RuntimeConfigSnapshot snapshot) => throw new NotSupportedException();
+        public bool FailSave { get; init; }
+        public bool FailRestore { get; init; }
+        public bool FailCapture { get; init; }
+        public int Captures { get; private set; }
+        public int Restores { get; private set; }
+        public Task<int> SaveAsync()
+        {
+            // Model a partial write, not merely a failure before persistence.
+            _saved = JsonUtils.Serialize(Config);
+            return Task.FromResult(FailSave ? -1 : 0);
+        }
+        public Task<RuntimeConfigSnapshot> CaptureAsync()
+        {
+            Captures++;
+            if (FailCapture) throw new IOException("snapshot unavailable");
+            return Task.FromResult(new RuntimeConfigSnapshot(JsonUtils.DeepCopy(Config)!, [], [], []));
+        }
+        public Task RestoreAsync(RuntimeConfigSnapshot snapshot)
+        {
+            Restores++;
+            if (FailRestore) throw new IOException("restore unavailable");
+            ServiceLibRuntimeConfigStore.CopyValues(Config, snapshot.Config);
+            _saved = JsonUtils.Serialize(Config);
+            return Task.CompletedTask;
+        }
         public Task<Config> ReadSavedConfigAsync() => Task.FromResult(JsonUtils.Deserialize<Config>(_saved!)
             ?? throw new InvalidDataException("The saved update settings could not be reloaded."));
         public void Dispose() { }

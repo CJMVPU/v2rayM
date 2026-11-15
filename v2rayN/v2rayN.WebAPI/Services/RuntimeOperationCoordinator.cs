@@ -5,8 +5,14 @@ namespace v2rayN.WebAPI.Services;
 /// (core updates and restore) take an exclusive lease. Exclusive waiters prevent new
 /// normal work from starving them, and shutdown cancels all linked operation tokens.
 /// </summary>
-public sealed class RuntimeOperationCoordinator
+public sealed class RuntimeOperationCoordinator : V2rayM.Application.IOperationScope
 {
+    async Task V2rayM.Application.IOperationScope.RunAsync(Func<CancellationToken, Task> operation, CancellationToken token)
+    {
+        await using var lease = await EnterOperationAsync(token);
+        await operation(lease.Token);
+    }
+
     private static readonly TimeSpan DefaultDrainTimeout = TimeSpan.FromSeconds(10);
     private readonly object _sync = new();
     private readonly CancellationTokenSource _shutdown = new();
@@ -191,7 +197,7 @@ public sealed class RuntimeOperationCoordinator
     private static TaskCompletionSource NewSignal() =>
         new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-    public sealed class Lease : IAsyncDisposable, IDisposable
+    public sealed class Lease : V2rayM.Application.Updates.IUpdateOperationLease, IDisposable
     {
         private RuntimeOperationCoordinator? _owner;
         private readonly bool _exclusive;

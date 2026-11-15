@@ -1,3 +1,5 @@
+using V2rayM.Domain.Updates;
+
 namespace v2rayN.WebAPI.Services;
 
 internal enum WebDeploymentKind
@@ -20,14 +22,16 @@ internal static class WebUpdateDeploymentPolicy
         bool isNativeSingleFile,
         bool installDirectoryWritable)
     {
-        if (isContainer)
-            return new(WebDeploymentKind.Container, true, false, "maintenance.webUpdateContainerImage");
-        if (isSystemdManaged)
-            return new(WebDeploymentKind.SystemdManaged, true, false, "maintenance.webUpdateSystemdAdmin");
-        if (!isSupportedNativePlatform || !isNativeSingleFile)
-            return new(WebDeploymentKind.Unsupported, true, false, "maintenance.webUpdateUnsupported");
-        if (!installDirectoryWritable)
-            return new(WebDeploymentKind.ReadOnly, true, false, "maintenance.webUpdateReadOnly");
-        return new(WebDeploymentKind.NativeWritable, true, true, null);
+        var deployment = ApplicationDeploymentPolicy.Evaluate(isSupportedNativePlatform, isContainer,
+            isSystemdManaged, isNativeSingleFile, installDirectoryWritable);
+        var (kind, reason) = deployment.Kind switch
+        {
+            ApplicationDeploymentKind.Container => (WebDeploymentKind.Container, "maintenance.webUpdateContainerImage"),
+            ApplicationDeploymentKind.SystemdManaged => (WebDeploymentKind.SystemdManaged, "maintenance.webUpdateSystemdAdmin"),
+            ApplicationDeploymentKind.ReadOnly => (WebDeploymentKind.ReadOnly, "maintenance.webUpdateReadOnly"),
+            ApplicationDeploymentKind.NativeWritable => (WebDeploymentKind.NativeWritable, (string?)null),
+            _ => (WebDeploymentKind.Unsupported, "maintenance.webUpdateUnsupported"),
+        };
+        return new(kind, deployment.CanCheck, deployment.CanInstall && kind != WebDeploymentKind.Unsupported, reason);
     }
 }

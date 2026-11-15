@@ -1,18 +1,13 @@
 import Foundation
+import V2rayMDomain
+import V2rayMApplication
 
-public enum ProxyMode: Equatable, Sendable { case off, system, tun }
-public struct ProxyConnection {
-    public var running: Bool
-    public var port: Int?
-    public init(running: Bool, port: Int?) { self.running = running; self.port = port }
-}
+public typealias ProxyMode = V2rayMDomain.ProxyMode
+public typealias ProxyConnection = V2rayMDomain.ProxyConnection
+public typealias ProxyModePreferences = V2rayMApplication.ProxyModePreferences
 public protocol ProxyModeBackend: TunBackend {
     func proxyConnection() async throws -> ProxyConnection
     func stopProxyCore() async throws
-}
-public protocol ProxyModePreferences: Sendable {
-    func enableProxy(port: Int) async throws
-    func restoreProxy() async throws
 }
 extension APIClient: ProxyModeBackend {
     public func proxyConnection() async throws -> ProxyConnection {
@@ -35,72 +30,35 @@ public struct ProxyModeFailure: LocalizedError {
 }
 
 public enum ProxyModeSwitch {
-    /// Modes have a single owner. Restore system preferences before stopping their
-    /// listener, and preflight TUN before disturbing a working system proxy.
     public static func apply(_ target: ProxyMode, systemProxyEnabled: Bool, hasSelectedProfile: Bool,
                              backend: any ProxyModeBackend, preferences: any ProxyModePreferences,
                              checkOtherTunnel: @Sendable () async throws -> Void = { try await TunnelConflict.check() }) async throws -> Bool {
-        // Disconnect is monotonic: a failed observation/stop must never restart
-        // the mode that the user explicitly turned off.
-        if target == .off {
-            var enabled = systemProxyEnabled
-            do {
-                try await preferences.restoreProxy(); enabled = false
-                try await backend.stopProxyCore()
-                try await backend.setTunEnabled(false)
-                return false
-            } catch {
-                throw ProxyModeFailure(systemProxyEnabled: enabled, rollbackFailed: false, underlying: error)
-            }
-        }
-        let original = try await backend.tunStatus()
-        let previous: ProxyMode = systemProxyEnabled ? .system : original.isRunning ? .tun : .off
-        if target != .off && !hasSelectedProfile { throw ClientFailure("profile_not_selected") }
-        if target == .tun {
-            guard original.helperAvailable else { throw ClientFailure("mac_tun_helper_unavailable") }
-            if original.privilegedCoreProcessIds.isEmpty { try await checkOtherTunnel() }
-        }
-        var proxyEnabled = systemProxyEnabled
         do {
-            switch target {
-            case .off:
-                return false // Disconnect was handled before observing the old mode.
-            case .system:
-                if original.enabled {
-                    try await backend.stopProxyCore()
-                    try await backend.setTunEnabled(false)
-                }
-                try await backend.startTunCore()
-                let state = try await backend.proxyConnection()
-                guard state.running, let port = state.port else { throw ClientFailure("core_start_failed") }
-                if !proxyEnabled { try await preferences.enableProxy(port: port); proxyEnabled = true }
-            case .tun:
-                try await preferences.restoreProxy(); proxyEnabled = false
-                try await backend.setTunEnabled(true)
-                if original.runtimeState != "running" { try await backend.startTunCore() }
-                guard try await backend.tunStatus().isRunning else { throw ClientFailure("core_start_failed") }
-            }
-            return proxyEnabled
-        } catch {
-            let failure = error
-            do {
-                try await preferences.restoreProxy(); proxyEnabled = false
-                try await backend.stopProxyCore()
-                try await backend.setTunEnabled(previous == .tun)
-                if previous != .off { try await backend.startTunCore() }
-                if previous == .system {
-                    let state = try await backend.proxyConnection()
-                    guard state.running, let port = state.port else { throw ClientFailure("core_start_failed") }
-                    try await preferences.enableProxy(port: port); proxyEnabled = true
-                }
-                if previous == .tun {
-                    let restored = try await backend.tunStatus()
-                    guard restored.isRunning else { throw ClientFailure("core_start_failed") }
-                }
-            } catch {
-                throw ProxyModeFailure(systemProxyEnabled: proxyEnabled, rollbackFailed: true, underlying: failure)
-            }
-            throw ProxyModeFailure(systemProxyEnabled: proxyEnabled, rollbackFailed: false, underlying: failure)
+            return try await ProxyModeService.apply(target, systemProxyEnabled: systemProxyEnabled,
+                hasSelectedProfile: hasSelectedProfile, backend: ModeBackendAdapter(backend: backend),
+                preferences: preferences, checkOtherTunnel: checkOtherTunnel)
+        } catch let failure as ModeSwitchFailure {
+            throw ProxyModeFailure(systemProxyEnabled: failure.systemProxyEnabled,
+                rollbackFailed: failure.rollbackFailed, underlying: presentationError(failure.underlying))
+        } catch { throw presentationError(error) }
+    }
+    private static func presentationError(_ error: Error) -> Error {
+        guard let rejection = error as? ModeSwitchRejection else { return error }
+        switch rejection {
+        case .profileNotSelected: return ClientFailure("profile_not_selected")
+        case .helperUnavailable: return ClientFailure("mac_tun_helper_unavailable")
+        case .coreStartFailed: return ClientFailure("core_start_failed")
         }
+    }
+    private struct ModeBackendAdapter: ProxyModeRuntime {
+        let backend: any ProxyModeBackend
+        func tunState() async throws -> TunModeState {
+            let state = try await backend.tunStatus()
+            return state.domainState
+        }
+        func proxyConnection() async throws -> ProxyConnection { try await backend.proxyConnection() }
+        func stopProxyCore() async throws { try await backend.stopProxyCore() }
+        func setTunEnabled(_ enabled: Bool) async throws { try await backend.setTunEnabled(enabled) }
+        func startTunCore() async throws { try await backend.startTunCore() }
     }
 }

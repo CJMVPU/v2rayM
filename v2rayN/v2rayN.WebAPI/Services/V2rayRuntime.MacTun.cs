@@ -1,3 +1,4 @@
+using V2rayM.Domain.Runtime;
 using ServiceLib.Common;
 using ServiceLib.Handler;
 using v2rayN.WebAPI.Contracts;
@@ -45,15 +46,16 @@ public sealed partial class V2rayRuntime
         }
         await using var context = await BeginCoreSettingsApplyAsync();
         if (context.Failure is { } failure) return failure;
-        var changed = Config.TunModeItem.EnableTun != input.Enabled;
         try
         {
-            await _mutations.RunAsync(async () =>
+            OperationView? applied = null;
+            var result = await _settingsEditor.EditAsync(new(TunEnabled: input.Enabled), async changed =>
             {
-                Config.TunModeItem.EnableTun = input.Enabled;
-                await EnsureConfigSaveSucceededAsync(() => _configStore.SaveAsync());
+                applied = await CompleteCoreAffectingChangeAsync("macos-tun", changed, context);
+                return applied.Success;
             });
-            return await CompleteCoreAffectingChangeAsync("macos-tun", changed, context);
+            return applied ?? OperationView.Fail("mac_tun_apply_failed", ApiMessageKeys.SettingsCoreApplyFailed,
+                new { result.ConfigRestored, result.Detail, result.RollbackDetail });
         }
         catch
         {

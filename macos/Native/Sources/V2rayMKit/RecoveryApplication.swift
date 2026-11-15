@@ -1,0 +1,20 @@
+import V2rayMDomain
+import V2rayMApplication
+
+public typealias RecoveryObservation = V2rayMDomain.RecoveryObservation
+public typealias NativeRecoveryRuntime = V2rayMApplication.NativeRecoveryRuntime
+public typealias NetworkRecoveryService = V2rayMApplication.NetworkRecoveryService
+public typealias RecoveryAttemptResult = V2rayMApplication.RecoveryAttemptResult
+public typealias TunnelStopEvidence = V2rayMDomain.TunnelStopEvidence
+public typealias NativeShutdownRuntime = V2rayMApplication.NativeShutdownRuntime
+public typealias NativeShutdownService = V2rayMApplication.NativeShutdownService
+public typealias NativeStartupRuntime = V2rayMApplication.NativeStartupRuntime
+public typealias NativeStartupService = V2rayMApplication.NativeStartupService
+public typealias TunModeState = V2rayMDomain.TunModeState
+public typealias NativeCommandRuntime = V2rayMApplication.NativeCommandRuntime
+public typealias NativeCommandService = V2rayMApplication.NativeCommandService
+public typealias CommandFailureDisposition = V2rayMDomain.CommandFailureDisposition
+public typealias CommandFailurePolicy = V2rayMDomain.CommandFailurePolicy
+public typealias NativePollingRuntime = V2rayMApplication.NativePollingRuntime
+public typealias NativePollingService = V2rayMApplication.NativePollingService
+public typealias NativeModuleUpdateCompletion = V2rayMDomain.NativeModuleUpdateCompletion

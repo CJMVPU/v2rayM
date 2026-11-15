@@ -1,10 +1,13 @@
 import Foundation
 
-public enum RuntimeUpdateActivity {
-    public static func isActive(_ operations: [String]) -> Bool {
-        operations.contains { $0.hasPrefix("core-update") || $0 == "geo-update" }
-    }
-}
+import V2rayMDomain
+import V2rayMApplication
+
+public typealias RuntimeUpdateActivity = V2rayMDomain.RuntimeUpdateActivity
+public typealias ModuleUpdateScope = V2rayMDomain.ModuleUpdateScope
+public typealias NativeModuleUpdatePlan = V2rayMDomain.NativeModuleUpdatePlan
+public typealias NativeModuleUpdateRuntime = V2rayMApplication.NativeModuleUpdateRuntime
+public typealias NativeModuleUpdateService = V2rayMApplication.NativeModuleUpdateService
 
 public struct ModuleUpdateProgress: Decodable, Identifiable, Equatable {
     public var id: String { coreType }
@@ -55,12 +58,16 @@ public struct ModuleUpdateSettings: Codable {
     public var preRelease: Bool
     public var useProxy: Bool
     public var checkPreReleaseCoreTypes: [String]?
-    public var nativeTargets: [String] {
-        targets.filter { $0.canInstall && ["Xray"].contains($0.coreType) }.map(\.coreType) + ["GeoFiles"]
+    public var plan: NativeModuleUpdatePlan {
+        NativeModuleUpdatePlan(installableTargets: targets.filter(\.canInstall).map(\.coreType), useProxy: useProxy)
     }
-    public var input: Input { Input(selectedCoreTypes: nativeTargets, preRelease: true, useProxy: useProxy,
-                                    checkPreReleaseCoreTypes: Array(Set(nativeTargets.filter { $0 != "GeoFiles" })).sorted()) }
+    public var nativeTargets: [String] { plan.targets }
+    public var input: Input { Input(plan) }
     public struct Input: Encodable {
+        public init(_ plan: NativeModuleUpdatePlan) {
+            selectedCoreTypes = plan.targets; preRelease = plan.preRelease
+            useProxy = plan.useProxy; checkPreReleaseCoreTypes = plan.preReleaseTargets
+        }
         public var selectedCoreTypes: [String]
         public var preRelease: Bool
         public var useProxy: Bool
@@ -68,13 +75,7 @@ public struct ModuleUpdateSettings: Codable {
     }
 }
 
-public enum ModuleUpdateScope: String, CaseIterable, Identifiable {
-    case xray, geo, all
-    public var id: String { rawValue }
-    public var coreType: String? {
-        switch self { case .xray: return "Xray"; default: return nil }
-    }
-    public var targets: [String] { coreType.map { [$0] } ?? (self == .all ? ["Xray", "GeoFiles"] : ["GeoFiles"]) }
+extension ModuleUpdateScope {
     public var buttonLabel: String {
         switch self { case .xray: return "更新 Xray"
         case .geo: return "更新 GeoIP/Site"; case .all: return "更新全部模块" }

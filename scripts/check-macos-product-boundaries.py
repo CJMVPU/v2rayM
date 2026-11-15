@@ -9,7 +9,7 @@ PATTERN = re.compile(r'sing[-_]?box|SagerNet|\b\w*4Sbox\w*\b|https?://[^\s\"\']*
 PACKAGING_PATTERN = re.compile(r'sing[-_]?box|SagerNet|MetaCubeX|\bmihomo\b|\.srs\b', re.I)
 RETIRED_PACKAGES = {'reactiveui', 'reactiveui.sourcegenerators', 'qrcoder', 'zxing.net.bindings.skiasharp', 'taskscheduler'}
 SKIP_PARTS = {'obj', 'bin', 'Tests', '.build', '__pycache__', 'publish', '.packages'}
-SOURCE_FOLDERS = ('v2rayN/ServiceLib', 'v2rayN/ServiceLib.Tests', 'v2rayN/v2rayN.WebAPI',
+SOURCE_FOLDERS = ('v2rayN/V2rayM.Application', 'v2rayN/V2rayM.Domain', 'v2rayN/ServiceLib', 'v2rayN/ServiceLib.Tests', 'v2rayN/v2rayN.WebAPI',
                   'macos/Native/Sources', 'macos/TunHelper/Sources')
 
 

@@ -1,9 +1,7 @@
-using System.Diagnostics;
-using System.Net;
-using System.Runtime.InteropServices;
+using V2rayM.Application.Updates;
+using V2rayM.Domain.Runtime;
 using System.Text.Json;
 using ServiceLib.Common;
-using ServiceLib.Manager;
 using ServiceLib.Models.Dto;
 using ServiceLib.Services;
 using v2rayN.WebAPI.Contracts;
@@ -122,45 +120,8 @@ public sealed partial class V2rayRuntime
         }
     }
 
-    private async Task RunWebUpdateAsync(bool preRelease, bool useProxy)
-    {
-        WebUpdateStage? stage = null;
-        try
-        {
-            await using var maintenance = await _operations.EnterExclusiveAsync(
-                _operations.ShutdownToken,
-                allowReadOnlyObservations: true);
-            PublishWebUpdateProgress("checking", false, false, null);
-            var check = await CheckWebUpdateReleaseAsync(preRelease, useProxy, maintenance.Token);
-            Volatile.Write(ref _latestWebUpdateVersion, check.Version);
-            if (!string.IsNullOrWhiteSpace(check.Error))
-            {
-                PublishWebUpdateProgress("failed", true, false, check.Error, check.Version);
-                return;
-            }
-            if (!check.IsUpdateAvailable)
-            {
-                PublishWebUpdateProgress("completed", true, true, check.Detail ?? "The Web application is up to date.", check.Version);
-                return;
-            }
-
-            stage = await StageWebUpdateAsync(check, useProxy, maintenance.Token, batch: false);
-            await ApplyStagedWebUpdateAsync(stage, maintenance.Token, batch: false);
-        }
-        catch (OperationCanceledException) when (_operations.IsStopping)
-        {
-            PublishWebUpdateProgress("failed", true, false, "Canceled during graceful shutdown.", stage?.Manifest.Version);
-        }
-        catch (Exception exception)
-        {
-            AddLog("update", $"v2rayN.WebAPI update failed: {exception}");
-            PublishWebUpdateProgress("failed", true, false, exception.Message, stage?.Manifest.Version);
-        }
-        finally
-        {
-            CleanupWebUpdateStage(stage);
-        }
-    }
+    private Task RunWebUpdateAsync(bool preRelease, bool useProxy) =>
+        new ApplicationUpdateService(new ApplicationUpdateAdapter(this, preRelease, useProxy)).RunAsync();
 
     private async Task<WebUpdateReleaseCheck> CheckWebUpdateReleaseAsync(
         bool allowPrerelease,
@@ -275,172 +236,13 @@ public sealed partial class V2rayRuntime
         return candidates;
     }
 
-    private async Task<WebUpdateStage> StageWebUpdateAsync(
-        WebUpdateReleaseCheck check,
-        bool useProxy,
-        CancellationToken cancellationToken,
-        bool batch)
-    {
-        if (check.Manifest is null || check.Package is null)
-            throw new InvalidDataException("The v2rayN.WebAPI update manifest or runtime package was not checked.");
-        var deployment = GetWebUpdateDeployment();
-        if (!deployment.CanInstall) throw new InvalidOperationException(deployment.InstallReasonKey ?? "Web update installation is unavailable.");
+    private Task<WebUpdateStage> StageWebUpdateAsync(
+        WebUpdateReleaseCheck check, bool useProxy, CancellationToken cancellationToken, bool batch) =>
+        new ApplicationPackageStagingService<WebUpdateStage>(new ApplicationPackageStaging(this, check, useProxy, batch))
+            .StageAsync(cancellationToken);
 
-        var id = Guid.NewGuid().ToString("N");
-        var archivePath = Utils.GetTempPath($"web-update-{id}.zip");
-        var packageDirectory = Utils.GetTempPath($"web-update-stage-{id}");
-        var executablePath = Environment.ProcessPath
-            ?? throw new InvalidOperationException("The current Web executable path is unavailable.");
-        var installDirectory = Path.GetDirectoryName(Path.GetFullPath(executablePath))
-            ?? throw new InvalidOperationException("The current Web executable has no install directory.");
-        var installParent = Path.GetDirectoryName(installDirectory)
-            ?? throw new InvalidOperationException("The current Web install directory has no parent.");
-        var candidateDirectory = Path.Combine(installParent, $".v2rayn-WebAPI-candidate-{id}");
-        var backupDirectory = Path.Combine(installParent, $".v2rayn-WebAPI-backup-{id}");
-
-        try
-        {
-            PublishWebUpdateProgress("downloading", false, false, null, check.Manifest.Version, batch);
-            var downloader = new DownloadService();
-            var downloadFailure = new TaskCompletionSource<Exception>(TaskCreationOptions.RunContinuationsAsynchronously);
-            downloader.Error += (_, args) => downloadFailure.TrySetResult(args.GetException());
-            downloader.UpdateCompleted += (_, progress) =>
-                PublishWebUpdateProgress("downloading", false, false, progress.Msg, check.Manifest.Version, batch);
-            await downloader.DownloadFileAsync(new FileDownloadRequest
-            {
-                FileUrl = check.Package.Url,
-                FilePath = archivePath,
-                DisplayFileName = Path.GetFileName(archivePath),
-            }, useProxy, cancellationToken);
-            if (downloadFailure.Task.IsCompletedSuccessfully)
-                throw new IOException("The v2rayN.WebAPI package download failed.", await downloadFailure.Task);
-            if (!File.Exists(archivePath)) throw new IOException("The v2rayN.WebAPI package download did not produce an archive.");
-
-            PublishWebUpdateProgress("verifying", false, false, null, check.Manifest.Version, batch);
-            var identity = await WebUpdatePackageStager.VerifyAndExtractAsync(
-                archivePath, packageDirectory, check.Manifest, check.Package, cancellationToken);
-            if (identity.Rid != WebBuildIdentity.Current.Rid)
-                throw new InvalidDataException("The staged v2rayN.WebAPI package has the wrong runtime identifier.");
-
-            PublishWebUpdateProgress("staged", false, false, "The app-only package passed SHA-256, RID, identity, and archive checks.",
-                check.Manifest.Version, batch);
-            CopyVerifiedWebApp(packageDirectory, candidateDirectory, check.Package.Rid);
-            return new WebUpdateStage(archivePath, packageDirectory, candidateDirectory, backupDirectory,
-                installDirectory, check.Manifest, check.Package);
-        }
-        catch
-        {
-            CleanupWebUpdateStageFiles(archivePath, packageDirectory, candidateDirectory);
-            throw;
-        }
-    }
-
-    private async Task ApplyStagedWebUpdateAsync(WebUpdateStage stage, CancellationToken cancellationToken, bool batch)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        var current = CurrentCoreRuntime;
-        var wasRunning = HasTrackedCoreProcesses
-            && current.State is CoreRuntimeState.Running or CoreRuntimeState.Faulted;
-        var runtimeIntent = new RuntimeRestartIntent(wasRunning, wasRunning ? current.ProfileId : null)
-        {
-            Reason = "Web application update",
-        };
-        var runtimeIntentPath = WebUpdateRuntimeStatePath;
-        var progressPath = Utils.GetTempPath(WebUpdateProgressFile);
-        var planPath = Utils.GetTempPath($"web-update-plan-{Guid.NewGuid():N}.json");
-        var hostArguments = GetCurrentHostArguments();
-        // Never stop the current instance before its listener configuration has a
-        // loopback HTTP probe: the detached helper verifies the replacement (and its
-        // rollback) through that exact endpoint.
-        if (!WebProbeUriResolver.TryResolve(_configuration, out var probeEndpoints))
-        {
-            throw new InvalidOperationException(
-                "The current listener configuration has no loopback HTTP health endpoint, so the update cannot be verified safely.");
-        }
-        var plan = new NativeWebUpdatePlan(
-            stage.InstallDirectory,
-            stage.CandidateDirectory,
-            stage.BackupDirectory,
-            Path.Combine(Utils.StartupPath(), "v2rayN.WebAPI.instance.lock"),
-            probeEndpoints.HealthUri.ToString(),
-            hostArguments,
-            stage.Manifest.Version,
-            stage.Manifest.Commit,
-            stage.Package.Rid,
-            WebBuildIdentity.Current.Version,
-            runtimeIntentPath,
-            progressPath,
-            wasRunning);
-
-        await WriteRuntimeIntentAsync(runtimeIntentPath, runtimeIntent);
-        try
-        {
-            await WriteNativeWebUpdatePlanAsync(planPath, plan);
-            var executablePath = Environment.ProcessPath
-                ?? throw new InvalidOperationException("The native Web executable path is unavailable.");
-            ProcessStartInfo startInfo;
-            string? isolatedWindowsHelper = null;
-            if (OperatingSystem.IsLinux())
-            {
-                var setsid = LinuxXdgBrowserOpener.FindExecutable("setsid")
-                    ?? throw new InvalidOperationException("The setsid executable is required for a native Web update.");
-                startInfo = new ProcessStartInfo
-                {
-                    FileName = setsid,
-                    WorkingDirectory = stage.InstallDirectory,
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                };
-                startInfo.ArgumentList.Add(executablePath);
-            }
-            else if (OperatingSystem.IsWindows())
-            {
-                // The Windows process image is locked while running. Use a sibling copy as the
-                // detached update worker so it can replace the installed executable after the
-                // Web host releases its instance lock.
-                isolatedWindowsHelper = NativeWebUpdateHelper.CreateIsolatedHelperExecutable(executablePath);
-                startInfo = new ProcessStartInfo
-                {
-                    FileName = isolatedWindowsHelper,
-                    WorkingDirectory = stage.InstallDirectory,
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                };
-            }
-            else
-            {
-                throw new PlatformNotSupportedException("Native Web self-update is supported on Linux and Windows x64.");
-            }
-            startInfo.ArgumentList.Add("--apply-WebAPI-update");
-            startInfo.ArgumentList.Add(planPath);
-            Process helper;
-            try
-            {
-                helper = Process.Start(startInfo)
-                    ?? throw new InvalidOperationException("The native Web update helper could not be started.");
-            }
-            catch
-            {
-                if (isolatedWindowsHelper is not null) TryDeleteFile(isolatedWindowsHelper);
-                throw;
-            }
-            using (helper)
-            {
-                stage.TransferredToHelper = true;
-                PublishWebUpdateProgress("stopping", false, false,
-                    "All network operations and package verification completed before Web/Core shutdown.",
-                    stage.Manifest.Version, batch);
-                AddLog("update", $"Handing off the v2rayN.WebAPI update to helper process {helper.Id}.");
-                _lifetime.StopApplication();
-            }
-        }
-        catch
-        {
-            await DeleteRuntimeIntentAsync(runtimeIntentPath);
-            TryDeleteFile(planPath);
-            throw;
-        }
-    }
+    private Task ApplyStagedWebUpdateAsync(WebUpdateStage stage, CancellationToken cancellationToken, bool batch) =>
+        new ApplicationUpdateHandoffService(new ApplicationUpdateHandoff(this, stage, batch)).ExecuteAsync(cancellationToken);
 
     private WebUpdateDeployment GetWebUpdateDeployment()
     {
@@ -633,8 +435,9 @@ public sealed partial class V2rayRuntime
         string BackupDirectory,
         string InstallDirectory,
         WebUpdateManifest Manifest,
-        WebUpdatePackage Package)
+        WebUpdatePackage Package) : IApplicationUpdateArtifact
     {
+        public string Version => Manifest.Version;
         public bool TransferredToHelper { get; set; }
     }
 

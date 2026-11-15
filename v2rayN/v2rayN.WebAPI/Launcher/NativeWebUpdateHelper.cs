@@ -1,3 +1,4 @@
+using V2rayM.Domain.Runtime;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
@@ -135,6 +136,7 @@ internal static class NativeWebUpdateHelper
 
         var backupCreated = false;
         Process? replacementProcess = null;
+        NativeWebUpdateTransactionResult? completedTransaction = null;
         try
         {
             WriteProgress(plan, new WebUpdateProgressState("installing", false, false, plan.ExpectedVersion, null));
@@ -174,6 +176,7 @@ internal static class NativeWebUpdateHelper
                     return Task.CompletedTask;
                 });
 
+            completedTransaction = transaction;
             if (transaction.Success || transaction.RollbackSucceeded)
                 DeleteRuntimeIntent(plan.RuntimeIntentPath);
             WriteProgress(plan, new WebUpdateProgressState(
@@ -192,6 +195,10 @@ internal static class NativeWebUpdateHelper
         catch (Exception exception)
         {
             Console.Error.WriteLine($"Native Web update failed: {exception}");
+            // Completion has already verified the selected build and may have removed
+            // its backup. A reporting/marker failure cannot trigger another file swap.
+            if (completedTransaction is not null)
+                return completedTransaction.Success ? 0 : completedTransaction.RollbackSucceeded ? 1 : 2;
             StopOwnedProcess(replacementProcess, plan.InstanceLockPath);
             var rollbackSucceeded = false;
             if (backupCreated)

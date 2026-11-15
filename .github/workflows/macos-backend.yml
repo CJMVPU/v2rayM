@@ -28,6 +28,8 @@ jobs:
       - name: Check product boundaries and language contract
         run: |
           python3 scripts/check-macos-product-boundaries.py
+          python3 scripts/check-ddd-boundaries.py
+          python3 scripts/test-ddd-boundaries.py
           python3 scripts/generate-helper-contract.py --check
           python3 scripts/test-macos-build-manifest.py
           python3 scripts/test-macos-product-boundaries.py

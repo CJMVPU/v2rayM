@@ -5,6 +5,36 @@ namespace v2rayN.WebAPI.Services;
 
 internal static class CoreUpdateFiles
 {
+    public static void RestorePreviousDirectory(
+        string installPath,
+        string backupPath,
+        bool candidateInstalled,
+        bool hadInstalledCore)
+    {
+        // Prove that the previous installation is recoverable before deleting
+        // the candidate. Missing/ambiguous backups must preserve the evidence.
+        if (hadInstalledCore)
+        {
+            if (!Directory.Exists(backupPath))
+            {
+                if (candidateInstalled || !Directory.Exists(installPath))
+                    throw new IOException("The previous Core backup is missing; the current directory was retained.");
+                return; // Replacement never moved the original installation.
+            }
+            if (!candidateInstalled && Directory.Exists(installPath))
+                throw new IOException("Both the previous backup and an unclassified installation exist; neither was changed.");
+        }
+        if (candidateInstalled && Directory.Exists(installPath))
+        {
+            Directory.Delete(installPath, recursive: true);
+        }
+        if (hadInstalledCore && Directory.Exists(backupPath) && !Directory.Exists(installPath))
+        {
+            Directory.Move(backupPath, installPath);
+        }
+    }
+
+
     public static string? FindCoreExecutable(CoreInfo coreInfo, string directory) =>
         (coreInfo.CoreExes ?? [])
             .Select(name => Path.Combine(directory, Utils.GetExeName(name)))

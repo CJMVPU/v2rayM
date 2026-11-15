@@ -1,17 +1,20 @@
+using V2rayM.Application.Updates;
+using V2rayM.Domain.Runtime;
 namespace v2rayN.WebAPI.Launcher;
 
 internal sealed record NativeWebUpdateTransactionResult(bool Success, bool RollbackSucceeded, string? Detail);
 
 internal static class NativeWebUpdateWorkflow
 {
-    public static bool RuntimeIntentIsSatisfied(v2rayN.WebAPI.Services.RuntimeRestartIntent intent, WebHealthProbeResult health)
+    public static bool RuntimeIntentIsSatisfied(V2rayM.Domain.Runtime.RuntimeRestartIntent intent, WebHealthProbeResult health)
     {
-        var hasCore = (health.CoreProcessIds?.Count ?? 0) > 0;
-        if (!intent.WasRunning)
-            return string.Equals(health.CoreState, "stopped", StringComparison.OrdinalIgnoreCase) && !hasCore;
-        return string.Equals(health.CoreState, "running", StringComparison.OrdinalIgnoreCase)
-            && hasCore
-            && !string.IsNullOrWhiteSpace(health.CoreProfileId);
+        CoreRuntimeState? state = health.CoreState?.ToLowerInvariant() switch
+        {
+            "running" => CoreRuntimeState.Running,
+            "stopped" => CoreRuntimeState.Stopped,
+            _ => null,
+        };
+        return intent.IsSatisfied(state, (health.CoreProcessIds?.Count ?? 0) > 0, health.CoreProfileId);
     }
 
     public static async Task<NativeWebUpdateTransactionResult> ApplyAsync(
@@ -22,69 +25,28 @@ internal static class NativeWebUpdateWorkflow
         Action<string> setPhase,
         Func<Task> cleanBackupsAsync)
     {
-        try
-        {
-            setPhase("installing");
-            await installCandidateAsync();
-            setPhase("restarting");
-            setPhase("verifying-health");
-            if (await startCandidateAndVerifyHealthAsync())
-            {
-                await cleanBackupsAsync();
-                return new(true, false, null);
-            }
-        }
-        catch (Exception installException)
-        {
-            setPhase("rolling-back");
-            return await TryRestoreAndVerifyAsync(
-                restorePreviousFilesAsync,
-                startPreviousAndVerifyHealthAsync,
-                cleanBackupsAsync,
-                setPhase,
-                installException.Message);
-        }
-
-        setPhase("rolling-back");
-        return await TryRestoreAndVerifyAsync(
-            restorePreviousFilesAsync,
-            startPreviousAndVerifyHealthAsync,
-            cleanBackupsAsync,
-            setPhase,
-            "The new Web application did not become healthy.");
+        var result = await new ApplicationReplacementService(new ReplacementAdapter(installCandidateAsync,
+            startCandidateAndVerifyHealthAsync, restorePreviousFilesAsync, startPreviousAndVerifyHealthAsync,
+            setPhase, cleanBackupsAsync)).ApplyAsync();
+        return new(result.Success, result.RollbackSucceeded, result.Detail);
     }
 
-    private static async Task<NativeWebUpdateTransactionResult> TryRestoreAndVerifyAsync(
-        Func<Task> restorePreviousFilesAsync,
-        Func<Task<bool>> startPreviousAndVerifyHealthAsync,
-        Func<Task> cleanBackupsAsync,
-        Action<string> setPhase,
-        string failure)
+    private sealed class ReplacementAdapter(Func<Task> install, Func<Task<bool>> startCandidate,
+        Func<Task> restore, Func<Task<bool>> startPrevious, Action<string> phase, Func<Task> cleanup) : IApplicationReplacement
     {
-        string? restoreFailure = null;
-        try
+        public Task InstallAsync() => install();
+        public Task<bool> StartAndVerifyCandidateAsync() => startCandidate();
+        public Task RestoreFilesAsync() => restore();
+        public Task<bool> StartAndVerifyPreviousAsync() => startPrevious();
+        public Task CleanupAsync() => cleanup();
+        public void Publish(ApplicationReplacementPhase value) => phase(value switch
         {
-            await restorePreviousFilesAsync();
-        }
-        catch (Exception rollbackException)
-        {
-            restoreFailure = rollbackException.Message;
-        }
-
-        try
-        {
-            setPhase("restarting");
-            setPhase("verifying-health");
-            if (!await startPreviousAndVerifyHealthAsync())
-                return new(false, false, $"{failure} The previous Web build did not become healthy. {restoreFailure}");
-            if (restoreFailure is not null)
-                return new(false, false, $"{failure} The previous Web process is responding, but restoring all previous app files failed: {restoreFailure}");
-            await cleanBackupsAsync();
-            return new(false, true, $"{failure} The previous Web build was restored and is healthy.");
-        }
-        catch (Exception restartException)
-        {
-            return new(false, false, $"{failure} Rollback/restart failed: {restoreFailure} {restartException.Message}");
-        }
+            ApplicationReplacementPhase.Installing => "installing",
+            ApplicationReplacementPhase.Restarting => "restarting",
+            ApplicationReplacementPhase.VerifyingHealth => "verifying-health",
+            ApplicationReplacementPhase.RollingBack => "rolling-back",
+            _ => throw new ArgumentOutOfRangeException(nameof(value)),
+        });
+        public void Log(string message) => Console.Error.WriteLine(message);
     }
 }

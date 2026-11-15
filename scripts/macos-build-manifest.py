@@ -30,7 +30,7 @@ def source_snapshot(root=ROOT):
         if path.is_file(): files[name] = sha(path)
     def digest(selected):
         return hashlib.sha256(json.dumps(selected, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
-    prefixes = {'backend': ('v2rayN/ServiceLib/', 'v2rayN/ServiceLib.UdpTest/', 'v2rayN/v2rayN.WebAPI/', 'v2rayN/Directory.', 'global.json', 'contracts/'),
+    prefixes = {'backend': ('v2rayN/V2rayM.Application/', 'v2rayN/V2rayM.Domain/', 'v2rayN/ServiceLib/', 'v2rayN/ServiceLib.UdpTest/', 'v2rayN/v2rayN.WebAPI/', 'v2rayN/Directory.', 'global.json', 'contracts/'),
                 'native': ('macos/Native/',), 'helper': ('macos/TunHelper/', 'macos/Resources/', 'contracts/'),
                 'build': ('scripts/', '.github/', 'VERSION')}
     components = {key: digest({name: value for name, value in files.items() if name.startswith(prefix)}) for key, prefix in prefixes.items()}

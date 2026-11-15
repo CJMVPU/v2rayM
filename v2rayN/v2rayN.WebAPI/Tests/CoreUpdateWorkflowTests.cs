@@ -1,3 +1,5 @@
+using V2rayM.Application.Updates;
+using V2rayM.Domain.Updates;
 using v2rayN.WebAPI.MacOS;
 using System.Formats.Tar;
 using System.IO.Compression;
@@ -15,35 +17,24 @@ public class CoreUpdateWorkflowTests
     [Test]
     public async Task LostFinishAcknowledgementDoesNotRollBackCommittedCoreOrClaimHealth()
     {
-        var touchedLocal = false;
-        var result = await CoreUpdateWorkflow.RollBackAndRestoreAsync(
-            () => { touchedLocal = true; return Task.CompletedTask; },
-            () => { touchedLocal = true; return Task.CompletedTask; },
-            wasRunning: true,
-            () => { touchedLocal = true; return Task.FromResult(true); },
-            () => throw new MacHelperUpdateException("update_already_committed"));
-        await touchedLocal.Should().BeFalse();
+        var session = new CoreUpdateTestSession { Trusted = TrustedRollbackDisposition.AlreadyCommitted };
+        var result = await new CoreUpdateApplyService().RestoreAsync(session, new(true, true, true, true));
+        await session.Calls.Contains("restore-files").Should().BeFalse();
         await result.UpdateCommitted.Should().BeTrue();
         await result.Completed.Should().BeFalse();
         await result.CoreRestarted.Should().BeFalse();
-        await CoreUpdateWorkflow.CommittedUpdateUnconfirmedDetail.Should().Contain("health still requires confirmation");
+        await CoreUpdateApplyService.CommittedUpdateUnconfirmedDetail.Should().Contain("health still requires confirmation");
     }
 
     [Test]
     public async Task CancellationBeforeTrustedRollbackConfirmationDoesNotRestoreOnlyLocalFiles()
     {
-        var touchedLocal = false;
-        var cancelled = false;
-        try
-        {
-            await CoreUpdateWorkflow.RollBackAndRestoreAsync(
-                () => { touchedLocal = true; return Task.CompletedTask; },
-                () => Task.CompletedTask, false, () => Task.FromResult(true),
-                () => throw new OperationCanceledException());
-        }
-        catch (OperationCanceledException) { cancelled = true; }
-        await cancelled.Should().BeTrue();
-        await touchedLocal.Should().BeFalse();
+        var session = new CoreUpdateTestSession { FailTrustedRollback = true };
+        var result = await new CoreUpdateApplyService().RestoreAsync(session, new(true, true, true, true));
+        await result.Completed.Should().BeFalse();
+        await result.FilesRestored.Should().BeFalse();
+        await session.RecoveryMarked.Should().BeTrue();
+        await session.Calls.Contains("restore-files").Should().BeFalse();
     }
 
     [Test]
@@ -100,170 +91,6 @@ public class CoreUpdateWorkflowTests
     }
 
     [Test]
-    public async Task StagingAndVerificationAlwaysFinishBeforeApplyBegins()
-    {
-        var sequence = new List<string>();
-        var result = await CoreUpdateWorkflow.StageThenApplyAsync(
-            () =>
-            {
-                sequence.Add("checking");
-                sequence.Add("downloading");
-                sequence.Add("verifying");
-                return Task.FromResult("verified-package");
-            },
-            staged =>
-            {
-                sequence.Add("stopping-core");
-                sequence.Add("installing");
-                return Task.FromResult(staged);
-            });
-
-        await (result == "verified-package").Should().BeTrue();
-        await sequence.SequenceEqual(["checking", "downloading", "verifying", "stopping-core", "installing"]).Should().BeTrue();
-    }
-
-    [Test]
-    public async Task FailedStagingNeverInvokesApply()
-    {
-        var applied = false;
-
-        var failed = false;
-        try
-        {
-            await CoreUpdateWorkflow.StageThenApplyAsync<string, bool>(
-                () => throw new InvalidDataException("package verification failed"),
-                _ =>
-                {
-                    applied = true;
-                    return Task.FromResult(true);
-                });
-        }
-        catch (InvalidDataException)
-        {
-            failed = true;
-        }
-
-        await failed.Should().BeTrue();
-        await applied.Should().BeFalse();
-    }
-
-    [Test]
-    public async Task SelectedBatchStagesEveryNetworkPackageBeforeAnyApply()
-    {
-        var sequence = new List<string>();
-        var results = await CoreUpdateWorkflow.StageAllThenApplyAsync(
-            new[] { "Xray", "xray", "Mihomo" },
-            target =>
-            {
-                sequence.Add($"stage:{target}");
-                return Task.FromResult($"verified:{target}");
-            },
-            stages =>
-            {
-                sequence.Add("CoreStop");
-                sequence.AddRange(stages.Select(stage => $"apply:{stage}"));
-                return Task.FromResult(stages.Count);
-            },
-            () =>
-            {
-                sequence.Add("prepare:GeoFiles");
-                return Task.CompletedTask;
-            });
-
-        await results.Should().BeEqualTo(3);
-        await sequence.SequenceEqual(new[]
-        {
-            "stage:Xray", "stage:xray", "stage:Mihomo", "prepare:GeoFiles", "CoreStop",
-            "apply:verified:Xray", "apply:verified:xray", "apply:verified:Mihomo",
-        }).Should().BeTrue();
-    }
-
-    [Test]
-    public async Task FailedAdditionalNetworkPreparationPreventsEveryCoreApply()
-    {
-        var applied = false;
-        var failed = false;
-        try
-        {
-            await CoreUpdateWorkflow.StageAllThenApplyAsync(
-                new[] { "Xray" },
-                target => Task.FromResult($"verified:{target}"),
-                _ =>
-                {
-                    applied = true;
-                    return Task.FromResult(true);
-                },
-                () => throw new InvalidDataException("GeoFiles preparation failed."));
-        }
-        catch (InvalidDataException)
-        {
-            failed = true;
-        }
-
-        await failed.Should().BeTrue();
-        await applied.Should().BeFalse();
-    }
-
-    [Test]
-    public async Task FailedBatchStagingPreventsEveryCoreStopAndInstall()
-    {
-        var applied = false;
-        var failed = false;
-        try
-        {
-            await CoreUpdateWorkflow.StageAllThenApplyAsync(
-                new[] { "Xray", "xray" },
-                target => target == "xray"
-                    ? throw new InvalidDataException("package verification failed")
-                    : Task.FromResult($"verified:{target}"),
-                stages =>
-                {
-                    applied = true;
-                    return Task.FromResult(stages.Count);
-                });
-        }
-        catch (InvalidDataException)
-        {
-            failed = true;
-        }
-
-        await failed.Should().BeTrue();
-        await applied.Should().BeFalse();
-    }
-
-    [Test]
-    public async Task SelectedBatchStagesWebWithOtherTargetsAndAppliesItOnlyAfterCoreAndGeo()
-    {
-        var sequence = new List<string>();
-        await CoreUpdateWorkflow.StageAllThenApplyAsync(
-            new[] { "Xray", "xray" },
-            target =>
-            {
-                sequence.Add($"stage:{target}");
-                return Task.FromResult(target);
-            },
-            stages =>
-            {
-                sequence.AddRange(stages.Select(stage => $"apply:{stage}"));
-                sequence.Add("apply:GeoFiles");
-                return Task.FromResult(true);
-            },
-            () =>
-            {
-                sequence.Add("prepare:GeoFiles");
-                sequence.Add("stage:v2rayN.WebAPI");
-                return Task.CompletedTask;
-            });
-        sequence.Add("apply:v2rayN.WebAPI");
-
-        await sequence.SequenceEqual(new[]
-        {
-            "stage:Xray", "stage:xray", "prepare:GeoFiles", "stage:v2rayN.WebAPI",
-            "apply:Xray", "apply:xray", "apply:GeoFiles", "apply:v2rayN.WebAPI",
-        }).Should().BeTrue();
-    }
-
-    [Test]
     public async Task ApplyFailureRestoresThePreviousBinaryBeforeRestartingTheOldCore()
     {
         using var directory = new TemporaryDirectory();
@@ -275,16 +102,17 @@ public class CoreUpdateWorkflowTests
         await File.WriteAllTextAsync(Path.Combine(backup, "xray"), "old-binary");
         var order = new List<string>();
 
-        var rollback = await CoreUpdateWorkflow.RollBackAndRestoreAsync(
-            () =>
+        var session = new CoreUpdateTestSession
+        {
+            RestoreFiles = () =>
             {
-                CoreUpdateWorkflow.RestorePreviousDirectory(install, backup, candidateInstalled: true, hadInstalledCore: true);
-                order.Add("restore-files");
-                return Task.CompletedTask;
+                CoreUpdateFiles.RestorePreviousDirectory(install, backup, candidateInstalled: true, hadInstalledCore: true);
+                order.Add("restore-files"); return Task.CompletedTask;
             },
-            () => { order.Add("initialize-old"); return Task.CompletedTask; },
-            wasRunning: true,
-            restartPreviousCoreAsync: () => { order.Add("restart-old"); return Task.FromResult(true); });
+            InitializeOld = () => { order.Add("initialize-old"); return Task.CompletedTask; },
+            RestartOld = () => { order.Add("restart-old"); return Task.FromResult(true); },
+        };
+        var rollback = await new CoreUpdateApplyService().RestoreAsync(session, new(false, true, false, true));
 
         await rollback.Completed.Should().BeTrue();
         await (await File.ReadAllTextAsync(Path.Combine(install, "xray"))).Should().BeEqualTo("old-binary");
@@ -302,15 +130,16 @@ public class CoreUpdateWorkflowTests
         await File.WriteAllTextAsync(Path.Combine(install, "xray"), "new-binary");
         await File.WriteAllTextAsync(Path.Combine(backup, "xray"), "old-binary");
 
-        var rollback = await CoreUpdateWorkflow.RollBackAndRestoreAsync(
-            () =>
+        var session = new CoreUpdateTestSession
+        {
+            RestoreFiles = () =>
             {
-                CoreUpdateWorkflow.RestorePreviousDirectory(install, backup, candidateInstalled: true, hadInstalledCore: true);
+                CoreUpdateFiles.RestorePreviousDirectory(install, backup, candidateInstalled: true, hadInstalledCore: true);
                 return Task.CompletedTask;
             },
-            () => Task.CompletedTask,
-            wasRunning: true,
-            restartPreviousCoreAsync: () => Task.FromResult(false));
+            RestartOld = () => Task.FromResult(false),
+        };
+        var rollback = await new CoreUpdateApplyService().RestoreAsync(session, new(false, true, false, true));
 
         await rollback.FilesRestored.Should().BeTrue();
         await rollback.Completed.Should().BeFalse();
@@ -318,15 +147,31 @@ public class CoreUpdateWorkflowTests
     }
 
     [Test]
-    public async Task OnlyTheExactUpdatedCoreIsStoppedAndRestarted()
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task MissingOrAmbiguousBackupNeverDeletesTheOnlyUsableInstallation(bool ambiguous)
     {
-        var now = DateTimeOffset.UtcNow;
-        foreach (var core in new[] { ECoreType.Xray, (ECoreType)24, ECoreType.mihomo })
+        using var directory = new TemporaryDirectory();
+        var install = Path.Combine(directory.Path, "xray");
+        var backup = Path.Combine(directory.Path, "backup");
+        Directory.CreateDirectory(install);
+        await File.WriteAllTextAsync(Path.Combine(install, "xray"), "retained-binary");
+        if (ambiguous)
         {
-            await CoreUpdateRuntimePolicy.IsTargetRunning(core, core, now).Should().BeTrue();
-            await CoreUpdateRuntimePolicy.IsTargetRunning(core, ECoreType.v2fly, now).Should().BeFalse();
-            await CoreUpdateRuntimePolicy.IsTargetRunning(core, core, null).Should().BeFalse();
+            Directory.CreateDirectory(backup);
+            await File.WriteAllTextAsync(Path.Combine(backup, "xray"), "old-binary");
         }
+        var failed = false;
+        try { CoreUpdateFiles.RestorePreviousDirectory(install, backup, candidateInstalled: !ambiguous, hadInstalledCore: true); }
+        catch (IOException) { failed = true; }
+        await failed.Should().BeTrue();
+        await (await File.ReadAllTextAsync(Path.Combine(install, "xray"))).Should().BeEqualTo("retained-binary");
+        if (ambiguous) await (await File.ReadAllTextAsync(Path.Combine(backup, "xray"))).Should().BeEqualTo("old-binary");
+    }
+
+    [Test]
+    public async Task OnlyXrayCanBeInstalled()
+    {
         await CoreUpdatePackageStager.SupportsCore(ECoreType.Xray).Should().BeTrue();
         await CoreUpdatePackageStager.SupportsCore((ECoreType)24).Should().BeFalse();
         await CoreUpdatePackageStager.SupportsCore(ECoreType.mihomo).Should().BeFalse();

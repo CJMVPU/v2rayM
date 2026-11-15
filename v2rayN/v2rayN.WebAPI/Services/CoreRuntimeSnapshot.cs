@@ -1,16 +1,7 @@
+using V2rayM.Domain.Runtime;
 using ServiceLib.Enums;
 
 namespace v2rayN.WebAPI.Services;
-
-internal enum CoreRuntimeState
-{
-    Stopped,
-    Starting,
-    Running,
-    Stopping,
-    Restarting,
-    Faulted,
-}
 
 internal sealed record RuntimeListenerSnapshot(
     string Name,

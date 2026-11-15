@@ -1,4 +1,6 @@
 import Foundation
+import V2rayMDomain
+import V2rayMApplication
 
 public struct MacTunStatus: Decodable, Sendable, Equatable {
     public var platformSupported: Bool
@@ -12,6 +14,10 @@ public struct MacTunStatus: Decodable, Sendable, Equatable {
     public var privilegedCoreProcessIds: [Int]
 
     public var isRunning: Bool { enabled && runtimeState == "running" && !privilegedCoreProcessIds.isEmpty }
+    public var domainState: TunModeState {
+        TunModeState(helperAvailable: helperAvailable, enabled: enabled, runtimeState: runtimeState,
+                     ownedProcessIDs: privilegedCoreProcessIds)
+    }
     public var modeDescription: String {
         if !enabled { return "已关闭" }
         if isRunning { return "运行中" }
@@ -46,9 +52,8 @@ public enum TunModeChange {
     public static func checkBeforeConnecting(backend: any TunBackend,
                                              checkOtherTunnel: @Sendable () async throws -> Void = { try await TunnelConflict.check() }) async throws {
         let state = try await backend.tunStatus()
-        guard state.enabled else { return }
-        guard state.helperAvailable else { throw ClientFailure("mac_tun_helper_unavailable") }
-        if state.privilegedCoreProcessIds.isEmpty { try await checkOtherTunnel() }
+        do { try await TunPreflightService.check(state.domainState, requestingTun: state.enabled, checkOtherTunnel: checkOtherTunnel) }
+        catch ModeSwitchRejection.helperUnavailable { throw ClientFailure("mac_tun_helper_unavailable") }
     }
 
 

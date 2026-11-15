@@ -1,4 +1,6 @@
 import Foundation
+import V2rayMDomain
+import V2rayMApplication
 
 /// Native orchestration depends on this contract, not on URLSession or a live process.
 public protocol NativeAPI: ProxyModeBackend {
@@ -39,32 +41,17 @@ public protocol NativeProxy: ProxyModePreferences {
 }
 extension SystemProxyController: NativeProxy {}
 
-public protocol NativeClock: Sendable {
-    func now() -> Date
-    func sleep(seconds: Double) async throws
-}
+public typealias NativeClock = V2rayMApplication.NativeClock
+public typealias ObservationScheduler = V2rayMApplication.ObservationScheduler
 public struct SystemNativeClock: NativeClock {
     public init() {}
     public func now() -> Date { Date() }
     public func sleep(seconds: Double) async throws { try await Task.sleep(for: .seconds(seconds)) }
 }
 
-/// User intent is independent of whether the requested listener is currently up.
-/// An observation started before a mutation cannot change the new connection.
-public struct ConnectionCoordinator {
-    public private(set) var desiredMode: ProxyMode = .off
-    public private(set) var revision = 0
-    public var recovery = NetworkRecovery()
-    public init() {}
-    public var requested: Bool { desiredMode != .off }
-    public mutating func invalidateObservations() { revision += 1 }
-    public mutating func request(_ mode: ProxyMode) {
-        desiredMode = mode; invalidateObservations(); recovery.cancel()
-    }
-    public mutating func restoreIntent(_ mode: ProxyMode) { desiredMode = mode }
-    public func isCurrent(revision: Int, recoveryGeneration: Int) -> Bool {
-        self.revision == revision && recovery.generation == recoveryGeneration
-    }
+public typealias ConnectionCoordinator = V2rayMDomain.ConnectionCoordinator
+
+extension ConnectionCoordinator {
     public static func shouldDetachSystemProxy(_ state: RuntimeStatus) -> Bool {
         !state.coreRunning && ["stopped", "faulted"].contains(state.runtimeState)
     }

@@ -100,16 +100,16 @@ public partial class UpdateService(Config config, Func<bool, string, Task> updat
         }
     }
 
-    public async Task<UpdateResult> CheckHasUpdateOnly(ECoreType type, bool preRelease, bool blProxy = true, CancellationToken cancellationToken = default, bool synchronizeInstalled = false)
+    public async Task<UpdateResult> CheckHasUpdateOnly(ECoreType type, bool preRelease, bool blProxy = true, CancellationToken cancellationToken = default, bool synchronizeInstalled = false, SemanticVersion? installedVersion = null, int? localProxyPort = null)
     {
         if (!CoreInfoManager.Instance.IsCheckUpdateSupported(type))
         {
             return new UpdateResult(false, ResUI.MsgNotSupport);
         }
 
-        var downloadHandle = new DownloadService();
+        var downloadHandle = new DownloadService { LocalProxyPort = localProxyPort };
         var checkPreRelease = CoreInfoManager.Instance.GetCheckPreRelease(type, preRelease);
-        return await CheckUpdateAsync(downloadHandle, type, checkPreRelease, blProxy, cancellationToken, synchronizeInstalled);
+        return await CheckUpdateAsync(downloadHandle, type, checkPreRelease, blProxy, cancellationToken, synchronizeInstalled, installedVersion);
     }
 
     public async Task<List<string>> CheckHasUpdateOnlyAll(bool blProxy = true, CancellationToken cancellationToken = default)
@@ -152,7 +152,7 @@ public partial class UpdateService(Config config, Func<bool, string, Task> updat
 
     #region CheckUpdate private
 
-    private async Task<UpdateResult> CheckUpdateAsync(DownloadService downloadHandle, ECoreType type, bool preRelease, bool blProxy, CancellationToken cancellationToken = default, bool synchronizeInstalled = false)
+    private async Task<UpdateResult> CheckUpdateAsync(DownloadService downloadHandle, ECoreType type, bool preRelease, bool blProxy, CancellationToken cancellationToken = default, bool synchronizeInstalled = false, SemanticVersion? installedVersion = null)
     {
         try
         {
@@ -161,7 +161,7 @@ public partial class UpdateService(Config config, Func<bool, string, Task> updat
             {
                 return result;
             }
-            return await ParseDownloadUrl(type, result, cancellationToken, synchronizeInstalled);
+            return await ParseDownloadUrl(type, result, cancellationToken, synchronizeInstalled, installedVersion);
         }
         catch (Exception ex)
         {
@@ -209,6 +209,12 @@ public partial class UpdateService(Config config, Func<bool, string, Task> updat
     [GeneratedRegex(@"v?(?<version>\d+\.\d+\.\d+(?:-[0-9a-zA-Z.-]+)?(?:\+[0-9a-zA-Z.-]+)?)", RegexOptions.IgnoreCase)]
     private static partial Regex SemVerRegex();
 
+    /// Capture installed identity while the caller protects local executable files.
+    /// Supplying it to CheckHasUpdateOnly keeps subsequent network work independent
+    /// of installation paths; callers must revalidate before publishing a result.
+    public Task<SemanticVersion> GetInstalledVersionAsync(ECoreType type, CancellationToken token = default) =>
+        type == ECoreType.v2rayN ? Task.FromResult(new SemanticVersion(Utils.GetVersionInfo())) : GetCoreVersion(type, token);
+
     private async Task<SemanticVersion> GetCoreVersion(ECoreType type, CancellationToken cancellationToken = default)
     {
         try
@@ -245,7 +251,7 @@ public partial class UpdateService(Config config, Func<bool, string, Task> updat
         }
     }
 
-    private async Task<UpdateResult> ParseDownloadUrl(ECoreType type, UpdateResult result, CancellationToken cancellationToken = default, bool synchronizeInstalled = false)
+    private async Task<UpdateResult> ParseDownloadUrl(ECoreType type, UpdateResult result, CancellationToken cancellationToken = default, bool synchronizeInstalled = false, SemanticVersion? installedVersion = null)
     {
         try
         {
@@ -261,7 +267,7 @@ public partial class UpdateService(Config config, Func<bool, string, Task> updat
                 case ECoreType.Xray:
                 case ECoreType.v2fly_v5:
                     {
-                        curVersion = await GetCoreVersion(type, cancellationToken);
+                        curVersion = installedVersion ?? await GetCoreVersion(type, cancellationToken);
                         message = string.Format(ResUI.IsLatestCore, type, curVersion.ToStandardVersionString("v"));
                         url = string.Format(coreUrl, version);
                         break;
@@ -269,7 +275,7 @@ public partial class UpdateService(Config config, Func<bool, string, Task> updat
 
                 case ECoreType.v2rayN:
                     {
-                        curVersion = new SemanticVersion(Utils.GetVersionInfo());
+                        curVersion = installedVersion ?? new SemanticVersion(Utils.GetVersionInfo());
                         message = string.Format(ResUI.IsLatestN, type, curVersion.ToStandardVersionString("v"));
                         url = string.Format(coreUrl, version);
                         break;

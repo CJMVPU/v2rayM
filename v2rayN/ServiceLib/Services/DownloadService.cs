@@ -14,6 +14,9 @@ public class DownloadService
 
     public string? AcceptHeader { get; init; }
 
+    // Optional operation snapshot; avoids reading mutable global settings during network I/O.
+    public int? LocalProxyPort { get; init; }
+
     public IReadOnlyDictionary<string, string>? RequestHeaders { get; init; }
 
     private static readonly string _tag = "DownloadService";
@@ -354,7 +357,7 @@ public class DownloadService
         {
             return null;
         }
-        var port = AppManager.Instance.GetLocalPort(EInboundProtocol.socks);
+        var port = LocalProxyPort ?? AppManager.Instance.GetLocalPort(EInboundProtocol.socks);
         if (await SocksPortCheck(Global.Loopback, port, cancellationToken) == false)
         {
             return null;

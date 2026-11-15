@@ -4,9 +4,14 @@
 控制链路为 SwiftUI → 本机认证 WebAPI → ServiceLib → Xray；TUN 特权操作通过独立签名 helper。
 后端不以 root 运行。节点数据库、配置和恢复记录使用 v2rayM 独立数据目录。
 
+DDD 模块边界、已迁移内容与剩余工作见 [DDD 迁移记录](ddd-architecture.md)。
+
 ## 原生端
 
-`AppModel` 负责展示与用户操作编排，依赖 `NativeAPI`、`NativeBackend`、`NativeProxy`、`NativeClock` 和网络事件接口。
+`AppModel` 负责展示、命令入口与适配，依赖 `NativeAPI`、`NativeBackend`、`NativeProxy`、`NativeClock` 和网络事件接口。
+`V2rayMDomain` 保存连接意图、恢复判定、日志保留和原生更新目标规则；`V2rayMApplication` 只依赖领域层，
+编排观察调度、网络恢复、模式切换/补偿、启动/退出、命令收尾和更新提交。Kit 实现系统/HTTP 能力，并以类型别名维持原生调用兼容。
+初始连接和设置命令的完整任务由宿主持有，退出先等待它们及观察任务结束，恢复系统代理后才停止所属后端。
 测试可以注入故障和迟到响应，无需启动真实代理或修改系统网络。
 `ConnectionCoordinator` 保存 off/system/tun 连接意图及操作代数，意图与实际运行状态分离。
 标题栏和菜单栏使用同一个模型；恢复中的连接仍能取消，旧查询不能覆盖后续操作结果。
@@ -20,7 +25,8 @@
 ### 恢复收敛（0.4.0）
 
 `ConnectionCoordinator` 保存用户意图，`NetworkRecovery` 集中保存恢复代际、退避和已提交重启的凭据，
-并根据最新运行状态选择等待、对齐模式、重启或验证。`AppModel` 负责串行执行和发布观察结果，
+并根据最新运行状态选择等待、对齐模式、重启或验证。`NetworkRecoveryService` 编排恢复步骤，
+`AppModel` 负责互斥准入及通过适配器发布观察结果，
 不再单独维护另一套重启标志。恢复先对齐期望的 system/tun 模式，再验证实际内核、helper 与系统代理，
 避免“界面仍期望 TUN，但失败回滚已把后台改为普通模式”造成永久重试。
 

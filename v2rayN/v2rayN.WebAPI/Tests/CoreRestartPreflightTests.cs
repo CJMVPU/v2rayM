@@ -1,3 +1,5 @@
+using V2rayM.Application.Runtime;
+using V2rayM.Domain.Runtime;
 using System.Net;
 using System.Net.Sockets;
 using ServiceLib.Enums;
@@ -57,35 +59,14 @@ public class CoreRestartPreflightTests
         var profile = new ProfileItem { IndexId = "profile-1" };
         var builtContext = CreateBuiltContext();
         var preflight = CoreLaunchPreflight.Validate(profile, builtContext, _ => null);
-        var events = new List<string>();
-        var coreRunning = true;
-        CoreConfigContextBuilderAllResult? launchedContext = null;
-
-        var result = await CoreRestartFlow.ExecuteAsync(
-            () => Task.FromResult(preflight),
-            () =>
-            {
-                events.Add("stop");
-                coreRunning = false;
-                return Task.CompletedTask;
-            },
-            () => { },
-            plan =>
-            {
-                events.Add("launch");
-                launchedContext = plan.BuiltContext;
-                coreRunning = true;
-                return Task.FromResult(OperationView.Ok(ApiMessageKeys.CoreStarted,
-                    new { profileId = plan.Profile.IndexId }));
-            });
-
-        await events.Count.Should().BeEqualTo(2);
-        await events[0].Should().BeEqualTo("stop");
-        await events[1].Should().BeEqualTo("launch");
-        await ReferenceEquals(launchedContext, builtContext).Should().BeTrue();
-        await coreRunning.Should().BeTrue();
-        await result.Success.Should().BeTrue();
-        await result.MessageKey.Should().BeEqualTo(ApiMessageKeys.CoreRestarted);
+        var runtime = new CoreConnectionTestRuntime { Preflight = preflight };
+        var result = await new CoreConnectionService(runtime).RestartAsync(default);
+        var transitions = runtime.Calls.Where(call => call is "stop" or "launch").ToArray();
+        await string.Join(",", transitions).Should().BeEqualTo("stop,launch");
+        var launched = (CoreConnectionTestRuntime.TestPlan)runtime.LaunchedPlan!;
+        await ReferenceEquals(launched.Preflight!.BuiltContext, builtContext).Should().BeTrue();
+        await runtime.Current.State.Should().BeEqualTo(CoreRuntimeState.Running);
+        await result.Status.Should().BeEqualTo(CoreConnectionStatus.Restarted);
     }
 
     [Test]
@@ -122,29 +103,14 @@ public class CoreRestartPreflightTests
         CoreLaunchPreflightResult preflight,
         string expectedCode)
     {
-        var coreRunning = true;
-        var stopCalled = false;
-        var launchCalled = false;
-
-        var result = await CoreRestartFlow.ExecuteAsync(
-            () => Task.FromResult(preflight),
-            () =>
-            {
-                stopCalled = true;
-                coreRunning = false;
-                return Task.CompletedTask;
-            },
-            () => { },
-            _ =>
-            {
-                launchCalled = true;
-                return Task.FromResult(OperationView.Ok(ApiMessageKeys.CoreStarted));
-            });
-
-        await result.Code.Should().BeEqualTo(expectedCode);
-        await stopCalled.Should().BeFalse();
-        await launchCalled.Should().BeFalse();
-        await coreRunning.Should().BeTrue();
+        var runtime = new CoreConnectionTestRuntime { Preflight = preflight };
+        var previous = runtime.Current;
+        var result = await new CoreConnectionService(runtime).RestartAsync(default);
+        await result.Status.Should().BeEqualTo(CoreConnectionStatus.PreflightRejected);
+        await preflight.Failure!.Code.Should().BeEqualTo(expectedCode);
+        await runtime.Calls.Contains("stop").Should().BeFalse();
+        await runtime.Calls.Contains("launch").Should().BeFalse();
+        await runtime.Current.Should().BeEqualTo(previous);
     }
 
     private static CoreConfigContextBuilderAllResult CreateBuiltContext(

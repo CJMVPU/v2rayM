@@ -1,3 +1,6 @@
+using V2rayM.Application.Settings;
+using v2rayN.WebAPI.Adapters.Settings;
+using V2rayM.Domain.Runtime;
 using System.Collections.Concurrent;
 using System.Net;
 using ServiceLib;
@@ -231,7 +234,7 @@ public class RegionalPresetStagingTests
                     order.Add("Core restart");
                     return Task.CompletedTask;
                 },
-                rollbackConfigurationAndRuntime: () => Task.CompletedTask,
+                rollbackConfigurationAndRuntime: _ => Task.CompletedTask,
                 CancellationToken.None);
 
             await updaterGeoSource.Should().BeEqualTo(sourceIndex < 0 ? string.Empty : Global.GeoFilesSources[sourceIndex]);
@@ -270,7 +273,7 @@ public class RegionalPresetStagingTests
                     }
                     return Task.CompletedTask;
                 },
-                rollbackConfigurationAndRuntime: () => Task.CompletedTask,
+                rollbackConfigurationAndRuntime: _ => Task.CompletedTask,
                 CancellationToken.None);
 
             await geoUpdates.Should().BeEqualTo(1);
@@ -324,7 +327,7 @@ public class RegionalPresetStagingTests
                     restartCalled = true;
                     return Task.CompletedTask;
                 },
-                rollbackConfigurationAndRuntime: () =>
+                rollbackConfigurationAndRuntime: _ =>
                 {
                     configSource = "old-source";
                     dns = "old-dns";
@@ -389,7 +392,7 @@ public class RegionalPresetStagingTests
                     restartCalled = true;
                     return Task.CompletedTask;
                 },
-                rollbackConfigurationAndRuntime: () =>
+                rollbackConfigurationAndRuntime: _ =>
                 {
                     configSource = "old-source";
                     rollbackCalled = true;
@@ -444,7 +447,7 @@ public class RegionalPresetStagingTests
                     runtimeState = CoreRuntimeState.Running;
                     throw new RegionalPresetCoreApplyFailedException();
                 },
-                rollbackConfigurationAndRuntime: () =>
+                rollbackConfigurationAndRuntime: _ =>
                 {
                     settingsRollbackCalled = true;
                     return Task.CompletedTask;

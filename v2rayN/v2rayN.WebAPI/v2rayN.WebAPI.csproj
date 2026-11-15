@@ -23,6 +23,8 @@
   <ItemGroup>
     <PackageReference Include="NLog" />
     <ProjectReference Include="..\ServiceLib\ServiceLib.csproj" />
+    <ProjectReference Include="../V2rayM.Application/V2rayM.Application.csproj" />
+    <ProjectReference Include="../V2rayM.Domain/V2rayM.Domain.csproj" />
   </ItemGroup>
 
   <ItemGroup>

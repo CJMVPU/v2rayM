@@ -8,63 +8,20 @@ namespace v2rayN.WebAPI.Tests;
 public class BackupRestorePreflightTests
 {
     [Test]
-    [Arguments("https://127.0.0.1:5443", "backup.restoreProbeUnavailable")]
-    [Arguments("http://192.168.1.20:5080", "backup.restoreProbeUnavailable")]
-    public async Task UnprobeableListenersRefuseBeforeAnyRestoreMutation(string listener, string messageKey)
+    [Arguments("https://127.0.0.1:5443", "/usr/bin/setsid", "backup_restore_health_probe_unavailable")]
+    [Arguments("http://192.168.1.20:5080", "/usr/bin/setsid", "backup_restore_health_probe_unavailable")]
+    [Arguments("http://127.0.0.1:5080", null, "backup_restore_setsid_unavailable")]
+    public async Task InvalidRestartEnvironmentCannotEnterRestoreUseCase(string listener, string? setsid, string code)
     {
-        foreach (var wasRunning in new[] { false, true })
-        {
-            using var directory = new TemporaryDirectory();
-            var configPath = Path.Combine(directory.Path, "guiNConfig.json");
-            await File.WriteAllTextAsync(configPath, "original-config");
-            var coreRunning = wasRunning;
-            var mutationsStarted = false;
-            var preflight = CreatePreflight(listener, setsidPath: "/usr/bin/setsid");
-
-            var result = await BackupRestorePreflightGate.ExecuteAsync(preflight, async () =>
-            {
-                mutationsStarted = true;
-                coreRunning = false;
-                await File.WriteAllTextAsync(configPath, "restored-config");
-                return OperationView.Ok(ApiMessageKeys.BackupRestoreStarted);
-            });
-
-            await result.Success.Should().BeFalse();
-            await result.Code.Should().BeEqualTo("backup_restore_health_probe_unavailable");
-            await result.MessageKey.Should().BeEqualTo(messageKey);
-            await mutationsStarted.Should().BeFalse();
-            await coreRunning.Should().BeEqualTo(wasRunning);
-            await (await File.ReadAllTextAsync(configPath)).Should().BeEqualTo("original-config");
-        }
-    }
-
-    [Test]
-    public async Task MissingExecutableSetsidRefusesBeforeStoppingCoreOrReplacingConfig()
-    {
-        foreach (var wasRunning in new[] { false, true })
-        {
-            using var directory = new TemporaryDirectory();
-            var configPath = Path.Combine(directory.Path, "guiNConfig.json");
-            await File.WriteAllTextAsync(configPath, "original-config");
-            var coreRunning = wasRunning;
-            var mutationsStarted = false;
-            var preflight = CreatePreflight("http://127.0.0.1:5080", setsidPath: null);
-
-            var result = await BackupRestorePreflightGate.ExecuteAsync(preflight, async () =>
-            {
-                mutationsStarted = true;
-                coreRunning = false;
-                await File.WriteAllTextAsync(configPath, "restored-config");
-                return OperationView.Ok(ApiMessageKeys.BackupRestoreStarted);
-            });
-
-            await result.Success.Should().BeFalse();
-            await result.Code.Should().BeEqualTo("backup_restore_setsid_unavailable");
-            await result.MessageKey.Should().BeEqualTo(ApiMessageKeys.BackupRestoreSetSidUnavailable);
-            await mutationsStarted.Should().BeFalse();
-            await coreRunning.Should().BeEqualTo(wasRunning);
-            await (await File.ReadAllTextAsync(configPath)).Should().BeEqualTo("original-config");
-        }
+        var preflight = CreatePreflight(listener, setsid);
+        var session = new RestoreTestSession { Admission = new(preflight.Allowed,
+            preflight.Owner == WebLifecycleOwner.NativeProcess, preflight.Replacement is not null) };
+        var result = await new V2rayM.Application.Backups.BackupRestoreService(session).RestoreAsync(default);
+        await result.Status.Should().BeEqualTo(V2rayM.Application.Backups.BackupRestoreStatus.PreflightRejected);
+        await preflight.ToFailureOperation().Code.Should().BeEqualTo(code);
+        await session.Actions.Contains("backup").Should().BeFalse();
+        await session.Actions.Contains("stop").Should().BeFalse();
+        await session.Actions.Contains("replace").Should().BeFalse();
     }
 
     [Test]
@@ -133,16 +90,4 @@ public class BackupRestorePreflightTests
             .AddInMemoryCollection(values.ToDictionary(item => item.Key, item => (string?)item.Value))
             .Build();
 
-    private sealed class TemporaryDirectory : IDisposable
-    {
-        public TemporaryDirectory()
-        {
-            Path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"v2rayn-WebAPI-restore-preflight-{Guid.NewGuid():N}");
-            Directory.CreateDirectory(Path);
-        }
-
-        public string Path { get; }
-
-        public void Dispose() => Directory.Delete(Path, recursive: true);
-    }
 }

@@ -1,3 +1,8 @@
+using V2rayM.Application.Backups;
+using V2rayM.Application.Settings;
+using V2rayM.Domain.Backups;
+using v2rayN.WebAPI.Adapters.Settings;
+using V2rayM.Domain.Runtime;
 using System.IO.Compression;
 using System.Text.Json;
 using SQLite;
@@ -16,9 +21,9 @@ public sealed partial class V2rayRuntime
 {
     private readonly object _restoreShutdownGate = new();
     private Task? _restoreShutdownTask;
-    private const long MaxBackupArchiveBytes = 64L * 1024 * 1024;
-    private const long MaxBackupExpandedBytes = 256L * 1024 * 1024;
-    private const int MaxBackupEntries = 2048;
+    private const long MaxBackupArchiveBytes = BackupPolicy.MaximumArchiveBytes;
+    private const long MaxBackupExpandedBytes = BackupPolicy.MaximumExpandedBytes;
+    private const int MaxBackupEntries = BackupPolicy.MaximumEntries;
     internal const string WebAuthFileName = "WebAPI-auth.json";
     private const string RestoreRuntimeStateFileName = "v2rayn-WebAPI-restore-state.json";
     private NativeWebRestoreReplacement? _nativeRestoreReplacement;
@@ -33,27 +38,20 @@ public sealed partial class V2rayRuntime
 
     public async Task<OperationView> UpdateWebDavSettingsAsync(WebDavSettingsInput input)
     {
-        await _mutations.RunAsync(async () =>
-        {
-            Config.WebDavItem.Url = input.Url?.Trim();
-            Config.WebDavItem.UserName = input.UserName?.Trim();
-            if (input.Password is not null)
-            {
-                Config.WebDavItem.Password = input.Password;
-            }
-            Config.WebDavItem.DirName = input.DirName?.Trim();
-            await EnsureConfigSaveSucceededAsync(() => _configStore.SaveAsync());
-        });
-        return OperationView.Ok(ApiMessageKeys.WebDavSettingsSaved);
+        var result = await _settingsEditor.EditAsync(new(WebDav: new(input.Url, input.UserName, input.Password, input.DirName)));
+        return result.Status == SettingsEditStatus.Saved
+            ? OperationView.Ok(ApiMessageKeys.WebDavSettingsSaved)
+            : SettingsContractMapper.Failure(result, "webdav");
     }
 
     public async Task<OperationView> CheckWebDavAsync()
     {
-        var success = await WebDavManager.Instance.CheckConnection();
-        if (!success)
+        var success = await RunWebDavTransferAsync(async () =>
         {
-            AddLog("backup", WebDavManager.Instance.GetLastError());
-        }
+            var connected = await WebDavManager.Instance.CheckConnection();
+            if (!connected) AddLog("backup", WebDavManager.Instance.GetLastError());
+            return connected;
+        }, _operations.ShutdownToken);
         return success
             ? OperationView.Ok(ApiMessageKeys.WebDavCheckSucceeded)
             : OperationView.Fail("webdav_check_failed", ApiMessageKeys.WebDavCheckFailed);
@@ -61,243 +59,60 @@ public sealed partial class V2rayRuntime
 
     public async Task<(OperationView Result, string? FilePath)> CreateBackupArchiveAsync()
     {
-        await _mutations.RunAsync(async () =>
+        var result = await CreateBackupArtifactAsync();
+        return result.Status switch
         {
-            await EnsureConfigSaveSucceededAsync(() => _configStore.SaveAsync());
-            await ProfileExManager.Instance.SaveTo();
-            await StatisticsManager.Instance.SaveTo();
-        });
-
-        var archivePath = Utils.GetBackupPath($"backup_{DateTime.UtcNow:yyyyMMddHHmmss}_{Guid.NewGuid():N}.zip");
-        var tempRoot = Utils.GetTempPath($"backup_{Utils.GetGuid(false)}");
-        var tempConfigPath = Path.Combine(tempRoot, "guiConfigs");
-        try
-        {
-            CopyConfigForBackup(Utils.GetConfigPath(), tempConfigPath);
-            if (!FileUtils.CreateFromDirectory(tempRoot, archivePath))
-            {
-                return (OperationView.Fail("backup_create_failed", ApiMessageKeys.BackupArchiveInvalid), null);
-            }
-            if (new FileInfo(archivePath).Length > MaxBackupArchiveBytes)
-            {
-                File.Delete(archivePath);
-                return (OperationView.Fail("backup_archive_too_large", ApiMessageKeys.BackupArchiveInvalid), null);
-            }
-            return (OperationView.Ok(ApiMessageKeys.BackupCreated, new { fileName = Path.GetFileName(archivePath) }), archivePath);
-        }
-        catch
-        {
-            if (File.Exists(archivePath))
-            {
-                File.Delete(archivePath);
-            }
-            return (OperationView.Fail("backup_create_failed", ApiMessageKeys.BackupArchiveInvalid), null);
-        }
-        finally
-        {
-            if (Directory.Exists(tempRoot))
-            {
-                Directory.Delete(tempRoot, true);
-            }
-        }
+            BackupArchiveStatus.Created when result.Artifact is BackupArtifact artifact =>
+                (OperationView.Ok(ApiMessageKeys.BackupCreated, new { fileName = artifact.Name }), artifact.Path),
+            BackupArchiveStatus.TooLarge => (OperationView.Fail("backup_archive_too_large", ApiMessageKeys.BackupArchiveInvalid), null),
+            _ => (OperationView.Fail("backup_create_failed", ApiMessageKeys.BackupArchiveInvalid), null),
+        };
     }
+
+    private Task<BackupArchiveResult> CreateBackupArtifactAsync() =>
+        new BackupArchiveService(_mutations).CreateAsync(new BackupArchiveSession(this));
 
     public async Task<OperationView> BackupToWebDavAsync()
     {
-        var (result, archivePath) = await CreateBackupArchiveAsync();
-        if (!result.Success || archivePath is null)
+        var result = await new BackupUploadService(new BackupUploadAdapter(this)).UploadAsync();
+        return result.Status switch
         {
-            return result;
-        }
-
-        try
-        {
-            if (!await WebDavManager.Instance.PutFile(archivePath))
-            {
-                AddLog("backup", WebDavManager.Instance.GetLastError());
-                return OperationView.Fail("webdav_backup_failed", ApiMessageKeys.WebDavCheckFailed);
-            }
-            return OperationView.Ok(ApiMessageKeys.WebDavBackupSucceeded, new { fileName = Path.GetFileName(archivePath) });
-        }
-        finally
-        {
-            if (File.Exists(archivePath))
-            {
-                File.Delete(archivePath);
-            }
-        }
+            BackupUploadStatus.Uploaded => OperationView.Ok(ApiMessageKeys.WebDavBackupSucceeded, new { fileName = result.FileName }),
+            BackupUploadStatus.CreationFailed => OperationView.Fail(
+                result.CreationStatus == BackupArchiveStatus.TooLarge ? "backup_archive_too_large" : "backup_create_failed", ApiMessageKeys.BackupArchiveInvalid),
+            _ => OperationView.Fail("webdav_backup_failed", ApiMessageKeys.WebDavCheckFailed),
+        };
     }
 
     public async Task<OperationView> RestoreFromWebDavAsync(CancellationToken cancellationToken)
     {
-        var archivePath = Utils.GetTempPath($"restore_{Utils.GetGuid(false)}.zip");
-        if (!await WebDavManager.Instance.GetRawFile(archivePath))
-        {
-            AddLog("backup", WebDavManager.Instance.GetLastError());
-            if (File.Exists(archivePath))
-            {
-                File.Delete(archivePath);
-            }
+        var path = Utils.GetTempPath($"restore_{Utils.GetGuid(false)}.zip");
+        if (!await new RestoreInputService(new RestoreInput(this, path)).PrepareAsync(cancellationToken))
             return OperationView.Fail("webdav_restore_download_failed", ApiMessageKeys.WebDavRestoreFailed);
-        }
-        return await RestoreBackupArchiveAsync(archivePath, cancellationToken);
+        return await RestoreBackupArchiveAsync(path, cancellationToken);
     }
 
     public async Task<OperationView> RestoreFromUploadAsync(Stream archive, CancellationToken cancellationToken)
     {
-        var archivePath = Utils.GetTempPath($"restore_{Utils.GetGuid(false)}.zip");
-        try
-        {
-            await using (var output = new FileStream(archivePath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
-            {
-                await CopyWithLimitAsync(archive, output, MaxBackupArchiveBytes, cancellationToken);
-            }
-            return await RestoreBackupArchiveAsync(archivePath, cancellationToken);
-        }
-        catch
-        {
-            if (File.Exists(archivePath))
-            {
-                File.Delete(archivePath);
-            }
-            throw;
-        }
+        var path = Utils.GetTempPath($"restore_{Utils.GetGuid(false)}.zip");
+        await new RestoreInputService(new RestoreInput(this, path, archive)).PrepareAsync(cancellationToken);
+        return await RestoreBackupArchiveAsync(path, cancellationToken);
     }
 
     private async Task<OperationView> RestoreBackupArchiveAsync(string archivePath, CancellationToken cancellationToken)
     {
-        var stagingRoot = Utils.GetTempPath($"restore_stage_{Utils.GetGuid(false)}");
-        var databaseClosed = false;
-        RuntimeOperationCoordinator.Lease? operation = null;
-        var restoreStateWritten = false;
-        RuntimeRestartIntent? restoreState = null;
-        try
+        var session = new BackupRestoreSession(this, archivePath);
+        var result = await new BackupRestoreService(session).RestoreAsync(cancellationToken);
+        return result.Status switch
         {
-            operation = await _operations.EnterExclusiveAsync(cancellationToken);
-            cancellationToken = operation.Token;
-            if (!IsSafeBackupArchive(archivePath))
-            {
-                return OperationView.Fail("backup_archive_invalid", ApiMessageKeys.BackupArchiveInvalid);
-            }
-
-            Directory.CreateDirectory(stagingRoot);
-            if (!TryExtractBackupConfig(archivePath, stagingRoot)
-                || !IsValidBackupConfig(Path.Combine(stagingRoot, Global.ConfigFileName)))
-            {
-                return OperationView.Fail("backup_archive_invalid", ApiMessageKeys.BackupArchiveInvalid);
-            }
-            var databasePath = Path.Combine(stagingRoot, "guiNDB.db");
-            if (File.Exists(databasePath) && !BackupDatabaseCompatibility.IsCompatible(databasePath, out var databaseError))
-            {
-                AddLog("backup", $"Restore preflight rejected guiNDB.db: {databaseError}");
-                return OperationView.Fail("backup_database_incompatible", ApiMessageKeys.BackupDatabaseIncompatible);
-            }
-
-            _nativeRestoreReplacement = null;
-            var preflight = EvaluateNativeRestorePreflight();
-            return await BackupRestorePreflightGate.ExecuteAsync(preflight, async () =>
-            {
-                _nativeRestoreReplacement = preflight.Replacement;
-                var (backupResult, safetyBackupPath) = await CreateBackupArchiveAsync();
-                if (!backupResult.Success || safetyBackupPath is null)
-                {
-                    return OperationView.Fail("backup_safety_copy_failed", ApiMessageKeys.BackupRestoreFailed);
-                }
-
-                var previousRuntime = CurrentCoreRuntime;
-                restoreState = new RuntimeRestartIntent(
-                    previousRuntime.State == CoreRuntimeState.Running,
-                    previousRuntime.ProfileId);
-                await WriteRestoreRuntimeStateAsync(restoreState);
-                restoreStateWritten = true;
-                SetCoreRuntime(previousRuntime with { State = CoreRuntimeState.Stopping, LastFailure = null });
-                await StopCoreMonitorAsync();
-                await StopCoreAndConfirmAsync(cancellationToken);
-                SetCoreRuntime(CoreRuntimeSnapshot.Stopped);
-                await ProfileExManager.Instance.SaveTo();
-                await StatisticsManager.Instance.CloseAsync();
-                await _mutations.RunAsync(() => EnsureConfigSaveSucceededAsync(() => _configStore.SaveAsync()), cancellationToken);
-                await SQLiteHelper.Instance.DisposeDbConnectionAsync();
-                databaseClosed = true;
-
-                var configPath = Utils.GetConfigPath();
-                var configParent = Path.GetDirectoryName(configPath)
-                    ?? throw new InvalidOperationException("The configuration directory has no parent directory.");
-                var candidatePath = Path.Combine(configParent, $".guiConfigs-restore-{Guid.NewGuid():N}");
-                var displacedPath = Path.Combine(configParent, $".guiConfigs-before-restore-{Guid.NewGuid():N}");
-                try
-                {
-                    PrepareRestoredConfigDirectory(stagingRoot, configPath, candidatePath);
-                    ReplaceConfigDirectory(candidatePath, configPath, displacedPath);
-                }
-                finally
-                {
-                    TryDeleteRestoreDirectory(candidatePath, "restore candidate");
-                    TryDeleteRestoreDirectory(displacedPath, "displaced configuration");
-                }
-
-                _restoring = true;
-                _operations.RejectNewOperations();
-                RequestHostShutdownForRestore();
-                return OperationView.Ok(ApiMessageKeys.BackupRestoreStarted,
-                    new { restartRequired = true, safetyBackup = Path.GetFileName(safetyBackupPath) });
-            });
-        }
-        catch (Exception exception)
-        {
-            AddLog("backup", $"Restore failed: {exception.Message}");
-            if (databaseClosed)
-            {
-                _restoring = true;
-                _operations.RejectNewOperations();
-                RequestHostShutdownForRestore();
-            }
-            else if (restoreStateWritten)
-            {
-                TryDeleteRestoreRuntimeState();
-                if (restoreState is not null)
-                {
-                    await RecoverRuntimeAfterFailedRestoreAsync(
-                        restoreState,
-                        GetActiveCoreProcessIds(),
-                        (processIds, failure) => SetCoreRuntime(CurrentCoreRuntime with
-                        {
-                            State = CoreRuntimeState.Faulted,
-                            ProcessIds = processIds,
-                            LastFailure = failure,
-                        }),
-                        StartCoreAsync,
-                        message => AddLog("backup", message),
-                        CancellationToken.None);
-                }
-            }
-            return OperationView.Fail("backup_restore_failed", ApiMessageKeys.BackupRestoreFailed);
-        }
-        finally
-        {
-            if (operation is not null)
-            {
-                await operation.DisposeAsync();
-            }
-            try
-            {
-                if (Directory.Exists(stagingRoot))
-                {
-                    Directory.Delete(stagingRoot, true);
-                }
-            }
-            catch (Exception exception)
-            {
-                AddLog("backup", $"Restore staging cleanup failed: {exception.Message}");
-            }
-            finally
-            {
-                if (File.Exists(archivePath))
-                {
-                    File.Delete(archivePath);
-                }
-            }
-        }
+            BackupRestoreStatus.Started => OperationView.Ok(ApiMessageKeys.BackupRestoreStarted,
+                new { restartRequired = true, safetyBackup = result.SafetyBackup }),
+            BackupRestoreStatus.InvalidArchive => OperationView.Fail("backup_archive_invalid", ApiMessageKeys.BackupArchiveInvalid),
+            BackupRestoreStatus.IncompatibleDatabase => OperationView.Fail("backup_database_incompatible", ApiMessageKeys.BackupDatabaseIncompatible),
+            BackupRestoreStatus.PreflightRejected => session.PreflightFailure(),
+            BackupRestoreStatus.SafetyBackupFailed => OperationView.Fail("backup_safety_copy_failed", ApiMessageKeys.BackupRestoreFailed),
+            _ => OperationView.Fail("backup_restore_failed", ApiMessageKeys.BackupRestoreFailed),
+        };
     }
 
     private NativeWebRestorePreflightResult EvaluateNativeRestorePreflight()
@@ -330,25 +145,14 @@ public sealed partial class V2rayRuntime
         Action<string> log,
         CancellationToken cancellationToken)
     {
-        if (!restoreState.WasRunning)
-        {
-            return null;
-        }
-
-        if (remainingCoreProcessIds.Length > 0)
-        {
-            const string failure = "Restore was canceled before database replacement; the Web runtime could not confirm that the previous Core had stopped.";
-            markRuntimeFaulted(remainingCoreProcessIds, failure);
-            log(failure);
-            return null;
-        }
-
-        var restart = await startCore(restoreState.PreferredProfileId, cancellationToken);
-        if (!restart.Success)
-        {
-            log($"Restore was canceled before database replacement, and the previous Core runtime intent could not be restored: {restart.Code}");
-        }
-        return restart;
+        OperationView? operation = null;
+        await FailedRestoreRecovery.RecoverAsync(restoreState, remainingCoreProcessIds, markRuntimeFaulted,
+            async (id, token) =>
+            {
+                operation = await startCore(id, token);
+                return new V2rayM.Application.Runtime.RuntimeStartResult(operation.Success, operation.Code);
+            }, log);
+        return operation;
     }
 
     private void TryDeleteRestoreDirectory(string path, string description)
@@ -603,9 +407,6 @@ public sealed partial class V2rayRuntime
 
     private sealed record RestoreRuntimeClaim(string Path, RuntimeRestartIntent? Intent, DateTime LastWriteTimeUtc);
 
-    private static void TryDeleteRestoreRuntimeState() =>
-        _ = CommitRestoreRuntimeStateAsync(RestoreRuntimeStatePath);
-
     internal static Task DeleteRuntimeIntentAsync(string path)
     {
         try
@@ -743,7 +544,7 @@ public sealed partial class V2rayRuntime
     }
 
     internal static void CopyConfigForBackup(string sourceDirectory, string destinationDirectory) =>
-        FileUtils.CopyDirectory(sourceDirectory, destinationDirectory, recursive: false, overwrite: true, ignoredName: WebAuthFileName);
+        BackupConfigSnapshot.CopyFiles(sourceDirectory, destinationDirectory);
 
     internal static void PrepareRestoredConfigDirectory(
         string extractedConfigDirectory,
@@ -759,9 +560,14 @@ public sealed partial class V2rayRuntime
             Directory.CreateDirectory(candidateDirectory);
         }
 
+        var replacesDatabase = File.Exists(Path.Combine(extractedConfigDirectory, RestoreDatabaseSnapshot.DatabaseName));
+        if (replacesDatabase)
+            RestoreDatabaseSnapshot.DeleteSidecars(candidateDirectory);
+
         foreach (var file in Directory.EnumerateFiles(extractedConfigDirectory, "*", SearchOption.TopDirectoryOnly))
         {
-            if (string.Equals(Path.GetFileName(file), WebAuthFileName, StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(Path.GetFileName(file), WebAuthFileName, StringComparison.OrdinalIgnoreCase)
+                || replacesDatabase && RestoreDatabaseSnapshot.IsSidecar(Path.GetFileName(file)))
             {
                 continue;
             }

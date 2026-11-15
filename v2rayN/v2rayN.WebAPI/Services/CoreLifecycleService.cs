@@ -1,3 +1,5 @@
+using V2rayM.Domain.Runtime;
+using V2rayM.Application.Runtime;
 namespace v2rayN.WebAPI.Services;
 
 /// Owns live process identity, health observation and core serialization. No
@@ -9,8 +11,9 @@ internal sealed class CoreLifecycleService(
     Func<int, CancellationToken, Task<bool>> isListening,
     Action<CoreRuntimeSnapshot> changed,
     Action<string> log,
-    Func<CoreProcessIdentity[], CoreProcessIdentity[]> activeProcesses)
+    Func<CoreProcessIdentity[], CoreProcessIdentity[]> activeProcesses) : ICoreHealthPublication<CoreRuntimeSnapshot>
 {
+    private readonly object _snapshotGate = new();
     private readonly SemaphoreSlim _coreMonitorGate = new(1, 1);
     private CoreRuntimeSnapshot _snapshot = CoreRuntimeSnapshot.Stopped;
     private CancellationTokenSource? _coreMonitorCancellation;
@@ -20,17 +23,52 @@ internal sealed class CoreLifecycleService(
     public Task<T> ExecuteAsync<T>(Func<Task<T>> action, CancellationToken token) => execution.WithCoreAsync(action, token);
     public void SetSnapshot(CoreRuntimeSnapshot value)
     {
-        value = value with { ProcessIds = GetActiveProcessIds() };
+        lock (_snapshotGate)
+        {
+            PublishSnapshot(value with { ProcessIds = GetActiveProcessIds() });
+        }
+    }
+
+    private void PublishSnapshot(CoreRuntimeSnapshot value)
+    {
         Volatile.Write(ref _snapshot, value);
         if (value.State != CoreRuntimeState.Running) _coreMonitorCancellation?.Cancel();
         changed(value);
     }
+
+    public bool TryMarkFaulted(CoreRuntimeSnapshot expected, CoreHealthFailure failure)
+    {
+        lock (_snapshotGate)
+        {
+            // Snapshot identity is the revision; even equal-valued command
+            // transitions create a new snapshot and invalidate older probes.
+            if (!ReferenceEquals(expected, _snapshot) || _snapshot.State != CoreRuntimeState.Running) return false;
+            PublishSnapshot(expected with { State = CoreRuntimeState.Faulted,
+                ProcessIds = GetActiveProcessIds(), LastFailure = FailureMessage(failure) });
+            return true;
+        }
+    }
+
+    internal static string FailureMessage(CoreHealthFailure failure) => failure switch
+    {
+        CoreHealthFailure.ProcessExited => "The tracked Core child process exited unexpectedly.",
+        CoreHealthFailure.ListenerUnavailable => "The running Core no longer owns its expected proxy listener.",
+        _ => throw new ArgumentOutOfRangeException(nameof(failure)),
+    };
+
+    public CoreHealthObservation ObserveHealth(CoreRuntimeSnapshot captured, int[] processIds, bool listening, CancellationToken token = default) =>
+        new CoreHealthObservationService<CoreRuntimeSnapshot>(this).Observe(captured,
+            new(captured.State, processIds.Length > 0, listening), token);
     public async Task StartMonitorAsync()
     {
         await StopMonitorAsync();
         var cancellation = new CancellationTokenSource();
-        _coreMonitorCancellation = cancellation;
-        _coreMonitorTask = Task.Run(() => MonitorCoreRuntimeAsync(cancellation.Token));
+        var token = cancellation.Token;
+        lock (_snapshotGate)
+        {
+            _coreMonitorCancellation = cancellation;
+            _coreMonitorTask = Task.Run(() => MonitorCoreRuntimeAsync(token));
+        }
     }
 
     public async Task StopMonitorAsync()
@@ -38,10 +76,15 @@ internal sealed class CoreLifecycleService(
         await _coreMonitorGate.WaitAsync();
         try
         {
-            var cancellation = _coreMonitorCancellation;
-            var task = _coreMonitorTask;
-            _coreMonitorCancellation = null;
-            _coreMonitorTask = null;
+            CancellationTokenSource? cancellation;
+            Task? task;
+            lock (_snapshotGate)
+            {
+                cancellation = _coreMonitorCancellation;
+                task = _coreMonitorTask;
+                _coreMonitorCancellation = null;
+                _coreMonitorTask = null;
+            }
             if (cancellation is null) return;
             cancellation.Cancel();
             if (task is not null)
@@ -117,26 +160,12 @@ internal sealed class CoreLifecycleService(
 
                 var processIds = GetActiveProcessIds();
                 var listening = await isListening(port, cancellationToken);
-                if (!ReferenceEquals(snapshot, Snapshot) || Snapshot.State != CoreRuntimeState.Running)
+                var observed = ObserveHealth(snapshot, processIds, listening, cancellationToken);
+                if (observed.PublishedFailure)
                 {
-                    continue;
+                    log(FailureMessage(processIds.Length == 0 ? CoreHealthFailure.ProcessExited : CoreHealthFailure.ListenerUnavailable));
+                    return;
                 }
-                if (processIds.Length > 0 && listening)
-                {
-                    continue;
-                }
-
-                var failure = processIds.Length == 0
-                    ? "The tracked Core child process exited unexpectedly."
-                    : "The running Core no longer owns its expected proxy listener.";
-                SetSnapshot(snapshot with
-                {
-                    State = CoreRuntimeState.Faulted,
-                    ProcessIds = processIds,
-                    LastFailure = failure,
-                });
-                log(failure);
-                return;
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

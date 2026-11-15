@@ -10,7 +10,123 @@ import CryptoKit
         do { try await run() }
         catch { FileHandle.standardError.write(Data(("Native check failed: " + error.localizedDescription + "\n").utf8)); exit(1) }
     }
-    static func checkSettings(_ api: APIClient, running: Bool) async throws {
+    static func checkProfileCatalog(_ api: APIClient, group: Subscription, profiles: [Profile]) async throws -> String {
+        guard let original = profiles.first else { throw ClientFailure("fixture_node_missing") }
+        try await api.send("/api/profiles/copy", body: ProfileIDs([original.id, original.id]))
+        let copied: [Profile] = try await api.value("/api/profiles?subscriptionId=")
+        guard let copy = copied.first(where: { node in !profiles.contains(where: { $0.id == node.id }) }) else {
+            throw ClientFailure("copied_node_missing")
+        }
+        try require(copied.count == profiles.count + 1, "Copy deduplicates requested IDs and persists one new node")
+        try await api.send("/api/profiles/move-to-group", body: SettingsValue.object([
+            "profileIds": .array([.string(copy.id)]), "subscriptionId": .string(group.id)]))
+        let grouped: [Profile] = try await api.value("/api/profiles?subscriptionId=\(group.id)")
+        try require(grouped.contains(where: { $0.id == copy.id }), "Move copied node into subscription group")
+        try await api.send("/api/profiles/move-to-group", body: SettingsValue.object([
+            "profileIds": .array([.string(copy.id)]), "subscriptionId": .string("")]))
+        try await api.send("/api/profile-groups/current", method: "PUT", body: ["subscriptionId": ""])
+        try await api.send("/api/profiles/move", body: SettingsValue.object([
+            "profileId": .string(copy.id), "direction": .string("top"), "position": .number(-1)]))
+        let reordered: [Profile] = try await api.value("/api/profiles?subscriptionId=")
+        try require(reordered.first?.id == copy.id, "Reorder persists copied node at top")
+        try await api.send("/api/profiles/sort", body: SettingsValue.object([
+            "subscriptionId": .string(""), "column": .string("Remarks"), "ascending": .bool(true)]))
+        let sorted: [Profile] = try await api.value("/api/profiles?subscriptionId=")
+        try require(sorted.count == copied.count && Set(sorted.map(\.id)) == Set(copied.map(\.id)), "Sort retains every node identity")
+        try await api.send("/api/profiles/sort", body: SettingsValue.object([
+            "subscriptionId": .string(""), "column": .string("Remarks"), "ascending": .bool(false)]))
+        let descending: [Profile] = try await api.value("/api/profiles?subscriptionId=")
+        try require(descending.map(\.remarks) == Array(sorted.map(\.remarks).reversed()), "Sort persists ascending and descending name order")
+        try await api.send("/api/speedtests", body: SettingsValue.object([
+            "action": .string("tcping"), "profileIds": .array([.string(copy.id)])]))
+        var completedProbe = false
+        for _ in 0..<100 {
+            let operations: [String] = try await api.value("/api/operations")
+            if !operations.contains("speedtest") { completedProbe = true; break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        try require(completedProbe, "Loopback TCP probe completes through application coordinator")
+        try await api.perform("/api/speedtests", method: "DELETE")
+        try await api.perform("/api/profiles/\(copy.id)/latency")
+        var completedSingleProbe = false
+        for _ in 0..<100 {
+            let operations: [String] = try await api.value("/api/operations")
+            if !operations.contains("speedtest") { completedSingleProbe = true; break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        try require(completedSingleProbe, "Single-node latency endpoint owns one background lease")
+        let export = SettingsValue.object(["profileIds": .array([.string(copy.id)]), "includeShareUris": .bool(true),
+            "base64ShareUris": .bool(true), "includeInnerUri": .bool(true), "includeClientConfig": .bool(true)])
+        let bytes = try await api.encodedResponse("/api/profiles/export", method: "POST", body: JSONEncoder().encode(export))
+        let response = try JSONDecoder().decode(SettingsValue.self, from: bytes)
+        let formats = Set(response["data"].items.map { $0["format"].text })
+        try require(formats == Set(["share-uri-base64", "inner-uri", "client-config"]), "Export produces all requested formats")
+        return copy.id
+    }
+
+    static func checkSettingsEditor(_ api: APIClient) async throws {
+        let initial: SettingsValue = try await api.value("/api/settings")
+        let beforePassive: RuntimeStatus = try await api.value("/api/status")
+        var app = initial["app"]
+        app["enableStatistics"] = .bool(!app["enableStatistics"].flag)
+        try await api.send("/api/settings/application", method: "PUT", body: app)
+        var speed = initial["speedTest"]
+        speed["speedTestTimeout"] = .number(15)
+        try await api.send("/api/settings/speedtest", method: "PUT", body: speed)
+        let afterPassive: RuntimeStatus = try await api.value("/api/status")
+        let passive: SettingsValue = try await api.value("/api/settings")
+        try require(passive["app"]["enableStatistics"] == app["enableStatistics"]
+            && passive["speedTest"]["speedTestTimeout"] == .number(15), "Single application and speed-test edits persist")
+        try require(beforePassive.coreProcessIds == afterPassive.coreProcessIds, "Passive settings and statistics refresh do not restart core")
+        var core = passive["core"]
+        core["mux4RayConcurrency"] = .number(0)
+        core["mux4RayXudpConcurrency"] = .number(0)
+        try await api.send("/api/settings/core", method: "PUT", body: core)
+        var normalized: SettingsValue = try await api.value("/api/settings")
+        try require(normalized["core"]["mux4RayConcurrency"] == .null
+            && normalized["core"]["mux4RayXudpConcurrency"] == .null, "Zero Mux values normalize to disabled nullable values")
+        normalized["application"] = normalized["app"]
+        let beforeRoundTrip: RuntimeStatus = try await api.value("/api/status")
+        try await api.send("/api/settings/apply", method: "PUT", body: normalized)
+        try await api.send("/api/settings/core-types", method: "PUT", body: SettingsValue.object(["mappings": normalized["coreTypes"]]))
+        try await api.send("/api/settings/routing", method: "PUT", body: SettingsValue.object(["domainStrategy": normalized["domainStrategy"]]))
+        let afterRoundTrip: RuntimeStatus = try await api.value("/api/status")
+        try require(beforeRoundTrip.coreProcessIds == afterRoundTrip.coreProcessIds,
+            "Nullable Mux bulk save and unchanged mapping/strategy edits do not restart core")
+    }
+
+    static func checkConfigurationProfiles(_ api: APIClient, running: Bool) async throws {
+        let profiles: SettingsValue = try await api.value("/api/settings/dns/profiles")
+        guard var dns = profiles.items.first(where: { $0["coreType"].text.lowercased() == "xray" }) else { throw ClientFailure("dns_fixture_missing") }
+        let beforeDns: RuntimeStatus = try await api.value("/api/status")
+        dns["enabled"] = .bool(true)
+        dns["normalDNS"] = .string("{\"servers\":[\"9.9.9.9\"]}")
+        try await api.send("/api/settings/dns/profiles/Xray", method: "PUT", body: dns)
+        let afterDns: RuntimeStatus = try await api.value("/api/status")
+        try require(afterDns.coreRunning == running && (!running || beforeDns.coreProcessIds != afterDns.coreProcessIds),
+            "Active DNS change applies to the running core and preserves stopped intent")
+        dns["remarks"] = .string(dns["remarks"].text + " checked")
+        dns["tunDNS"] = .string("{\"servers\":[\"8.8.4.4\"]}")
+        try await api.send("/api/settings/dns/profiles/Xray", method: "PUT", body: dns)
+        let afterOtherMode: RuntimeStatus = try await api.value("/api/status")
+        let savedProfiles: SettingsValue = try await api.value("/api/settings/dns/profiles")
+        let savedDns = savedProfiles.items.first(where: { $0["id"] == dns["id"] })!
+        try require(savedDns["tunDNS"] == dns["tunDNS"] && afterOtherMode.coreProcessIds == afterDns.coreProcessIds,
+            "Editing TUN DNS and metadata preserves the active normal-mode core")
+        let templates: SettingsValue = try await api.value("/api/settings/core-templates")
+        guard var template = templates.items.first(where: { $0["coreType"].text.lowercased() == "xray" }),
+              !template["enabled"].flag else { throw ClientFailure("disabled_template_fixture_missing") }
+        template["remarks"] = .string(template["remarks"].text + " checked")
+        template["tunConfig"] = .string("{\"outbounds\":[]}")
+        try await api.send("/api/settings/core-templates/Xray", method: "PUT", body: template)
+        let afterTemplate: RuntimeStatus = try await api.value("/api/status")
+        let savedTemplates: SettingsValue = try await api.value("/api/settings/core-templates")
+        let savedTemplate = savedTemplates.items.first(where: { $0["id"] == template["id"] })!
+        try require(savedTemplate["tunConfig"] == template["tunConfig"] && afterTemplate.coreProcessIds == afterOtherMode.coreProcessIds,
+            "Disabled template edits persist without restarting the core")
+    }
+
+    static func checkSettings(_ api: APIClient, running: Bool, unavailablePort: Int? = nil) async throws {
         var draft: SettingsValue = try await api.value("/api/settings")
         let oldHidden = draft["core"]["enableFinalFragment"]
         draft["application"] = draft["app"]
@@ -26,6 +142,7 @@ import CryptoKit
         try require(after["core"]["loglevel"] == draft["core"]["loglevel"] && after["core"]["enableFinalFragment"] == oldHidden, "Parameters save and preserve hidden upstream options")
         let savedTun: SettingsValue = try await api.value("/api/macos/tun/settings")
         try require(savedTun["mtu"] == .number(1500), "Native TUN settings persist in the same parameter transaction")
+        try await checkSettingsEditor(api)
         if !running {
             for mtu in [1280, 1408, 1500, 4064, 9000, 65535, 1420] {
                 draft["nativeTun"]["mtu"] = .number(Double(mtu))
@@ -61,6 +178,7 @@ import CryptoKit
         let dnsAfter: SettingsValue = try await api.value("/api/settings/dns/profiles")
         let saved = dnsAfter.items.first(where: { $0["coreType"].text.lowercased() == "xray" })!
         try require(saved["normalDNS"] == xray["normalDNS"] && saved["tunDNS"] == xray["tunDNS"], "Normal and native TUN DNS are stored independently")
+        try await checkConfigurationProfiles(api, running: running)
         let beforeRoutes: SettingsValue = try await api.value("/api/settings/routing-profiles")
         let draftRoute = RoutingDraft.newProfile()
         try await api.send("/api/settings/routing-profiles", method: "POST", body: draftRoute)
@@ -68,6 +186,23 @@ import CryptoKit
         try require(createdRoutes.items.count == beforeRoutes.items.count + 1, "New route creates a separate record")
         for old in beforeRoutes.items {
             try require(createdRoutes.items.first(where: { $0["id"] == old["id"] }) == old, "Creating a route preserves every original route")
+        }
+        if let added = createdRoutes.items.first(where: { new in !beforeRoutes.items.contains(where: { $0["id"] == new["id"] }) }) {
+            let path = "/api/settings/routing-profiles/\(added["id"].text)/rules"
+            let customRules = SettingsValue.array([
+                .object(["id": .string("fixture-a"), "type": .string("field"), "port": .string("443"), "outboundTag": .string("direct"), "process": .array([.string("fixture-process")])]),
+                .object(["id": .string("fixture-b"), "type": .string("field"), "port": .string("80"), "outboundTag": .string("direct")])])
+            let beforeRuleEdit: RuntimeStatus = try await api.value("/api/status")
+            try await api.send(path, method: "PUT", body: customRules)
+            try await api.send(path + "/move", body: SettingsValue.object(["ruleId": .string("fixture-a"), "direction": .string("bottom"), "position": .number(-1)]))
+            let moved: SettingsValue = try await api.value(path)
+            try require(moved.items.last?["id"].text == "fixture-a" && moved.items.last?["process"] == customRules.items.first?["process"], "Routing move preserves full matcher fields")
+            try await api.send(path + "/import", body: SettingsValue.object(["content": .string("[{\"Id\":\"fixture-c\",\"Port\":\"53\",\"OutboundTag\":\"direct\"}]"), "append": .bool(true)]))
+            try await api.perform(path + "/fixture-b", method: "DELETE")
+            let remainingRules: SettingsValue = try await api.value(path)
+            try require(remainingRules.items.map { $0["id"].text } == ["fixture-a", "fixture-c"], "Routing append and delete preserve order")
+            let afterRuleEdit: RuntimeStatus = try await api.value("/api/status")
+            try require(beforeRuleEdit.coreProcessIds == afterRuleEdit.coreProcessIds, "Inactive routing changes do not restart core")
         }
         let routes: SettingsValue = try await api.value("/api/settings/routing-profiles")
         if var route = routes.items.first(where: { $0["isActive"].flag }) {
@@ -77,7 +212,58 @@ import CryptoKit
             route["remarks"] = .string(route["remarks"].text + " checked")
             try await api.send("/api/settings/routing-profiles/\(id)", method: "PUT", body: route)
             let savedRules: SettingsValue = try await api.value("/api/settings/routing-profiles/\(id)/rules")
-            try require(savedRules.items.count == rules.items.count, "Routing editor preserves ordered rules")
+            try require(savedRules == rules, "Routing profile metadata edit preserves full ordered rules and IDs")
+            let beforeNoOp: RuntimeStatus = try await api.value("/api/status")
+            try await api.send("/api/settings/routing-profiles/\(id)", method: "PUT", body: route)
+            try await api.perform("/api/settings/routing-profiles/\(id)/activate", method: "POST")
+            let afterNoOp: RuntimeStatus = try await api.value("/api/status")
+            try require(beforeNoOp.coreProcessIds == afterNoOp.coreProcessIds, "Unchanged active profile save and activation do not restart core")
+            if let first = savedRules.items.first {
+                let beforeMove: RuntimeStatus = try await api.value("/api/status")
+                try await api.send("/api/settings/routing-profiles/\(id)/rules/move", body: SettingsValue.object([
+                    "ruleId": .string(first["id"].text), "direction": .string("top"), "position": .number(-1)]))
+                let afterMove: RuntimeStatus = try await api.value("/api/status")
+                try require(beforeMove.coreProcessIds == afterMove.coreProcessIds, "No-op active rule move does not restart core")
+            }
+        }
+        if running {
+            let templates: SettingsValue = try await api.value("/api/settings/core-templates")
+            guard var broken = templates.items.first(where: { $0["coreType"].text.lowercased() == "xray" }) else {
+                throw ClientFailure("template_fixture_missing")
+            }
+            let beforeFailure: RuntimeStatus = try await api.value("/api/status")
+            broken["enabled"] = .bool(true)
+            broken["config"] = .string("{")
+            do {
+                try await api.send("/api/settings/core-templates/Xray", method: "PUT", body: broken)
+                throw ClientFailure("broken_template_accepted")
+            } catch let error as ClientFailure {
+                try require(error.code == "settings_core_apply_failed", "Invalid runtime template reports settings apply failure")
+            }
+            let restoredTemplates: SettingsValue = try await api.value("/api/settings/core-templates")
+            let restoredRuntime: RuntimeStatus = try await api.value("/api/status")
+            try require(restoredTemplates == templates, "Failed runtime apply restores persisted template snapshot")
+            try require(restoredRuntime.coreRunning && restoredRuntime.coreProcessIds?.isEmpty == false
+                && restoredRuntime.currentProfileId == beforeFailure.currentProfileId,
+                "Launch failure restores original running profile after configuration rollback")
+            if let unavailablePort {
+                let beforePortEdit: SettingsValue = try await api.value("/api/settings")
+                var occupiedInbound = beforePortEdit["inbound"]
+                occupiedInbound["localPort"] = .number(Double(unavailablePort))
+                occupiedInbound["secondLocalPortEnabled"] = .bool(false)
+                occupiedInbound["newPort4LAN"] = .bool(false)
+                do {
+                    try await api.send("/api/settings/inbound", method: "PUT", body: occupiedInbound)
+                    throw ClientFailure("occupied_port_accepted")
+                } catch let error as ClientFailure {
+                    try require(error.code == "settings_core_apply_failed", "Occupied fixture port rejects runtime settings apply")
+                }
+                let afterPortEdit: SettingsValue = try await api.value("/api/settings")
+                let afterPortFailure: RuntimeStatus = try await api.value("/api/status")
+                try require(afterPortEdit["inbound"] == beforePortEdit["inbound"], "Preflight failure restores persisted inbound settings")
+                try require(afterPortFailure.coreRunning && afterPortFailure.coreProcessIds == restoredRuntime.coreProcessIds,
+                    "Preflight failure keeps healthy original core process")
+            }
         }
         let status: RuntimeStatus = try await api.value("/api/status")
         try require(status.coreRunning == running, "Settings preserve stopped/running core intent")
@@ -127,6 +313,7 @@ import CryptoKit
             try await api.send("/api/profiles/import", body: ImportInput(content: "socks://127.0.0.1:\(socksPort)#Manual%20fixture"))
             let profiles: [Profile] = try await api.value("/api/profiles?subscriptionId=")
             try require(profiles.count == 2, "Import manual node")
+            let copiedProfileId = try await checkProfileCatalog(api, group: group, profiles: profiles)
             // Set an isolated local port and route local test traffic through the selected outbound.
             try await api.send("/api/settings/inbound", method: "PUT", body: Inbound(localPort: proxyPort))
             try await api.send("/api/settings/routing-profiles", body: [
@@ -167,6 +354,37 @@ import CryptoKit
                 try await api.perform("/api/profiles/\(item.id)/select")
                 let status: RuntimeStatus = try await api.value("/api/status")
                 try require(status.coreRunning && status.currentProfileId == item.id && status.runningProxyPort == proxyPort, "Select and start node")
+                if firstCoreLog == nil {
+                    try await api.perform("/api/core/start")
+                    let repeated: RuntimeStatus = try await api.value("/api/status")
+                    try require(repeated.coreProcessIds == status.coreProcessIds, "Starting the serving node is idempotent")
+                    do {
+                        try await api.perform("/api/profiles/\(item.id)/select?connect=false")
+                        throw ClientFailure("running_selection_without_connect_accepted")
+                    } catch let failure as ClientFailure {
+                        try require(failure.code == "core_selection_requires_stop", "Selection without connecting requires a stopped core")
+                    }
+                    do {
+                        try await api.perform("/api/profiles/missing-\(UUID().uuidString)/select")
+                        throw ClientFailure("missing_node_selection_accepted")
+                    } catch let failure as ClientFailure {
+                        try require(failure.code == "profile_not_found", "Missing node selection fails clearly")
+                    }
+                    let unchanged: RuntimeStatus = try await api.value("/api/status")
+                    try require(unchanged.coreProcessIds == status.coreProcessIds && unchanged.currentProfileId == item.id,
+                        "Rejected selection preserves the serving core and selected node")
+                }
+                let editPath = "/api/profiles/\(item.id)"
+                var runningEdit: SettingsValue = try await api.value(editPath)
+                let preservedTransport = runningEdit["transportExtra"]
+                runningEdit["remarks"] = .string("Running edit " + item.id)
+                try await api.send(editPath, method: "PUT", body: runningEdit)
+                let editedStatus: RuntimeStatus = try await api.value("/api/status")
+                let editedDocument: SettingsValue = try await api.value(editPath)
+                try require(editedStatus.coreRunning && editedStatus.currentProfileId == item.id
+                    && editedStatus.coreProcessIds != status.coreProcessIds
+                    && editedDocument["transportExtra"] == preservedTransport,
+                    "Editing running node restarts core and preserves unexposed transport fields")
                 let curl = Process(); curl.executableURL = URL(fileURLWithPath: "/usr/bin/curl")
                 curl.arguments = ["--fail", "--silent", "--show-error", "--max-time", "10", "--noproxy", "", "--proxy", "http://127.0.0.1:\(proxyPort)", "http://native-check.invalid:\(fixturePort)/traffic"]
                 let output = Pipe(); curl.standardOutput = output; curl.standardError = FileHandle.nullDevice
@@ -178,7 +396,7 @@ import CryptoKit
                     firstCoreLog = tail.items.first(where: { $0.source == "core" })
                 }
             }
-            try await checkSettings(api, running: true)
+            try await checkSettings(api, running: true, unavailablePort: fixturePort)
             var hasTrafficSample = false
             for _ in 0..<40 {
                 let sampled: RuntimeStatus = try await api.value("/api/status")
@@ -287,6 +505,13 @@ import CryptoKit
             let deltaTail: LogTail = try await api.value("/api/logs/tail?after=\(retained.latestSequence)&limit=10000")
             try require(deltaTail.items.allSatisfy({ ($0.sequence ?? 0) > retained.latestSequence }),
                         "Incremental polling returns only new log entries")
+            try await api.perform("/api/profiles/\(copiedProfileId)/select")
+            try await api.send("/api/profiles", method: "DELETE", body: ProfileIDs([copiedProfileId]))
+            let afterRemoval: RuntimeStatus = try await api.value("/api/status")
+            let afterRemovalNodes: [Profile] = try await api.value("/api/profiles?subscriptionId=")
+            try require(afterRemoval.coreRunning && afterRemoval.currentProfileId != copiedProfileId
+                && !afterRemovalNodes.contains(where: { $0.id == copiedProfileId }), "Delete running node and restart a remaining node")
+            try await api.perform("/api/core/stop")
             if let manual = profiles.first(where: { $0.subscriptionId?.isEmpty != false }) {
                 try await api.send("/api/profiles", method: "DELETE", body: ProfileIDs([manual.id]))
             }

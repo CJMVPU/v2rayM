@@ -1,3 +1,16 @@
+using V2rayM.Application.Runtime;
+using v2rayN.WebAPI.Adapters.Settings;
+using V2rayM.Application.Settings;
+using V2rayM.Application.Routing;
+using v2rayN.WebAPI.Adapters.Routing;
+using V2rayM.Application.Diagnostics;
+using v2rayN.WebAPI.Adapters.Diagnostics;
+using V2rayM.Application.Profiles;
+using v2rayN.WebAPI.Adapters.Profiles;
+using v2rayN.WebAPI.Adapters.Subscriptions;
+using V2rayM.Application.Subscriptions;
+using V2rayM.Domain.Subscriptions;
+using V2rayM.Domain.Runtime;
 using System.Net.Sockets;
 using System.Net;
 using System.Net.NetworkInformation;
@@ -30,7 +43,22 @@ public sealed partial class V2rayRuntime
     private readonly CoreLifecycleService _coreLifecycle;
     private readonly IRuntimeConfigStore _configStore;
     private readonly CoreSettingsTransaction _settingsTransaction;
+    private readonly SettingsApplyService _settingsApply = new();
+    private readonly SettingsEditorService _settingsEditor;
+    private readonly SettingsRecoveryService _settingsRecovery = new();
     private readonly ModuleUpdateCoordinator _moduleUpdates;
+    private readonly SubscriptionService _subscriptions;
+    private readonly ProfileCatalogService _profileCatalog;
+    private readonly ProfileEditorService _profileEditor;
+    private readonly ProfileQueryService _profileQueries;
+    private readonly RoutingRuleService _routingRules;
+    private readonly RoutingProfileService _routingProfiles;
+    private readonly ProfileMaintenanceService _profileMaintenance;
+    private readonly SpeedTestCoordinator _speedTests;
+    private readonly ProfileRemovalService _profileRemoval;
+    private readonly ProfileExportService _profileExport;
+    private readonly SubscriptionUpdateService _subscriptionUpdates;
+    private readonly SubscriptionRemovalService _subscriptionRemoval;
     private RuntimeOperationCoordinator _operations => _execution.Operations;
     private RuntimeMutationGate _mutations => _execution.Mutations;
     private SemaphoreSlim _coreGate => _execution.CoreGate;
@@ -47,14 +75,37 @@ public sealed partial class V2rayRuntime
             _macTunLauncher.ConfirmCleanupAsync, IsListeningAsync, OnCoreRuntimeChanged,
             message => AddLog("core", message), CoreProcessTracker.GetActiveProcesses);
         _settingsTransaction = new CoreSettingsTransaction(_execution, _configStore);
+        _settingsEditor = new SettingsEditorService(new ServiceLibSettingsEditor(_configStore), _mutations,
+            new SettingsEditValidator(SettingsCapabilities), new CoreSettingsRuntimeAdapter(this));
         _moduleUpdates = new ModuleUpdateCoordinator(_execution);
+        _routingRules = new RoutingRuleService(new ServiceLibRoutingRules(), _mutations);
+        _routingProfiles = new RoutingProfileService(new ServiceLibRoutingProfiles(() => Config,
+            () => EnsureConfigSaveSucceededAsync(() => _configStore.SaveAsync())), _mutations);
+        _profileQueries = new ProfileQueryService(new ServiceLibProfileQueries(() => Config));
+        _profileMaintenance = new ProfileMaintenanceService(new ServiceLibProfileMaintenance(() => Config,
+            () => CurrentCoreRuntime.ProfileId), _mutations, new ProfileCatalogEvents(events, message => AddLog("profile", message)));
+        var speedTests = new ServiceLibSpeedTests(() => Config, events, message => AddLog("speedtest", message));
+        _speedTests = new SpeedTestCoordinator(operations, _mutations, speedTests, speedTests);
+        _profileEditor = new ProfileEditorService(new ServiceLibProfileEditor(() => Config,
+            id => CurrentCoreRuntime.State == CoreRuntimeState.Running && CurrentCoreRuntime.ProfileId == id), _mutations,
+            new ProfileCatalogEvents(events, message => AddLog("profile", message)));
+        _profileRemoval = new ProfileRemovalService(new ServiceLibProfileRemoval(() => Config,
+            () => (CurrentCoreRuntime.ProfileId, CurrentCoreRuntime.State == CoreRuntimeState.Running, HasTrackedCoreProcesses),
+            () => EnsureConfigSaveSucceededAsync(() => _configStore.SaveAsync())), _mutations,
+            new ProfileCatalogEvents(events, message => AddLog("profile", message)));
+        _profileExport = new ProfileExportService(new ServiceLibProfileExport(() => Config), _mutations);
+        _profileCatalog = new ProfileCatalogService(new ServiceLibProfileCatalog(() => Config,
+            () => EnsureConfigSaveSucceededAsync(() => _configStore.SaveAsync())), _mutations,
+            new ProfileCatalogEvents(events, message => AddLog("profile", message)));
+        _subscriptions = new SubscriptionService(new ServiceLibSubscriptionRepository(() => Config),
+            _mutations, new ServiceLibSubscriptionHeaders());
+        _subscriptionUpdates = new SubscriptionUpdateService(operations, _mutations,
+            new ServiceLibSubscriptionUpdater(() => Config, () => EnsureConfigSaveSucceededAsync(() => _configStore.SaveAsync())),
+            new SubscriptionUpdateEvents(events, message => AddLog("subscription", message)), TimeProvider.System);
+        _subscriptionRemoval = new SubscriptionRemovalService(
+            new ServiceLibSubscriptionRemoval(() => Config, () => CurrentCoreRuntime.ProfileId,
+                () => EnsureConfigSaveSucceededAsync(() => _configStore.SaveAsync())), _mutations);
     }
-    private readonly object _subscriptionGate = new();
-    private readonly object _speedtestGate = new();
-    private readonly Dictionary<string, Task> _subscriptionTasks = new(StringComparer.Ordinal);
-    private SpeedtestService? _speedtestService;
-    private Task? _speedtestTask;
-    private CancellationTokenSource? _speedtestCancellation;
     private string? _xrayPath;
     private readonly TrafficAverageWindow _trafficWindow = new();
     private readonly InstalledXrayVersion _installedXrayVersion = new();
@@ -105,215 +156,6 @@ public sealed partial class V2rayRuntime
     private void SetTrackedCoreProcesses(IEnumerable<CoreProcessIdentity> processes) => _coreLifecycle.SetTrackedProcesses(processes);
     private Task StopCoreAndConfirmAsync(CancellationToken token) => _coreLifecycle.StopAndConfirmAsync(token);
 
-    public async Task InitializeAsync(CancellationToken cancellationToken, bool suppressCoreAutostart = false)
-    {
-        var restoreState = await LoadRestoreRuntimeStateAsync(cancellationToken);
-        var updateStatePath = WebUpdateRuntimeStatePath;
-        var updateRuntimeState = restoreState is null
-            ? await LoadRuntimeRestartIntentAsync(updateStatePath, cancellationToken)
-            : null;
-        var startupRuntimeIntent = restoreState ?? updateRuntimeState;
-        if (!AppManager.Instance.InitApp())
-        {
-            throw new InvalidOperationException("ServiceLib could not load its configuration.");
-        }
-        // Finish a previously interrupted DB + JSON rollback before any core
-        // or background mutator can observe a partially restored configuration.
-        await _configStore.RecoverPendingRestoreAsync();
-        ConfigureServiceLibConsoleLogging();
-
-        if (!AppManager.Instance.InitComponents())
-        {
-            throw new InvalidOperationException("ServiceLib component initialization failed.");
-        }
-
-        await _mutations.RunAsync(async () =>
-        {
-            EnsureInboundDefaults(Config);
-            EnsureCoreTypeMappings();
-            // Migrate only API-owned preference identifiers; no ServiceLib code changes.
-            Config.CheckUpdateItem.SelectedCoreTypes = NormalizeWebUpdateTargets(Config.CheckUpdateItem.SelectedCoreTypes);
-            Config.CheckUpdateItem.CheckPreReleaseCoreTypes = NormalizeWebUpdateTargets(Config.CheckUpdateItem.CheckPreReleaseCoreTypes);
-            var proxyPortOverride = _configuration.GetValue<int?>("V2RAYN_WEB_PROXY_PORT");
-            if (proxyPortOverride is <= 0 or > 65535)
-            {
-                throw new InvalidOperationException("V2RAYN_WEB_PROXY_PORT must be a valid TCP/UDP port (1-65535).");
-            }
-            if (proxyPortOverride is int configuredProxyPort)
-            {
-                Config.Inbound[0].LocalPort = configuredProxyPort;
-            }
-            if (_configuration.GetValue<bool?>("V2RAYN_WEB_PROXY_LISTEN_ALL") is bool allowProxyFromLan)
-            {
-                Config.Inbound[0].AllowLANConn = allowProxyFromLan;
-            }
-            await EnsureConfigSaveSucceededAsync(() => _configStore.SaveAsync());
-        });
-        await ConfigHandler.InitBuiltinDNS(Config);
-        await BuiltinDnsProfileBootstrap.EnsureAsync(
-            Config,
-            async () => await AppManager.Instance.DNSItems() ?? [],
-            ConfigHandler.SaveDNSItems);
-        await ConfigHandler.InitBuiltinFullConfigTemplate(Config);
-        // Keep startup aligned with Desktop's StatusBarViewModel. In particular,
-        // InitBuiltinRouting owns the RoutingIndexId -> IsActive migration and must
-        // run even when a restored Desktop database already has routing rows.
-        await ConfigHandler.InitBuiltinRouting(Config);
-        _ = await ConfigHandler.GetDefaultRouting(Config);
-        var restoredSubscriptions = await AppManager.Instance.SubItems() ?? [];
-        var normalizedSubIndexId = NormalizeSelectedSubscriptionId(
-            Config.SubIndexId,
-            restoredSubscriptions.Select(item => item.Id).ToArray());
-        if (Config.SubIndexId != normalizedSubIndexId)
-        {
-            AddLog("restore", "The selected subscription group no longer exists; normalized the selection to all profiles.");
-            Config.SubIndexId = normalizedSubIndexId;
-        }
-        var selectedProfileId = Config.IndexId;
-        var defaultProfile = await ConfigHandler.GetDefaultServer(Config);
-        await _mutations.RunAsync(() => EnsureConfigSaveSucceededAsync(() => _configStore.SaveAsync()));
-        await ProfileExManager.Instance.Init();
-        await CertPemManager.Instance.Init(Config);
-        // The native macOS host routes TUN launches through its signed XPC helper.
-        if (OperatingSystem.IsMacOS()) CoreManager.Instance.PrivilegedCoreLauncher = _macTunLauncher;
-        await CoreManager.Instance.Init(Config, OnCoreMessageAsync);
-        if (Config.GuiItem.EnableStatistics || Config.GuiItem.DisplayRealTimeSpeed)
-        {
-            await StatisticsManager.Instance.Init(Config, OnStatisticsUpdateAsync);
-        }
-        _xrayPath = FindXrayExecutable(out var missingXrayMessage);
-        if (_xrayPath is null)
-        {
-            AddLog("core", missingXrayMessage);
-        }
-
-        _initialized = true;
-        AddLog("web", "serviceLib.initialized");
-        StartScheduledOperations(cancellationToken);
-
-        if (startupRuntimeIntent is not null)
-        {
-            if (!RuntimeRestartRecovery.ShouldRecoverCore(startupRuntimeIntent, suppressCoreAutostart))
-            {
-                if (suppressCoreAutostart && startupRuntimeIntent.WasRunning)
-                {
-                    AddLog("core", "Core startup was suppressed until first-run Management Key setup is complete.");
-                }
-            }
-            else
-            {
-                await RuntimeRestartRecovery.RecoverAsync(
-                    startupRuntimeIntent,
-                    selectedProfileId,
-                    defaultProfile?.IndexId,
-                    async (profileId, _) => await AppManager.Instance.GetProfileItem(profileId) is not null,
-                    StartCoreAsync,
-                    message => AddLog(restoreState is not null ? "restore" : "update", message),
-                    cancellationToken);
-            }
-            if (restoreState is not null)
-            {
-                await CommitRestoreRuntimeStateAsync();
-            }
-        }
-        else if (RuntimeRestartRecovery.ShouldAutoStart(
-            startupRuntimeIntent,
-            _configuration.GetValue("V2RAYN_WEB_AUTOSTART", false),
-            suppressCoreAutostart))
-        {
-            var result = await StartCoreAsync(null, cancellationToken);
-            if (!result.Success)
-            {
-                AddLog("core", result.MessageKey);
-            }
-        }
-        else if (suppressCoreAutostart)
-        {
-            AddLog("core", "Core autostart was suppressed until first-run Management Key setup is complete.");
-        }
-    }
-
-    public async Task ShutdownAsync(CancellationToken cancellationToken)
-    {
-        var steps = new List<ShutdownCleanupStep>
-        {
-            new("restore shutdown request", async deadline =>
-            {
-                await WaitForRestoreShutdownRequestAsync(deadline.Token);
-                return true;
-            }),
-            new("scheduled operations stop", deadline => StopScheduledOperationsAsync(deadline.Token)),
-            new("operation drain", async deadline =>
-            {
-                var drained = await _operations.StopAndDrainAsync(deadline.Token, deadline.Remaining);
-                if (!drained)
-                {
-                    AddLog("web", "Shutdown operation drain timed out; skipped all Core, state-save, and SQLite cleanup.");
-                }
-                return drained;
-            }),
-        };
-
-        var saveServiceLibState = _initialized && !_restoring;
-        if (saveServiceLibState)
-        {
-            steps.AddRange(ShutdownStatisticsCheckpoint.WrapCoreStop(
-                () => StatisticsManager.Instance.SaveTo(), async deadline =>
-            {
-                try
-                {
-                    await StopCoreMonitorAsync();
-                    await StopCoreAndConfirmAsync(deadline.Token);
-                    SetCoreRuntime(CoreRuntimeSnapshot.Stopped);
-                    return true;
-                }
-                catch (Exception exception)
-                {
-                    SetCoreRuntime(CurrentCoreRuntime with
-                    {
-                        State = CoreRuntimeState.Faulted,
-                        ProcessIds = GetActiveCoreProcessIds(),
-                        LastFailure = exception.Message,
-                    });
-                    throw;
-                }
-            }, message => AddLog("web", message)));
-            steps.Add(new("profile save", async _ =>
-            {
-                await ProfileExManager.Instance.SaveTo();
-                return true;
-            }));
-            steps.Add(new("statistics close", async _ =>
-            {
-                await StatisticsManager.Instance.CloseAsync();
-                return true;
-            }));
-            steps.Add(new("configuration save", async deadline =>
-            {
-                await _mutations.RunAsync(
-                    () => EnsureConfigSaveSucceededAsync(() => _configStore.SaveAsync()),
-                    deadline.Token);
-                return true;
-            }));
-            steps.Add(new("database close", async _ =>
-            {
-                await SQLiteHelper.Instance.DisposeDbConnectionAsync();
-                return true;
-            }));
-        }
-
-        var completed = await ShutdownCleanupSequence.RunAsync(
-            steps,
-            RuntimeShutdownBudgets.RuntimeCleanup,
-            cancellationToken,
-            message => AddLog("web", message),
-            ShutdownDiagnostics.SetStage);
-        if (completed && saveServiceLibState)
-        {
-            AddLog("web", "serviceLib.stopped");
-        }
-    }
-
     internal static async Task EnsureConfigSaveSucceededAsync(Func<Task<int>> save)
     {
         if (await save() != 0)
@@ -322,55 +164,10 @@ public sealed partial class V2rayRuntime
         }
     }
 
-    public async Task<IReadOnlyList<ProfileView>> GetProfilesAsync(string? subscriptionId, string? filter)
-    {
-        var groupId = subscriptionId ?? Config.SubIndexId ?? string.Empty;
-        var profiles = await AppManager.Instance.ProfileItems(groupId) ?? [];
-        var subscriptions = (await AppManager.Instance.SubItems() ?? []).ToDictionary(item => item.Id, item => item.Remarks);
-        var extensions = await ProfileExManager.Instance.GetProfileExs();
-        var extensionMap = extensions.ToDictionary(item => item.IndexId);
-        var statistics = (Config.GuiItem.EnableStatistics ? StatisticsManager.Instance.ServerStat : null) ?? [];
-        var statisticsMap = statistics.ToDictionary(item => item.IndexId);
-        var query = filter?.Trim();
+    public async Task<IReadOnlyList<ProfileView>> GetProfilesAsync(string? subscriptionId, string? filter) =>
+        (await _profileQueries.ListAsync(subscriptionId, filter)).Select(ProfileQueryContractMapper.ToView).ToArray();
 
-        return profiles
-            .Where(item => string.IsNullOrEmpty(query)
-                || Utils.IsRegexMatch(item.Remarks, query)
-                || Utils.IsRegexMatch(item.Address, query))
-            .Select(item =>
-            {
-                extensionMap.TryGetValue(item.IndexId, out var extension);
-                statisticsMap.TryGetValue(item.IndexId, out var statistic);
-                var delay = extension?.Delay ?? 0;
-                var speed = extension?.Speed ?? 0;
-                return new ProfileView(
-                    item.IndexId,
-                    item.Remarks,
-                    System.Text.Json.JsonNamingPolicy.CamelCase.ConvertName(item.ConfigType.ToString()),
-                    item.Address,
-                    item.Port,
-                    item.GetNetwork(),
-                    item.StreamSecurity,
-                    item.Subid,
-                    subscriptions.GetValueOrDefault(item.Subid),
-                    System.Text.Json.JsonNamingPolicy.CamelCase.ConvertName(AppManager.Instance.GetCoreType(item, item.ConfigType).ToString()),
-                    extension?.Sort ?? 0,
-                    delay,
-                    speed,
-                    extension?.IpInfo,
-                    statistic?.TodayUp ?? 0,
-                    statistic?.TodayDown ?? 0,
-                    statistic?.TotalUp ?? 0,
-                    statistic?.TotalDown ?? 0,
-                    item.IndexId == Config.IndexId,
-                    !item.IsComplex() && item.Port > 0);
-            })
-            .OrderBy(item => item.Sort)
-            .ToArray();
-    }
-
-    public async Task<ProfileItem?> GetProfileDetailsAsync(string profileId) =>
-        await AppManager.Instance.GetProfileItem(profileId);
+    public Task<ProfileItem?> GetProfileDetailsAsync(string profileId) => ServiceLibProfileQueries.ReadDetailsAsync(profileId);
 
     public async Task<StatusView> GetStatusAsync()
     {
@@ -398,18 +195,17 @@ public sealed partial class V2rayRuntime
         var inbound = Config.Inbound.FirstOrDefault();
         var sniffingEnabled = inbound?.SniffingEnabled ?? false;
         var sniffingTypes = NormalizeDestOverride(sniffingEnabled, inbound?.DestOverride);
-        var coreRunning = snapshot.State == CoreRuntimeState.Running && processIds.Length > 0 && listening;
-        if (snapshot.State == CoreRuntimeState.Running && !coreRunning)
+        var health = _coreLifecycle.ObserveHealth(snapshot, processIds, listening);
+        var coreRunning = health.Running;
+        if (health.PublishedFailure)
         {
             snapshot = snapshot with
             {
                 State = CoreRuntimeState.Faulted,
                 ProcessIds = processIds,
-                LastFailure = processIds.Length == 0
-                    ? "The tracked Core child process exited unexpectedly."
-                    : "The running Core no longer owns its expected proxy listener.",
+                LastFailure = CoreLifecycleService.FailureMessage(processIds.Length == 0
+                    ? CoreHealthFailure.ProcessExited : CoreHealthFailure.ListenerUnavailable),
             };
-            SetCoreRuntime(snapshot);
         }
 
         var runningProfile = string.IsNullOrEmpty(snapshot.ProfileId)
@@ -450,84 +246,6 @@ public sealed partial class V2rayRuntime
             Config.GuiItem.EnableStatistics || Config.GuiItem.DisplayRealTimeSpeed,
             await _installedXrayVersion.ReadAsync(_xrayPath));
 
-    }
-
-    public async Task<OperationView> SelectProfileAsync(string profileId, CancellationToken cancellationToken, bool connect = true)
-    {
-        var profile = await AppManager.Instance.GetProfileItem(profileId);
-        if (profile is null)
-        {
-            return OperationView.Fail("profile_not_found", ApiMessageKeys.ProfileNotFound);
-        }
-
-        if (connect) return await StartCoreAsync(profile, cancellationToken, selectProfile: true);
-        await _coreGate.WaitAsync(cancellationToken);
-        try
-        {
-            if (CurrentCoreRuntime.State != CoreRuntimeState.Stopped)
-                return OperationView.Fail("core_selection_requires_stop", ApiMessageKeys.CommonInvalidInput);
-            await _mutations.RunAsync(async () => {
-                Config.IndexId = profile.IndexId;
-                await EnsureConfigSaveSucceededAsync(() => _configStore.SaveAsync());
-            });
-            return OperationView.Ok(ApiMessageKeys.CommonCompleted);
-        }
-        finally { _coreGate.Release(); }
-    }
-
-    public async Task<OperationView> StartCoreAsync(string? profileId, CancellationToken cancellationToken)
-    {
-        ProfileItem? profile = null;
-        if (!string.IsNullOrWhiteSpace(profileId))
-        {
-            profile = await AppManager.Instance.GetProfileItem(profileId);
-            if (profile is null)
-            {
-                return OperationView.Fail("profile_not_found", ApiMessageKeys.ProfileNotFound);
-            }
-        }
-
-        return await StartCoreAsync(profile, cancellationToken);
-    }
-
-    private async Task<OperationView> StartCoreAsync(ProfileItem? requestedProfile, CancellationToken cancellationToken, bool selectProfile = false)
-    {
-        return await _coreLifecycle.ExecuteAsync(() => StartCoreLockedAsync(requestedProfile, cancellationToken, selectProfile), cancellationToken);
-    }
-
-    private async Task<OperationView> StartCoreLockedAsync(ProfileItem? requestedProfile, CancellationToken cancellationToken, bool selectProfile = false)
-    {
-        var profile = requestedProfile ?? await GetDefaultProfileAsync();
-        if (profile is null)
-        {
-            return OperationView.Fail("profile_not_selected", ApiMessageKeys.ProfileNoneSelected);
-        }
-
-        var current = CurrentCoreRuntime;
-        if (!selectProfile
-            && current.State == CoreRuntimeState.Running
-            && current.ProfileId == profile.IndexId
-            && HasTrackedCoreProcesses)
-        {
-            return OperationView.Ok(ApiMessageKeys.CoreStarted, new { profileId = profile.IndexId, alreadyRunning = true });
-        }
-
-        var preflight = await BuildAndValidateCoreLaunchAsync(profile);
-        if (preflight.Failure is { } preflightFailure)
-        {
-            return preflightFailure;
-        }
-
-        if (selectProfile)
-        {
-            await _mutations.RunAsync(async () =>
-            {
-                Config.IndexId = profile.IndexId;
-                await EnsureConfigSaveSucceededAsync(() => _configStore.SaveAsync());
-            });
-        }
-
-        return await LaunchPreflightedCoreLockedAsync(preflight, cancellationToken);
     }
 
     private async Task<ProfileItem?> GetDefaultProfileAsync() => await _mutations.RunAsync(async () =>
@@ -587,141 +305,6 @@ public sealed partial class V2rayRuntime
         return preflight;
     }
 
-    private async Task<OperationView> LaunchPreflightedCoreLockedAsync(
-        CoreLaunchPreflightResult preflight,
-        CancellationToken cancellationToken)
-    {
-        var profile = preflight.Profile;
-        var built = preflight.BuiltContext;
-        var port = Config.Inbound.FirstOrDefault()?.LocalPort ?? 0;
-        if (!HasTrackedCoreProcesses && CurrentCoreRuntime.State == CoreRuntimeState.Stopped
-            && await IsListeningAsync(port, cancellationToken))
-        {
-            return OperationView.Fail("proxy_port_in_use", ApiMessageKeys.CorePortInUse, new { port });
-        }
-
-        if (CurrentCoreRuntime.State != CoreRuntimeState.Stopped || HasTrackedCoreProcesses)
-        {
-            SetCoreRuntime(CurrentCoreRuntime with { State = CoreRuntimeState.Stopping, LastFailure = null });
-            try
-            {
-                await StopCoreMonitorAsync();
-                await StopCoreAndConfirmAsync(cancellationToken);
-                SetCoreRuntime(CoreRuntimeSnapshot.Stopped);
-            }
-            catch (Exception exception)
-            {
-                var failedStop = CurrentCoreRuntime with
-                {
-                    State = CoreRuntimeState.Faulted,
-                    ProcessIds = GetActiveCoreProcessIds(),
-                    LastFailure = exception.Message,
-                };
-                SetCoreRuntime(failedStop);
-                AddLog("core", $"Core stop before launch failed: {exception}");
-                return OperationView.Fail("core_stop_failed", ApiMessageKeys.CoreStopFailed,
-                    new { detail = exception.Message, processIds = failedStop.ProcessIds });
-            }
-        }
-
-        var expectedCoreType = built.PreSocksResult?.Context.RunCoreType ?? built.MainResult.Context.RunCoreType;
-        var listeners = GetConfiguredListenerSnapshots();
-        SetCoreRuntime(new CoreRuntimeSnapshot(
-            CoreRuntimeState.Starting,
-            profile.IndexId,
-            expectedCoreType,
-            null,
-            listeners.FirstOrDefault(listener => listener.Name == "local")?.Port,
-            AppManager.Instance.StatePort,
-            listeners,
-            [],
-            null));
-
-        try
-        {
-            var existingProcessIds = CoreProcessTracker.CaptureExistingProcessIds();
-            var expectedExecutablePaths = GetExpectedCoreExecutablePaths(built);
-            var expectedConfigPaths = GetExpectedCoreConfigPaths(built);
-            try
-            {
-                await CoreManager.Instance.LoadCore(built.MainResult.Context, built.PreSocksResult?.Context);
-            }
-            finally
-            {
-                var tracked = OperatingSystem.IsMacOS()
-                    ? CoreProcessTracker.CaptureOwnedProcesses(CoreManager.Instance.GetOwnedCoreProcessIds())
-                    : CoreProcessTracker.CaptureStartedProcesses(existingProcessIds, expectedExecutablePaths, expectedConfigPaths);
-                SetTrackedCoreProcesses(tracked.Concat(_macTunLauncher.CaptureIdentities()));
-            }
-            var started = await WaitForListenerAsync(port, cancellationToken);
-            var processIds = GetActiveCoreProcessIds();
-            if (!started || processIds.Length == 0)
-            {
-                var failure = !started
-                    ? "The Core process did not open its configured proxy listener."
-                    : "The Web runtime could not identify a live Core child process.";
-                try
-                {
-                    await StopCoreAndConfirmAsync(CancellationToken.None);
-                    processIds = GetActiveCoreProcessIds();
-                }
-                catch (Exception stopException)
-                {
-                    failure += $" Cleanup also failed: {stopException.Message}";
-                }
-                SetCoreRuntime(CurrentCoreRuntime with
-                {
-                    State = CoreRuntimeState.Faulted,
-                    ProcessIds = processIds,
-                    LastFailure = failure,
-                });
-                AddLog("core", failure);
-                _events.Publish("status", await GetStatusAsync());
-                return OperationView.Fail("core_start_failed", ApiMessageKeys.CoreStartFailed,
-                    new { profileId = profile.IndexId, detail = failure, processIds });
-            }
-
-            SetCoreRuntime(CurrentCoreRuntime with
-            {
-                State = CoreRuntimeState.Running,
-                CoreType = AppManager.Instance.RunningCoreType,
-                StartedAt = DateTimeOffset.UtcNow,
-                ProcessIds = processIds,
-                LastFailure = null,
-            });
-            await StartCoreMonitorAsync();
-            AddLog("core", ApiMessageKeys.CoreStarted);
-            _events.Publish("status", await GetStatusAsync());
-            return OperationView.Ok(ApiMessageKeys.CoreStarted, new { profileId = profile.IndexId, processIds });
-        }
-        catch (Exception exception)
-        {
-            AddLog("core", $"Core start failed: {exception}");
-            var processIds = GetActiveCoreProcessIds();
-            if (CurrentCoreRuntime.State == CoreRuntimeState.Starting || processIds.Length > 0)
-            {
-                try
-                {
-                    await StopCoreAndConfirmAsync(CancellationToken.None);
-                    processIds = GetActiveCoreProcessIds();
-                }
-                catch (Exception stopException)
-                {
-                    AddLog("core", $"Core start cleanup failed: {stopException}");
-                }
-            }
-            SetCoreRuntime(CurrentCoreRuntime with
-            {
-                State = CoreRuntimeState.Faulted,
-                ProcessIds = processIds,
-                LastFailure = exception.Message,
-            });
-            _events.Publish("status", await GetStatusAsync());
-            return OperationView.Fail("core_start_failed", ApiMessageKeys.CoreStartFailed,
-                new { profileId = profile.IndexId, detail = exception.Message, processIds });
-        }
-    }
-
     internal static OperationView? GetTunLaunchRejection(CoreConfigContextBuilderAllResult built) =>
         CoreLaunchPreflight.GetTunLaunchRejection(built);
 
@@ -730,121 +313,12 @@ public sealed partial class V2rayRuntime
             ? selectedId ?? string.Empty
             : string.Empty;
 
-    public async Task<OperationView> StopCoreAsync(CancellationToken cancellationToken)
-    {
-        return await _coreLifecycle.ExecuteAsync(() => StopCoreLockedAsync(cancellationToken), cancellationToken);
-    }
-
-    private async Task<OperationView> StopCoreLockedAsync(CancellationToken cancellationToken)
-    {
-        if (CurrentCoreRuntime.State == CoreRuntimeState.Stopped && !HasTrackedCoreProcesses)
-        {
-            return OperationView.Ok(ApiMessageKeys.CoreStopped);
-        }
-
-        SetCoreRuntime(CurrentCoreRuntime with { State = CoreRuntimeState.Stopping, LastFailure = null });
-        try
-        {
-            await StopCoreMonitorAsync();
-            await StopCoreAndConfirmAsync(cancellationToken);
-            SetCoreRuntime(CoreRuntimeSnapshot.Stopped);
-            AddLog("core", ApiMessageKeys.CoreStopped);
-            _events.Publish("status", await GetStatusAsync());
-            return OperationView.Ok(ApiMessageKeys.CoreStopped);
-        }
-        catch (Exception exception)
-        {
-            var processIds = GetActiveCoreProcessIds();
-            SetCoreRuntime(CurrentCoreRuntime with
-            {
-                State = CoreRuntimeState.Faulted,
-                ProcessIds = processIds,
-                LastFailure = exception.Message,
-            });
-            AddLog("core", $"Core stop failed: {exception}");
-            _events.Publish("status", await GetStatusAsync());
-            return OperationView.Fail("core_stop_failed", ApiMessageKeys.CoreStopFailed,
-                new { detail = exception.Message, processIds });
-        }
-    }
-
-    public async Task<OperationView> RestartCoreAsync(CancellationToken cancellationToken)
-    {
-        return await _coreLifecycle.ExecuteAsync(() => RestartCoreLockedAsync(cancellationToken), cancellationToken);
-    }
-
-    private async Task<OperationView> RestartCoreLockedAsync(CancellationToken cancellationToken)
-    {
-        var previous = CurrentCoreRuntime;
-            if (previous.State is not (CoreRuntimeState.Running or CoreRuntimeState.Faulted)
-                || string.IsNullOrEmpty(previous.ProfileId))
-            {
-                return OperationView.Fail("core_not_running", ApiMessageKeys.CoreNotRunning,
-                    new { runtimeState = previous.State.ToString(), processIds = GetActiveCoreProcessIds() });
-            }
-
-            var profile = await AppManager.Instance.GetProfileItem(previous.ProfileId);
-            if (profile is null)
-            {
-                return OperationView.Fail("profile_not_found", ApiMessageKeys.ProfileNotFound,
-                    new { profileId = previous.ProfileId });
-            }
-
-            AppManager.Instance.Reset();
-            var restartStage = "preflight";
-            try
-            {
-                return await CoreRestartFlow.ExecuteAsync(
-                    () => BuildAndValidateCoreLaunchAsync(profile),
-                    async () =>
-                    {
-                        restartStage = "stop";
-                        SetCoreRuntime(previous with { State = CoreRuntimeState.Restarting, LastFailure = null });
-                        await StopCoreMonitorAsync();
-                        await StopCoreAndConfirmAsync(cancellationToken);
-                    },
-                    () =>
-                    {
-                        SetCoreRuntime(CoreRuntimeSnapshot.Stopped);
-                        restartStage = "start";
-                    },
-                    preflight => LaunchPreflightedCoreLockedAsync(preflight, cancellationToken));
-            }
-            catch (Exception exception)
-            {
-                var processIds = GetActiveCoreProcessIds();
-                if (restartStage != "preflight")
-                {
-                    SetCoreRuntime(CurrentCoreRuntime with
-                    {
-                        State = CoreRuntimeState.Faulted,
-                        ProcessIds = processIds,
-                        LastFailure = exception.Message,
-                    });
-                }
-                AddLog("core", $"Core restart failed during {restartStage}: {exception}");
-                return restartStage == "stop"
-                    ? OperationView.Fail("core_stop_failed", ApiMessageKeys.CoreStopFailed,
-                        new { detail = exception.Message, processIds })
-                    : OperationView.Fail("core_restart_failed", ApiMessageKeys.CoreStartFailed,
-                        new { stage = restartStage, detail = exception.Message, processIds });
-            }
-    }
-
-    public async Task<OperationView> StartLatencyTestAsync(string profileId)
-    {
-        var profile = await AppManager.Instance.GetProfileItem(profileId);
-        if (profile is null || profile.IsComplex() || profile.Port <= 0)
-        {
-            return OperationView.Fail("speedtest_invalid_profile", ApiMessageKeys.SpeedTestInvalidProfile);
-        }
-
-        return await StartSpeedTestAsync(new SpeedTestRequest(ESpeedActionType.Tcping, [profileId]), CancellationToken.None);
-    }
+    public Task<OperationView> StartLatencyTestAsync(string profileId) =>
+        StartSpeedTestAsync(new SpeedTestRequest(ESpeedActionType.Tcping, [profileId]), CancellationToken.None, singleProfile: true);
 
     public OperationView StopLatencyTests()
     {
-        _speedtestService?.ExitLoop();
+        _speedTests.Stop();
         return OperationView.Ok(ApiMessageKeys.CommonCompleted);
     }
 
@@ -904,45 +378,12 @@ public sealed partial class V2rayRuntime
 
 
 
-    internal static SubItem ToSubItem(SubscriptionInput input, SubItem? existing) => new()
-    {
-        Id = existing?.Id ?? string.Empty,
-        Remarks = input.Remarks.Trim(),
-        Url = input.Url?.Trim() ?? string.Empty,
-        MoreUrl = input.MoreUrl?.Trim() ?? existing?.MoreUrl ?? string.Empty,
-        Enabled = input.Enabled ?? existing?.Enabled ?? true,
-        UserAgent = input.UserAgent?.Trim() ?? existing?.UserAgent ?? string.Empty,
-        RequestHeaders = input.RequestHeaders ?? existing?.RequestHeaders,
-        Filter = input.Filter ?? existing?.Filter,
-        AutoUpdateInterval = Math.Max(input.AutoUpdateInterval ?? existing?.AutoUpdateInterval ?? 0, 0),
-        ConvertTarget = input.ConvertTarget ?? existing?.ConvertTarget,
-        Memo = input.Memo ?? existing?.Memo,
-        Sort = input.Sort ?? existing?.Sort ?? 0,
-        UpdateTime = existing?.UpdateTime ?? 0,
-        PrevProfile = input.PrevProfile ?? existing?.PrevProfile,
-        NextProfile = input.NextProfile ?? existing?.NextProfile,
-        PreSocksPort = input.PreSocksPort,
-        CustomCoreType = input.CustomCoreType,
-    };
+    internal static SubItem ToSubItem(SubscriptionInput input, SubItem? existing) =>
+        ServiceLibSubscriptionRepository.ApplyToItem(Subscription.Apply(SubscriptionContractMapper.ToEdit(input),
+            existing is null ? null : ServiceLibSubscriptionRepository.ToDomain(existing)), new SubItem());
 
-    internal static SubscriptionView ToSubscriptionView(SubItem item) => new(
-        item.Id,
-        item.Remarks,
-        item.Url,
-        item.Enabled,
-        item.MoreUrl,
-        item.Filter,
-        item.AutoUpdateInterval,
-        item.UpdateTime,
-        item.UserAgent,
-        item.RequestHeaders,
-        item.ConvertTarget,
-        item.Memo,
-        item.Sort,
-        item.PrevProfile,
-        item.NextProfile,
-        item.PreSocksPort,
-        item.CustomCoreType is null ? null : System.Text.Json.JsonNamingPolicy.CamelCase.ConvertName(item.CustomCoreType.Value.ToString()));
+    internal static SubscriptionView ToSubscriptionView(SubItem item) =>
+        SubscriptionContractMapper.ToView(ServiceLibSubscriptionRepository.ToDomain(item));
 
     private static void EnsureInboundDefaults(Config config)
     {

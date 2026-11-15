@@ -31,6 +31,9 @@ public sealed class SQLiteHelper
     /// Execute related table replacements as one rollback-capable SQLite transaction.
     public Task RunInTransactionAsync(Action<SQLiteConnection> action) => _dbAsync.RunInTransactionAsync(action);
 
+    /// Capture one consistent SQLite snapshot, including committed WAL pages.
+    public Task BackupAsync(string destinationPath) => _dbAsync.BackupAsync(destinationPath);
+
     public async Task<int> InsertAllAsync(IEnumerable models)
     {
         return await _dbAsync.InsertAllAsync(models, runInTransaction: true).ConfigureAwait(false);

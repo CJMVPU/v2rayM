@@ -1,3 +1,7 @@
+using V2rayM.Application.Updates;
+using v2rayN.WebAPI.Adapters.Settings;
+using V2rayM.Domain.Updates;
+using V2rayM.Domain.Runtime;
 using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
@@ -18,7 +22,7 @@ namespace v2rayN.WebAPI.Services;
 
 public sealed partial class V2rayRuntime
 {
-    private const string GeoFilesUpdateTarget = "GeoFiles";
+    private const string GeoFilesUpdateTarget = UpdatePreferencePolicy.GeoTarget;
     private const string WebUpdateTarget = "v2rayN.WebAPI";
     internal static string NormalizeWebUpdateTarget(string target) => target == "v2rayN.Web" ? WebUpdateTarget : target;
 
@@ -82,45 +86,19 @@ public sealed partial class V2rayRuntime
 
     public async Task<OperationView> SaveCoreUpdateSettingsAsync(CoreUpdateSettingsInput input)
     {
-        var supportedNames = GetAvailableWebCoreUpdateTypes()
-            .Select(type => type.ToString())
-            .Append(WebUpdateTarget)
-            .ToHashSet(StringComparer.Ordinal);
-        var requestedNames = (input.SelectedCoreTypes ?? []).Select(NormalizeWebUpdateTarget)
-            .Distinct(StringComparer.Ordinal)
-            .ToArray();
-        var preReleaseNames = GetAvailablePreReleaseUpdateTargets();
-        // Older clients still submit a single switch. An explicit per-target list takes
-        // precedence, including an empty list, and is independent of update selections.
-        var requestedPreReleaseNames = NormalizeWebUpdateTargets(input.CheckPreReleaseCoreTypes)?.ToArray()
-            ?? (input.PreRelease ? preReleaseNames.ToArray() : []);
-        if (requestedNames.Any(name => name != GeoFilesUpdateTarget && !supportedNames.Contains(name))
-            || requestedPreReleaseNames.Any(name => !preReleaseNames.Contains(name)))
+        var policy = new UpdatePreferencePolicy(GetAvailableWebCoreUpdateTypes()
+            .Select(type => type.ToString()).Append(WebUpdateTarget), GetAvailablePreReleaseUpdateTargets());
+        var result = await new UpdatePreferenceService(new ServiceLibUpdatePreferences(_configStore), _mutations, policy)
+            .SaveAsync(new(NormalizeWebUpdateTargets(input.SelectedCoreTypes), NormalizeWebUpdateTargets(input.CheckPreReleaseCoreTypes), input.PreRelease, input.UseProxy));
+        return result.Status switch
         {
-            return OperationView.Fail("core_update_settings_invalid", ApiMessageKeys.CommonInvalidInput);
-        }
-
-        await _mutations.RunAsync(async () =>
-        {
-            var previous = NormalizeWebUpdateTargets(Config.CheckUpdateItem.SelectedCoreTypes) ?? [];
-            // Keep selections from backups that this platform/Web updater cannot display,
-            // just as the desktop updater keeps hidden Core configuration untouched.
-            var hiddenSelections = previous.Where(name => name != GeoFilesUpdateTarget && !supportedNames.Contains(name));
-            Config.CheckUpdateItem.SelectedCoreTypes = hiddenSelections
-                .Concat(requestedNames)
-                .Distinct(StringComparer.Ordinal)
-                .ToList();
-            var hiddenPreReleaseSelections = (NormalizeWebUpdateTargets(Config.CheckUpdateItem.CheckPreReleaseCoreTypes) ?? [])
-                .Where(name => !preReleaseNames.Contains(name));
-            Config.CheckUpdateItem.CheckPreReleaseCoreTypes = hiddenPreReleaseSelections
-                .Concat(requestedPreReleaseNames)
-                .Distinct(StringComparer.Ordinal)
-                .ToList();
-            Config.CheckUpdateItem.UpdateViaProxy = input.UseProxy;
-            await EnsureConfigSaveSucceededAsync(() => _configStore.SaveAsync());
-        });
-
-        return OperationView.Ok(ApiMessageKeys.CoreUpdateSettingsSaved);
+            UpdatePreferenceStatus.Saved => OperationView.Ok(ApiMessageKeys.CoreUpdateSettingsSaved),
+            UpdatePreferenceStatus.Invalid => OperationView.Fail("core_update_settings_invalid", ApiMessageKeys.CommonInvalidInput),
+            _ => OperationView.Fail("core_update_settings_save_failed", ApiMessageKeys.CommonInternal, new
+            {
+                stage = "config_save", detail = result.Detail, configRestored = result.Restored, rollbackDetail = result.RollbackDetail,
+            }),
+        };
     }
 
     public async Task<ApiEnvelope<CoreUpdateCheckView>> CheckCoreUpdateAsync(
@@ -245,293 +223,13 @@ public sealed partial class V2rayRuntime
 
     internal IReadOnlyList<string> GetRunningCoreUpdateOperations() => _moduleUpdates.RunningOperations();
 
-    private async Task RunSelectedCoreUpdateBatchAsync(
-        IReadOnlyList<ECoreType> coreTypes,
-        bool includeGeoFiles,
-        bool includeWeb,
-        bool apply,
-        bool useProxy)
+    private Task RunSelectedCoreUpdateBatchAsync(
+        IReadOnlyList<ECoreType> coreTypes, bool includeGeoFiles, bool includeWeb, bool apply, bool useProxy)
     {
-        var staged = new List<CoreUpdateStage>();
-        var overallSuccess = true;
-        var reloadGeoRuntime = includeGeoFiles && CurrentCoreRuntime.State == CoreRuntimeState.Running;
-        var currentTarget = string.Empty;
-        WebUpdateStage? webStage = null;
-        try
-        {
-            // Holding the runtime's exclusive mutation lease prevents a restore or profile
-            // mutation from invalidating the checked/staged targets. Read-only status and log
-            // requests remain available. No Core process is stopped during this stage.
-            await using var maintenance = await _operations.EnterExclusiveAsync(
-                _operations.ShutdownToken,
-                allowReadOnlyObservations: true);
-            var token = maintenance.Token;
-            var checks = new List<CoreUpdateBatchCheck>(coreTypes.Count);
-
-            foreach (var coreType in coreTypes)
-            {
-                currentTarget = coreType.ToString();
-                var wasRunning = IsCoreTypeRunning(coreType);
-                PublishCoreUpdateProgress(coreType, "checking", false, false, wasRunning, null, null, batch: true);
-                var checkedUpdate = await CheckCoreUpdateResultAsync(coreType, null, useProxy, token, synchronizePrivileged: apply);
-                var check = checkedUpdate.Result;
-                if (checkedUpdate.AwaitingValidation)
-                {
-                    overallSuccess = false;
-                    checks.Add(new CoreUpdateBatchCheck(coreType, checkedUpdate));
-                    PublishCoreUpdateProgress(coreType, "awaiting-validation", true, false, wasRunning,
-                        check.VersionLabel, check.Msg, batch: true);
-                    continue;
-                }
-                if (checkedUpdate.IsUpToDate)
-                {
-                    checks.Add(new CoreUpdateBatchCheck(coreType, checkedUpdate));
-                    PublishCoreUpdateProgress(coreType, "completed", true, true, wasRunning,
-                        check.VersionLabel, check.Msg ?? "Already up to date.", batch: true);
-                    continue;
-                }
-
-                if (!checkedUpdate.CanStage)
-                {
-                    overallSuccess = false;
-                    PublishCoreUpdateProgress(coreType, "failed", true, false, wasRunning, null, check.Msg, batch: true);
-                    AddLog("update", $"Batch update check failed for {coreType}: {check.Msg}");
-                    checks.Add(new CoreUpdateBatchCheck(coreType, checkedUpdate));
-                    continue;
-                }
-
-                checks.Add(new CoreUpdateBatchCheck(coreType, checkedUpdate));
-                if (!apply)
-                {
-                    PublishCoreUpdateProgress(coreType, "completed", true, true, wasRunning,
-                        check.VersionLabel, check.Msg ?? "An update is available.", batch: true);
-                }
-            }
-
-            if (includeGeoFiles)
-            {
-                PublishGeoUpdateProgress("checking", false, false,
-                    "ServiceLib has no read-only GeoFiles check; the transactional GeoFiles update runs only during batch apply.", batch: true);
-                if (!apply)
-                {
-                    PublishGeoUpdateProgress("completed", true, true,
-                        "GeoFiles will be downloaded, validated, and applied only when batch apply is enabled.", batch: true);
-                }
-            }
-
-            WebUpdateReleaseCheck? webCheck = null;
-            if (includeWeb)
-            {
-                currentTarget = WebUpdateTarget;
-                PublishWebUpdateProgress("checking", false, false, null, batch: true);
-                webCheck = await CheckWebUpdateReleaseAsync(GetUpdatePreRelease(WebUpdateTarget), useProxy, token);
-                Volatile.Write(ref _latestWebUpdateVersion, webCheck.Version);
-                if (!string.IsNullOrEmpty(webCheck.Error))
-                {
-                    overallSuccess = false;
-                    PublishWebUpdateProgress("failed", true, false, webCheck.Error, webCheck.Version, batch: true);
-                }
-                else if (!webCheck.IsUpdateAvailable)
-                {
-                    PublishWebUpdateProgress("completed", true, true, webCheck.Detail ?? "The Web application is up to date.",
-                        webCheck.Version, batch: true);
-                }
-                else if (!apply)
-                {
-                    var detail = CanInstallWebUpdate()
-                        ? "An update is available."
-                        : $"An update is available; {GetWebUpdateInstallReasonKey()}";
-                    PublishWebUpdateProgress("completed", true, true, detail, webCheck.Version, batch: true);
-                }
-                else if (!CanInstallWebUpdate())
-                {
-                    overallSuccess = false;
-                    PublishWebUpdateProgress("failed", true, false, GetWebUpdateInstallReasonKey(), webCheck.Version, batch: true);
-                }
-            }
-
-            if (!apply)
-            {
-                _events.Publish("core-update-batch-completed", new { success = overallSuccess, apply = false });
-                return;
-            }
-
-            if (checks.Any(item => item.CheckFailed) || webCheck is { Error: { Length: > 0 } })
-            {
-                overallSuccess = false;
-                foreach (var item in checks.Where(item => !item.CheckFailed && !item.IsUpToDate && !item.AwaitingValidation))
-                {
-                    PublishCoreUpdateProgress(item.CoreType, "failed", true, false, IsCoreTypeRunning(item.CoreType),
-                        item.Check.VersionLabel, "No targets were installed because at least one selected update check failed.", batch: true);
-                }
-                if (includeGeoFiles)
-                {
-                    PublishGeoUpdateProgress("failed", true, false, "No updates were installed because a selected update check failed.", batch: true);
-                }
-                if (webCheck is { Error: { Length: > 0 } })
-                {
-                    PublishWebUpdateProgress("failed", true, false, "No updates were installed because a selected update check failed.",
-                        webCheck.Version, batch: true);
-                }
-                _events.Publish("core-update-batch-completed", new { success = false, apply = true });
-                return;
-            }
-
-            var targetsToStage = checks.Where(item => !item.IsUpToDate && !item.AwaitingValidation).ToArray();
-            var unsupportedTargets = targetsToStage.Where(item => !CanInstallCoreUpdate(item.CoreType)).ToArray();
-            if (unsupportedTargets.Length > 0)
-            {
-                overallSuccess = false;
-                foreach (var item in unsupportedTargets)
-                {
-                    PublishCoreUpdateProgress(item.CoreType, "failed", true, false, IsCoreTypeRunning(item.CoreType),
-                        item.Check.VersionLabel, "This Web deployment can check but cannot safely install this target.", batch: true);
-                }
-                targetsToStage = targetsToStage.Where(item => CanInstallCoreUpdate(item.CoreType)).ToArray();
-            }
-            var shouldInstallWeb = includeWeb && webCheck is { IsUpdateAvailable: true } && CanInstallWebUpdate();
-            if (targetsToStage.Length == 0 && !includeGeoFiles && !shouldInstallWeb)
-            {
-                _events.Publish("core-update-batch-completed", new { success = overallSuccess, apply = true });
-                return;
-            }
-
-            // Complete the GeoFiles transaction while the serving Core remains available.
-            // The Web layer snapshots/validates/rolls back files around the upstream updater.
-            async Task PrepareAdditionalUpdatesBeforeCoreApplyAsync()
-            {
-                if (includeGeoFiles)
-                {
-                    currentTarget = GeoFilesUpdateTarget;
-                    PublishGeoUpdateProgress("downloading", false, false, null, batch: true);
-                    await ApplyGeoFilesUpdateAsync(useProxy, token, batch: true);
-                    PublishGeoUpdateProgress("completed", true, true, null, batch: true);
-                }
-                if (shouldInstallWeb && webCheck is { } availableWebCheck)
-                {
-                    currentTarget = WebUpdateTarget;
-                    webStage = await StageWebUpdateAsync(availableWebCheck, useProxy, token, batch: true);
-                }
-            }
-
-            await CoreUpdateWorkflow.StageAllThenApplyAsync(
-                targetsToStage,
-                async target =>
-                {
-                    currentTarget = target.CoreType.ToString();
-                    var result = await DownloadAndVerifyCoreUpdateAsync(target.CoreType, target.Check, useProxy, token, batch: true);
-                    staged.Add(result);
-                    return result;
-                },
-                async completeStage =>
-                {
-                    // This callback is reached only after every selected package has been
-                    // downloaded, extracted, and version-verified successfully.
-                    foreach (var stage in completeStage)
-                    {
-                        PublishCoreUpdateProgress(stage.CoreType, "waiting", false, false,
-                            IsCoreTypeRunning(stage.CoreType), stage.VersionOutput, "All selected Core packages are staged and verified.", batch: true);
-                    }
-
-                    foreach (var stage in completeStage)
-                    {
-                        currentTarget = stage.CoreType.ToString();
-                        var result = await ApplyCoreUpdateAsync(stage, token, batch: true);
-                        overallSuccess &= result.Success;
-                        if (result.Success && result.CoreWasRunning) reloadGeoRuntime = false;
-                        PublishCoreUpdateProgress(stage.CoreType,
-                            result.Success ? "completed" : "failed",
-                            isComplete: true,
-                            success: result.Success,
-                            result.CoreWasRunning,
-                            result.Version ?? stage.VersionOutput,
-                            result.Detail,
-                            batch: true);
-                    }
-                    return true;
-                },
-                includeGeoFiles || shouldInstallWeb ? PrepareAdditionalUpdatesBeforeCoreApplyAsync : null);
-            if (reloadGeoRuntime && CurrentCoreRuntime.State == CoreRuntimeState.Running)
-            {
-                PublishGeoUpdateProgress("restarting-core", false, false, null, batch: true);
-                var restart = await RestartCoreAsync(token);
-                overallSuccess &= restart.Success;
-                PublishGeoUpdateProgress(restart.Success ? "completed" : "failed", true, restart.Success,
-                    restart.Success ? null : "规则文件已更新，但运行内核未能重新加载，请重新连接。", batch: true);
-            }
-
-            if (webStage is not null)
-            {
-                currentTarget = WebUpdateTarget;
-                await ApplyStagedWebUpdateAsync(webStage, token, batch: true);
-                // The helper takes over only after every selected Core/Geo package has
-                // completed its apply phase; no remaining batch work follows the restart.
-                return;
-            }
-
-            _events.Publish("core-update-batch-completed", new { success = overallSuccess, apply = true });
-        }
-        catch (OperationCanceledException) when (_operations.IsStopping)
-        {
-            overallSuccess = false;
-            if (currentTarget == GeoFilesUpdateTarget)
-            {
-                PublishGeoUpdateProgress("failed", true, false, "Canceled during graceful shutdown.", batch: true);
-            }
-            else if (currentTarget == WebUpdateTarget)
-            {
-                PublishWebUpdateProgress("failed", true, false, "Canceled during graceful shutdown.", batch: true);
-            }
-            else if (Enum.TryParse<ECoreType>(currentTarget, out var coreType))
-            {
-                PublishCoreUpdateProgress(coreType, "failed", true, false, IsCoreTypeRunning(coreType), null,
-                    "Canceled during graceful shutdown.", batch: true);
-            }
-            _events.Publish("core-update-batch-completed", new { success = false, apply });
-        }
-        catch (Exception exception)
-        {
-            overallSuccess = false;
-            AddLog("update", $"Core update batch failed at {currentTarget}: {exception}");
-            if (Enum.TryParse<ECoreType>(currentTarget, out var coreType))
-            {
-                PublishCoreUpdateProgress(coreType, "failed", true, false, IsCoreTypeRunning(coreType), null, exception.Message, batch: true);
-            }
-            else if (currentTarget == GeoFilesUpdateTarget)
-            {
-                PublishGeoUpdateProgress("failed", true, false, exception.Message, batch: true);
-            }
-            else if (currentTarget == WebUpdateTarget)
-            {
-                PublishWebUpdateProgress("failed", true, false, exception.Message, batch: true);
-            }
-            foreach (var notApplied in staged)
-            {
-                var progress = _updateProgress.GetValueOrDefault(notApplied.CoreType.ToString());
-                if (progress is { IsComplete: false })
-                {
-                    PublishCoreUpdateProgress(notApplied.CoreType, "failed", true, false,
-                        IsCoreTypeRunning(notApplied.CoreType), notApplied.VersionOutput,
-                        "The staged package was not applied because another selected target failed.", batch: true);
-                }
-            }
-            _events.Publish("core-update-batch-completed", new { success = false, apply });
-        }
-        finally
-        {
-            CleanupWebUpdateStage(webStage);
-            foreach (var target in coreTypes) {
-                if (_updateProgress.TryGetValue(target.ToString(), out var progress) && !progress.IsComplete)
-                    PublishCoreUpdateProgress(target, "failed", true, false, IsCoreTypeRunning(target), progress.Version,
-                        "This target was not applied because the batch could not complete.", batch: true);
-            }
-            if (includeGeoFiles && _updateProgress.TryGetValue(GeoFilesUpdateTarget, out var geoProgress) && !geoProgress.IsComplete)
-                PublishGeoUpdateProgress("failed", true, false, "The batch could not complete.", batch: true);
-            foreach (var stage in staged) {
-                await DiscardPrivilegedStageAsync(stage);
-                CleanupCoreUpdateStage(stage);
-            }
-        }
+        var targets = coreTypes.Select(core => new BatchUpdateTarget(core.ToString(), BatchTargetKind.Core)).ToList();
+        if (includeGeoFiles) targets.Add(new(GeoFilesUpdateTarget, BatchTargetKind.GeoFiles));
+        if (includeWeb) targets.Add(new(WebUpdateTarget, BatchTargetKind.Application));
+        return new UpdateBatchService(new UpdateBatchAdapter(this, useProxy)).RunAsync(targets, apply);
     }
 
     private HashSet<string> GetAvailablePreReleaseUpdateTargets() =>
@@ -585,413 +283,23 @@ public sealed partial class V2rayRuntime
         return ModuleUpdateCoordinator.Classify(result, repairDecision ?? IsUpToDateResult(coreType, result.Msg));
     }
 
-    private async Task RunCoreUpdateAsync(ECoreType coreType, bool preRelease, bool useProxy)
-    {
-        CoreUpdateStage? stage = null;
-        var wasRunning = IsCoreTypeRunning(coreType);
-        try
-        {
-            var result = await CoreUpdateWorkflow.StageThenApplyAsync(
-                async () =>
-                {
-                    await using var operation = await _operations.EnterOperationAsync(_operations.ShutdownToken);
-                    PublishCoreUpdateProgress(coreType, "checking", isComplete: false, success: false, wasRunning, null, null);
-                    var checkedUpdate = await CheckCoreUpdateResultAsync(coreType, preRelease, useProxy, operation.Token, synchronizePrivileged: true);
-                    var check = checkedUpdate.Result;
-                    if (checkedUpdate.IsUpToDate || checkedUpdate.AwaitingValidation)
-                    {
-                        return new CoreUpdatePrepareResult(null, check);
-                    }
-                    if (!checkedUpdate.CanStage)
-                    {
-                        throw new InvalidOperationException(check.Msg ?? $"Could not check {coreType} updates.");
-                    }
+    private Task RunCoreUpdateAsync(ECoreType coreType, bool preRelease, bool useProxy) =>
+        new CoreUpdateRunService().RunAsync(new CoreUpdateRunAdapter(this, coreType, preRelease, useProxy));
 
-                    stage = await DownloadAndVerifyCoreUpdateAsync(coreType, check, useProxy, operation.Token);
-                    return new CoreUpdatePrepareResult(stage, check);
-                },
-                async prepared =>
-                {
-                    if (prepared.Stage is null)
-                    {
-                        return new CoreUpdateApplyResult(!prepared.Check.AwaitingCompatibilityValidation, false, wasRunning,
-                            prepared.Check.Msg ?? "Already up to date.", prepared.Check.VersionLabel,
-                            AwaitingValidation: prepared.Check.AwaitingCompatibilityValidation);
-                    }
-
-                    await using var maintenance = await _operations.EnterExclusiveAsync(
-                        _operations.ShutdownToken,
-                        allowReadOnlyObservations: true);
-                    return await ApplyCoreUpdateAsync(prepared.Stage, maintenance.Token);
-                });
-
-            PublishCoreUpdateProgress(
-                coreType,
-                result.AwaitingValidation ? "awaiting-validation" : "completed",
-                isComplete: true,
-                success: result.Success,
-                result.CoreWasRunning,
-                result.Version ?? stage?.VersionOutput,
-                result.Detail);
-            if (!result.Success && !result.AwaitingValidation)
-            {
-                AddLog("update", $"{coreType} update failed: {result.Detail}");
-            }
-        }
-        catch (OperationCanceledException) when (_operations.IsStopping)
-        {
-            PublishCoreUpdateProgress(coreType, "failed", isComplete: true, success: false, wasRunning, stage?.VersionOutput, "Canceled during graceful shutdown.");
-        }
-        catch (Exception exception)
-        {
-            AddLog("update", $"{coreType} update failed: {exception.Message}");
-            PublishCoreUpdateProgress(coreType, "failed", isComplete: true, success: false, wasRunning, stage?.VersionOutput, exception.Message);
-        }
-        finally
-        {
-            if (stage is not null) await DiscardPrivilegedStageAsync(stage);
-            CleanupCoreUpdateStage(stage);
-        }
-    }
-
-    private async Task<CoreUpdateStage> DownloadAndVerifyCoreUpdateAsync(
-        ECoreType coreType,
-        UpdateResult check,
-        bool useProxy,
-        CancellationToken cancellationToken,
-        bool batch = false)
-    {
-        var installPath = Path.GetFullPath(Utils.GetBinPath(string.Empty, coreType.ToString()));
-        var installParent = Path.GetDirectoryName(installPath)
-            ?? throw new InvalidOperationException($"The {coreType} installation path has no parent directory.");
-        var archivePath = Utils.GetTempPath($"core-update-{coreType}-{Guid.NewGuid():N}{GetArchiveSuffix(check.Url!)}");
-        var packagePath = Path.Combine(installParent, $".{coreType}-package-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(packagePath);
-        string? privilegedToken = null;
-
-        try
-        {
-            PublishCoreUpdateProgress(coreType, "downloading", isComplete: false, success: false, IsCoreTypeRunning(coreType), check.VersionLabel, check.Url, batch);
-            var download = new DownloadService();
-            var downloadFailure = new TaskCompletionSource<Exception>(TaskCreationOptions.RunContinuationsAsynchronously);
-            download.Error += (_, args) => downloadFailure.TrySetResult(args.GetException());
-            download.ProgressChanged += (_, transfer) =>
-                PublishCoreUpdateProgress(coreType, "downloading", false, false, IsCoreTypeRunning(coreType), check.VersionLabel, null, batch, transfer);
-            download.UpdateCompleted += (_, progress) =>
-            {
-                PublishCoreUpdateProgress(coreType, "downloading", isComplete: false, success: false, IsCoreTypeRunning(coreType), check.VersionLabel, progress.Msg, batch);
-            };
-            await download.DownloadFileAsync(new FileDownloadRequest
-            {
-                FileUrl = check.Url!,
-                FilePath = archivePath,
-                DisplayFileName = Path.GetFileName(archivePath),
-            },
-            useProxy,
-            cancellationToken);
-
-            if (downloadFailure.Task.IsCompletedSuccessfully)
-            {
-                throw new IOException("The core package download failed.", await downloadFailure.Task);
-            }
-            if (!File.Exists(archivePath))
-            {
-                throw new IOException("The core package download did not produce an archive.");
-            }
-
-            PublishCoreUpdateProgress(coreType, "verifying", isComplete: false, success: false, IsCoreTypeRunning(coreType), check.VersionLabel, null, batch);
-            await CoreUpdatePackageStager.ExtractAsync(coreType, archivePath, packagePath, cancellationToken);
-            var coreInfo = CoreInfoManager.Instance.GetCoreInfo(coreType)
-                ?? throw new InvalidOperationException($"{coreType} version metadata is unavailable.");
-            var stagedExecutable = FindCoreExecutable(coreInfo, packagePath)
-                ?? throw new InvalidDataException($"The downloaded {coreType} archive does not contain a usable executable.");
-            await Utils.SetLinuxChmod(stagedExecutable);
-            // A native privileged update authenticates the official package before any
-            // executable from that package is run by the unprivileged update workflow.
-            if (OperatingSystem.IsMacOS() && coreType is ECoreType.Xray)
-            {
-                PublishCoreUpdateProgress(coreType, "staging-privileged", false, false, IsCoreTypeRunning(coreType), check.VersionLabel, null, batch);
-                privilegedToken = await _macTunLauncher.StageUpdateAsync(coreType, archivePath, check.Url!, cancellationToken);
-            }
-            var versionOutput = await VerifyCoreExecutableAsync(coreType, coreInfo, stagedExecutable, cancellationToken);
-            return new CoreUpdateStage(coreType, installPath, archivePath, packagePath, versionOutput, privilegedToken);
-        }
-        catch
-        {
-            if (privilegedToken is not null) {
-                try { await _macTunLauncher.TransitionUpdateAsync(coreType, privilegedToken, "update-discard", CancellationToken.None); }
-                catch (Exception cleanup) { AddLog("update", "Privileged staging cleanup deferred: " + cleanup.Message); }
-            }
-            CleanupCoreUpdateStageFiles(archivePath, packagePath);
-            throw;
-        }
-    }
+    private Task<CoreUpdateStage> DownloadAndVerifyCoreUpdateAsync(ECoreType coreType, UpdateResult check,
+        bool useProxy, CancellationToken cancellationToken, bool batch = false) =>
+        new CorePackageStagingService().StageAsync(new CorePackageStaging(this, coreType, check, useProxy, batch), cancellationToken);
 
     private async Task<CoreUpdateApplyResult> ApplyCoreUpdateAsync(CoreUpdateStage stage, CancellationToken cancellationToken, bool batch = false)
     {
         await _coreGate.WaitAsync(cancellationToken);
-        var installPath = stage.InstallPath;
-        var parentDirectory = Path.GetDirectoryName(installPath)
-            ?? throw new InvalidOperationException("The Core installation path has no parent directory.");
-        var candidatePath = Path.Combine(parentDirectory, $".{stage.CoreType}-candidate-{Guid.NewGuid():N}");
-        var backupPath = Path.Combine(parentDirectory, $".{stage.CoreType}-backup-{Guid.NewGuid():N}");
-        var hadInstalledCore = Directory.Exists(installPath);
-        var originalCoreWasRunning = IsCoreTypeRunning(stage.CoreType)
-            || stage.PrivilegedToken is not null && Config.TunModeItem.EnableTun
-                && CurrentCoreRuntime.State == CoreRuntimeState.Running && HasTrackedCoreProcesses;
-        ProfileItem? runningProfile = null;
-        var oldCoreWasStopped = false;
-        var candidateInstalled = false;
-        var privilegedActivated = false;
-
         try
         {
-            if (originalCoreWasRunning)
-            {
-                runningProfile = await AppManager.Instance.GetProfileItem(CurrentCoreRuntime.ProfileId ?? string.Empty);
-                if (runningProfile is null)
-                {
-                    return new CoreUpdateApplyResult(false, false, true, "The active profile could not be loaded; the running Core was left unchanged.");
-                }
-            }
-
-            // Prepare and verify the complete replacement while the serving Core is still
-            // alive. This phase performs no network access; proxy-backed downloads and all
-            // archive verification have already completed in DownloadAndVerifyCoreUpdateAsync.
-            if (hadInstalledCore)
-            {
-                CopyCoreDirectory(installPath, candidatePath);
-            }
-            else
-            {
-                Directory.CreateDirectory(candidatePath);
-            }
-            foreach (var packageFile in Directory.EnumerateFiles(stage.PackagePath, "*", SearchOption.TopDirectoryOnly))
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                File.Copy(packageFile, Path.Combine(candidatePath, Path.GetFileName(packageFile)), overwrite: true);
-            }
-            if (stage.CoreType == ECoreType.Xray)
-            {
-                CopyLatestGeoFilesForApply(installPath, candidatePath);
-            }
-
-            var coreInfo = CoreInfoManager.Instance.GetCoreInfo(stage.CoreType)
-                ?? throw new InvalidOperationException($"{stage.CoreType} version metadata is unavailable.");
-            RemoveSupersededCoreExecutables(coreInfo, candidatePath, stage.PackagePath);
-            var candidateExecutable = FindCoreExecutable(coreInfo, candidatePath)
-                ?? throw new InvalidDataException($"The prepared {stage.CoreType} directory has no executable.");
-            await Utils.SetLinuxChmod(candidateExecutable);
-            await VerifyCoreExecutableAsync(stage.CoreType, coreInfo, candidateExecutable, cancellationToken);
-            cancellationToken.ThrowIfCancellationRequested();
-
-            PublishCoreUpdateProgress(stage.CoreType, "stopping-core", isComplete: false, success: false, originalCoreWasRunning, stage.VersionOutput,
-                originalCoreWasRunning ? null : "The updated Core was not running and will remain stopped.", batch);
-            if (originalCoreWasRunning)
-            {
-                SetCoreRuntime(CurrentCoreRuntime with { State = CoreRuntimeState.Stopping, LastFailure = null });
-                await StopCoreMonitorAsync();
-                await StopCoreAndConfirmAsync(cancellationToken);
-                SetCoreRuntime(CoreRuntimeSnapshot.Stopped);
-                oldCoreWasStopped = true;
-            }
-
-            await _macTunLauncher.TransitionUpdateAsync(stage.CoreType, stage.PrivilegedToken, "update-activate", cancellationToken);
-            privilegedActivated = stage.PrivilegedToken is not null;
-            PublishCoreUpdateProgress(stage.CoreType, "installing", isComplete: false, success: false, originalCoreWasRunning, stage.VersionOutput, null, batch);
-            if (hadInstalledCore)
-            {
-                Directory.Move(installPath, backupPath);
-            }
-            try
-            {
-                Directory.Move(candidatePath, installPath);
-                candidateInstalled = true;
-            }
-            catch
-            {
-                if (hadInstalledCore && Directory.Exists(backupPath) && !Directory.Exists(installPath))
-                {
-                    Directory.Move(backupPath, installPath);
-                }
-                throw;
-            }
-
-            await CoreManager.Instance.Init(Config, OnCoreMessageAsync);
-            if (stage.CoreType == ECoreType.Xray)
-            {
-                _xrayPath = FindXrayExecutable(out var missingXrayMessage);
-                if (_xrayPath is null)
-                {
-                    throw new InvalidDataException(missingXrayMessage);
-                }
-            }
-
-            if (originalCoreWasRunning && runningProfile is not null)
-            {
-                PublishCoreUpdateProgress(stage.CoreType, "restarting-core", isComplete: false, success: false, true, stage.VersionOutput, null, batch);
-                var restart = await StartCoreLockedAsync(runningProfile, cancellationToken);
-                if (!restart.Success)
-                {
-                    throw new InvalidOperationException($"The updated {stage.CoreType} failed to restart ({restart.Code}).");
-                }
-            }
-
-            await _macTunLauncher.TransitionUpdateAsync(stage.CoreType, stage.PrivilegedToken, "update-finish", cancellationToken);
-            privilegedActivated = false;
-            if (Directory.Exists(backupPath))
-            {
-                try
-                {
-                    Directory.Delete(backupPath, recursive: true);
-                }
-                catch (Exception exception)
-                {
-                    AddLog("update", $"{stage.CoreType} updated; previous Core cleanup deferred: {exception.Message}");
-                }
-            }
-
-            return new CoreUpdateApplyResult(true, false, originalCoreWasRunning, "Update installed and verified.", stage.VersionOutput);
+            // Session construction can reject a path; it must still release this lease.
+            var session = new CoreUpdateSession(this, stage, batch);
+            return await new CoreUpdateApplyService().ApplyAsync(session, cancellationToken);
         }
-        catch (OperationCanceledException)
-        {
-            if (privilegedActivated || candidateInstalled || oldCoreWasStopped || Directory.Exists(backupPath))
-            {
-                var rollback = await RollBackCoreUpdateAsync(
-                    stage.CoreType,
-                    installPath,
-                    backupPath,
-                    candidateInstalled,
-                    hadInstalledCore,
-                    oldCoreWasStopped,
-                    originalCoreWasRunning,
-                    runningProfile,
-                    batch,
-                    privilegedActivated ? stage.PrivilegedToken : null);
-                if (rollback.UpdateCommitted)
-                    return new CoreUpdateApplyResult(false, false, originalCoreWasRunning,
-                        CoreUpdateWorkflow.CommittedUpdateUnconfirmedDetail, stage.VersionOutput);
-                if (!rollback.Completed)
-                {
-                    AddLog("update", rollback.FilesRestored
-                        ? $"{stage.CoreType} previous files were restored, but the old Core process could not be relaunched."
-                        : $"{stage.CoreType} rollback did not complete; previous files remain at {backupPath}.");
-                }
-            }
-            throw;
-        }
-        catch (Exception exception)
-        {
-            AddLog("update", $"{stage.CoreType} apply failed: {exception.Message}");
-            if (CurrentCoreRuntime.State is CoreRuntimeState.Stopping or CoreRuntimeState.Restarting or CoreRuntimeState.Starting)
-            {
-                SetCoreRuntime(CurrentCoreRuntime with
-                {
-                    State = CoreRuntimeState.Faulted,
-                    ProcessIds = GetActiveCoreProcessIds(),
-                    LastFailure = exception.Message,
-                });
-            }
-            var rollback = new CoreUpdateRollbackResult(FilesRestored: true, CoreRestarted: true);
-            if (privilegedActivated || candidateInstalled || oldCoreWasStopped || Directory.Exists(backupPath))
-            {
-                rollback = await RollBackCoreUpdateAsync(
-                    stage.CoreType,
-                    installPath,
-                    backupPath,
-                    candidateInstalled,
-                    hadInstalledCore,
-                    oldCoreWasStopped,
-                    originalCoreWasRunning,
-                    runningProfile,
-                    batch,
-                    privilegedActivated ? stage.PrivilegedToken : null);
-            }
-            if (rollback.UpdateCommitted)
-                return new CoreUpdateApplyResult(false, false, originalCoreWasRunning,
-                    CoreUpdateWorkflow.CommittedUpdateUnconfirmedDetail, stage.VersionOutput);
-            var detail = rollback.Completed
-                ? $"{exception.Message} The previous Core was restored."
-                : rollback.FilesRestored
-                    ? $"{exception.Message} The previous Core files were restored, but its process could not be restarted."
-                    : $"{exception.Message} Rollback did not complete; see the runtime log for the retained backup path.";
-            return new CoreUpdateApplyResult(false, rollback.Completed, originalCoreWasRunning, detail, stage.VersionOutput);
-        }
-        finally
-        {
-            try
-            {
-                if (Directory.Exists(candidatePath))
-                {
-                    Directory.Delete(candidatePath, recursive: true);
-                }
-            }
-            catch (Exception exception)
-            {
-                AddLog("update", $"{stage.CoreType} candidate cleanup failed: {exception.Message}");
-            }
-            _coreGate.Release();
-        }
-    }
-
-    private async Task<CoreUpdateRollbackResult> RollBackCoreUpdateAsync(
-        ECoreType coreType,
-        string installPath,
-        string backupPath,
-        bool candidateInstalled,
-        bool hadInstalledCore,
-        bool oldCoreWasStopped,
-        bool wasRunning,
-        ProfileItem? runningProfile,
-        bool batch = false, string? privilegedToken = null)
-    {
-        var filesRestored = false;
-        try
-        {
-            var result = await CoreUpdateWorkflow.RollBackAndRestoreAsync(
-                async () =>
-                {
-                    // Do not stop an unrelated active Core when the target being updated was idle.
-                    if (oldCoreWasStopped && wasRunning)
-                    {
-                        await StopCoreMonitorAsync();
-                        await StopCoreAndConfirmAsync(CancellationToken.None);
-                        SetCoreRuntime(CoreRuntimeSnapshot.Stopped);
-                    }
-                    CoreUpdateWorkflow.RestorePreviousDirectory(
-                        installPath, backupPath, candidateInstalled, hadInstalledCore);
-                    filesRestored = true;
-                },
-                async () =>
-                {
-                    await CoreManager.Instance.Init(Config, OnCoreMessageAsync);
-                    if (coreType == ECoreType.Xray)
-                    {
-                        _xrayPath = FindXrayExecutable(out _);
-                    }
-                },
-                wasRunning && runningProfile is not null,
-                async () =>
-                {
-                    PublishCoreUpdateProgress(coreType, "restarting-core", isComplete: false, success: false,
-                        true, null, "Restarting the restored Core.", batch);
-                    return (await StartCoreLockedAsync(runningProfile!, CancellationToken.None)).Success;
-                },
-                () => _macTunLauncher.TransitionUpdateAsync(coreType, privilegedToken, "update-rollback", CancellationToken.None));
-            if (result.UpdateCommitted) AddLog("update", CoreUpdateWorkflow.CommittedUpdateUnconfirmedDetail);
-            return result;
-        }
-        catch (Exception exception)
-        {
-            AddLog("update", $"{coreType} rollback failed: {exception.Message}");
-            SetCoreRuntime(CurrentCoreRuntime with
-            {
-                State = CoreRuntimeState.Faulted,
-                ProcessIds = GetActiveCoreProcessIds(),
-                LastFailure = exception.Message,
-            });
-            return new CoreUpdateRollbackResult(filesRestored, CoreRestarted: false);
-        }
+        finally { _coreGate.Release(); }
     }
 
     private async Task<string> VerifyCoreExecutableAsync(
@@ -1084,9 +392,7 @@ public sealed partial class V2rayRuntime
     }
 
     private bool IsCoreTypeRunning(ECoreType coreType) =>
-        CurrentCoreRuntime.State is CoreRuntimeState.Running or CoreRuntimeState.Faulted
-        && CurrentCoreRuntime.CoreType == coreType
-        && HasTrackedCoreProcesses;
+        CoreUpdatePolicy.IsTargetRunning(CurrentCoreRuntime.State, CurrentCoreRuntime.CoreType == coreType, HasTrackedCoreProcesses);
 
     private static string GetArchiveSuffix(string downloadUrl)
     {
@@ -1133,40 +439,8 @@ public sealed partial class V2rayRuntime
         }
     }
 
-    private async Task RunGeoUpdateAsync(bool useProxy, string scope)
-    {
-        try
-        {
-            PublishGeoUpdateProgress("downloading", isComplete: false, success: false, null);
-            await using var operation = await _operations.EnterExclusiveAsync(
-                _operations.ShutdownToken,
-                allowReadOnlyObservations: true);
-            var wasRunning = CurrentCoreRuntime.State == CoreRuntimeState.Running;
-            await ApplyGeoFilesUpdateAsync(useProxy, operation.Token, scope: scope,
-                beforeCommit: wasRunning ? async (rollback, token) => {
-                    PublishGeoUpdateProgress("restarting-core", false, false, null);
-                    try {
-                        var restart = await RestartCoreAsync(token);
-                        if (!restart.Success) throw new IOException("The serving core did not restart after the rule update.");
-                    } catch {
-                        PublishGeoUpdateProgress("rolling-back", false, false, null);
-                        await rollback();
-                        await RestartCoreAsync(CancellationToken.None);
-                        throw;
-                    }
-                } : null);
-            PublishGeoUpdateProgress("completed", isComplete: true, success: true, null);
-        }
-        catch (OperationCanceledException) when (_operations.IsStopping)
-        {
-            PublishGeoUpdateProgress("failed", isComplete: true, success: false, "Canceled during graceful shutdown.");
-        }
-        catch (Exception exception)
-        {
-            AddLog("update", $"GeoFiles update failed: {exception.Message}");
-            PublishGeoUpdateProgress("failed", isComplete: true, success: false, exception.Message);
-        }
-    }
+    private Task RunGeoUpdateAsync(bool useProxy, string scope) =>
+        new V2rayM.Application.Updates.GeoUpdateRunService().RunAsync(new GeoUpdateRunAdapter(this, useProxy, scope));
 
     private async Task ApplyGeoFilesUpdateAsync(
         bool useProxy,
@@ -1319,14 +593,6 @@ public sealed partial class V2rayRuntime
     internal static void CopyLatestGeoFilesForApply(string installPath, string stagingPath) =>
         CoreUpdateFiles.CopyLatestGeoFilesForApply(installPath, stagingPath);
 
-    internal sealed record CoreUpdateStage(ECoreType CoreType, string InstallPath, string ArchivePath, string PackagePath, string VersionOutput, string? PrivilegedToken = null);
-    private sealed record CoreUpdateBatchCheck(ECoreType CoreType, CoreUpdateCheckResult Result)
-    {
-        public UpdateResult Check => Result.Result;
-        public bool IsUpToDate => Result.IsUpToDate;
-        public bool CheckFailed => Result.Decision == UpdateCheckDecision.Failed;
-        public bool AwaitingValidation => Result.AwaitingValidation;
-    }
-    private sealed record CoreUpdatePrepareResult(CoreUpdateStage? Stage, UpdateResult Check);
-    private sealed record CoreUpdateApplyResult(bool Success, bool RolledBack, bool CoreWasRunning, string Detail, string? Version = null, bool AwaitingValidation = false);
+    internal sealed record CoreUpdateStage(ECoreType CoreType, string InstallPath, string ArchivePath, string PackagePath, string VersionOutput, string? PrivilegedToken = null) : ICoreUpdateArtifact
+    { public string Version => VersionOutput; }
 }

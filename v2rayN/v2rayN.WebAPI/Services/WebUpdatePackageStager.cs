@@ -1,3 +1,4 @@
+using V2rayM.Domain.Updates;
 using System.IO.Compression;
 using System.Buffers.Binary;
 using System.Security.Cryptography;
@@ -40,14 +41,11 @@ internal static partial class WebUpdatePackageStager
         var current = new SemanticVersion(currentVersion);
         var candidate = new SemanticVersion(candidateVersion);
         var comparison = candidate.CompareTo(current);
-        if (comparison > 0) return true;
-        return comparison == 0
-            && !string.IsNullOrWhiteSpace(candidateCommit)
-            && !string.IsNullOrWhiteSpace(currentCommit)
-            && !string.Equals(candidateCommit, currentCommit, StringComparison.OrdinalIgnoreCase);
+        return ApplicationReleasePolicy.IsAvailable(comparison, currentCommit, candidateCommit);
     }
 
-    public static bool ShouldConsiderRelease(bool isPrerelease, bool allowPrerelease) => !isPrerelease || allowPrerelease;
+    public static bool ShouldConsiderRelease(bool isPrerelease, bool allowPrerelease) =>
+        ApplicationReleasePolicy.Consider(isPrerelease, allowPrerelease);
 
     public static WebUpdateManifest ParseManifest(string json)
     {

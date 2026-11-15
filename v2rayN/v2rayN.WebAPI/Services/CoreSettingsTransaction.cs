@@ -1,59 +1,60 @@
+using V2rayM.Application.Settings;
+using V2rayM.Domain.Runtime;
 using ServiceLib.Models.Configs;
 using ServiceLib.Models.Entities;
 using v2rayN.WebAPI.Contracts;
 
 namespace v2rayN.WebAPI.Services;
 
-/// Holds the shared lifecycle gate for the complete apply/rollback window.
-/// Config and DB snapshots are captured/restored under the same mutation gate.
-internal sealed class CoreSettingsTransaction(RuntimeExecutionContext execution, IRuntimeConfigStore store)
+/// Binds application transaction leases to the existing lifecycle and mutation gates.
+internal sealed class CoreSettingsTransaction
 {
-    public async Task<CoreSettingsApplyContext> BeginAsync(Func<CoreRuntimeSnapshot> runtime,
-        Func<bool> hasActiveChild, CancellationToken token)
-    {
-        await execution.CoreGate.WaitAsync(token);
-        try
-        {
-            var oldRuntime = runtime();
-            var active = hasActiveChild();
-            var action = CoreSettingsApplyPolicy.Decide(oldRuntime.State, active, changed: false);
-            var failure = action switch
-            {
-                CoreSettingsApplyAction.Busy => OperationView.Fail("core_runtime_busy", ApiMessageKeys.CoreRuntimeBusy,
-                    new { runtimeState = oldRuntime.State.ToString().ToLowerInvariant() }),
-                CoreSettingsApplyAction.Inconsistent => OperationView.Fail("core_runtime_faulted", ApiMessageKeys.SettingsCoreApplyFailed,
-                    new { runtimeState = oldRuntime.State.ToString().ToLowerInvariant(), processIds = oldRuntime.ProcessIds }),
-                _ => null,
-            };
-            var snapshot = await execution.Mutations.RunAsync(async () =>
-            {
-                await store.RecoverPendingRestoreAsync();
-                return await store.CaptureAsync();
-            }, token);
-            return new CoreSettingsApplyContext(execution.CoreGate, snapshot, oldRuntime, active, failure);
-        }
-        catch { execution.CoreGate.Release(); throw; }
-    }
+    private readonly SettingsTransaction<RuntimeConfigSnapshot, CoreRuntimeSnapshot> _transaction;
+    public CoreSettingsTransaction(RuntimeExecutionContext execution, IRuntimeConfigStore store) =>
+        _transaction = new(new LifecycleScope(execution.CoreGate), execution.Mutations, new SnapshotStore(store));
 
-    public Task RestoreAsync(CoreSettingsApplyContext context) =>
-        execution.Mutations.RunAsync(() => store.RestoreAsync(context.Snapshot));
+    public async Task<CoreSettingsApplyContext> BeginAsync(Func<CoreRuntimeSnapshot> runtime,
+        Func<bool> hasActiveChild, CancellationToken token) =>
+        new(await _transaction.BeginAsync(runtime, value => value.State, hasActiveChild, token));
+    public Task RestoreAsync(CoreSettingsApplyContext context) => _transaction.RestoreAsync(context.Transaction);
+
+    private sealed class SnapshotStore(IRuntimeConfigStore store) : ISettingsSnapshotStore<RuntimeConfigSnapshot>
+    {
+        public Task<RuntimeConfigSnapshot> CaptureAsync() => store.CaptureAsync();
+        public Task RestoreAsync(RuntimeConfigSnapshot snapshot) => store.RestoreAsync(snapshot);
+        public Task RecoverPendingRestoreAsync() => store.RecoverPendingRestoreAsync();
+    }
+    private sealed class LifecycleScope(SemaphoreSlim gate) : IExclusiveScope
+    {
+        public async Task<IAsyncDisposable> EnterAsync(CancellationToken token)
+        {
+            await gate.WaitAsync(token);
+            return new Lease(gate);
+        }
+        private sealed class Lease(SemaphoreSlim gate) : IAsyncDisposable
+        {
+            public ValueTask DisposeAsync() { gate.Release(); return ValueTask.CompletedTask; }
+        }
+    }
 }
 
-internal sealed class CoreSettingsApplyContext(SemaphoreSlim gate, RuntimeConfigSnapshot snapshot,
-    CoreRuntimeSnapshot runtime, bool active, OperationView? failure) : IAsyncDisposable
+internal sealed class CoreSettingsApplyContext(SettingsTransactionContext<RuntimeConfigSnapshot, CoreRuntimeSnapshot> transaction) : IAsyncDisposable
 {
-    private int _disposed;
-    public RuntimeConfigSnapshot Snapshot { get; } = snapshot;
+    internal SettingsTransactionContext<RuntimeConfigSnapshot, CoreRuntimeSnapshot> Transaction => transaction;
+    public RuntimeConfigSnapshot Snapshot => transaction.Snapshot;
     public Config OldConfig => Snapshot.Config;
     public RoutingItem[] OldRoutingItems => Snapshot.Routing;
     public DNSItem[] OldDnsItems => Snapshot.Dns;
     public FullConfigTemplateItem[] OldFullConfigTemplates => Snapshot.Templates;
-    public CoreRuntimeSnapshot OldRuntime { get; } = runtime;
-    public bool HadActiveChild { get; } = active;
-    public OperationView? Failure { get; } = failure;
-    public ValueTask DisposeAsync()
+    public CoreRuntimeSnapshot OldRuntime => transaction.PreviousRuntime;
+    public bool HadActiveChild => transaction.HadActiveChild;
+    public OperationView? Failure => transaction.Admission switch
     {
-        if (Interlocked.Exchange(ref _disposed, 1) == 0) gate.Release();
-        return ValueTask.CompletedTask;
-    }
+        CoreSettingsApplyAction.Busy => OperationView.Fail("core_runtime_busy", ApiMessageKeys.CoreRuntimeBusy,
+            new { runtimeState = OldRuntime.State.ToString().ToLowerInvariant() }),
+        CoreSettingsApplyAction.Inconsistent => OperationView.Fail("core_runtime_faulted", ApiMessageKeys.SettingsCoreApplyFailed,
+            new { runtimeState = OldRuntime.State.ToString().ToLowerInvariant(), processIds = OldRuntime.ProcessIds }),
+        _ => null,
+    };
+    public ValueTask DisposeAsync() => transaction.DisposeAsync();
 }
