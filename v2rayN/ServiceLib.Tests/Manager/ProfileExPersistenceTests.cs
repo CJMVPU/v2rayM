@@ -62,6 +62,24 @@ public class ProfileExPersistenceTests
         });
     }
 
+    [Test]
+    public async Task SortMaximumInvalidatesAfterReloadAndClear()
+    {
+        await WithDatabase(async db =>
+        {
+            var manager = new ProfileExManager(db);
+            await manager.Init();
+            manager.SetSort("new", 50);
+            await manager.SaveTo();
+            await manager.GetMaxSort().Should().BeEqualTo(50);
+            await db.ExecuteAsync("UPDATE ProfileExItem SET Sort = 5 WHERE IndexId = ?", "new");
+            await manager.Init();
+            await manager.GetMaxSort().Should().BeEqualTo(5);
+            await manager.ClearAll();
+            await manager.GetMaxSort().Should().BeEqualTo(0);
+        });
+    }
+
     private static async Task WithDatabase(Func<SQLiteHelper, Task> test)
     {
         var directory = Path.Combine(Path.GetTempPath(), "v2raym-profile-tests-" + Guid.NewGuid().ToString("N"));

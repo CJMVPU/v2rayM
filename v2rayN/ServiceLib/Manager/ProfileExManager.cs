@@ -11,6 +11,7 @@ public class ProfileExManager
     private Dictionary<string, ProfileExItem> _items = [];
     private readonly Dictionary<string, long> _dirty = [];
     private long _revision;
+    private int? _maxSort;
 
     public ProfileExManager() : this(null) { }
     public ProfileExManager(SQLiteHelper? database) => _database = database;
@@ -28,6 +29,7 @@ public class ProfileExManager
                 var merged = loaded.ToDictionary(item => item.IndexId);
                 foreach (var id in _dirty.Keys) merged[id] = _items[id];
                 _items = merged;
+                _maxSort = null;
             }
         }
         finally { _saveGate.Release(); }
@@ -72,6 +74,7 @@ public class ProfileExManager
             await Database.DeleteAllAsync<ProfileExItem>();
             lock (_gate)
             {
+                _maxSort = null;
                 // Clear the requested snapshot, retaining edits made during the await.
                 foreach (var id in _items.Keys.ToArray())
                     if (!_dirty.TryGetValue(id, out var changed) || changed <= revision)
@@ -91,7 +94,16 @@ public class ProfileExManager
         {
             if (!_items.TryGetValue(indexId, out var item))
                 _items[indexId] = item = new ProfileExItem { IndexId = indexId, Message = string.Empty };
+            var previousSort = item.Sort;
             update(item);
+            if (_items.Count == 1) _maxSort = item.Sort;
+            else if (_maxSort is int maximum)
+            {
+                if (item.Sort > maximum) _maxSort = item.Sort;
+                // Reordering can lower the former maximum. Recompute lazily,
+                // preserving exact sort semantics rather than a high-water mark.
+                else if (previousSort == maximum && item.Sort < previousSort) _maxSort = null;
+            }
             _dirty[indexId] = ++_revision;
         }
     }
@@ -107,7 +119,7 @@ public class ProfileExManager
     }
     public int GetMaxSort()
     {
-        lock (_gate) return _items.Count == 0 ? 0 : _items.Values.Max(item => item.Sort);
+        lock (_gate) return _maxSort ??= _items.Count == 0 ? 0 : _items.Values.Max(item => item.Sort);
     }
 
     private static ProfileExItem Clone(ProfileExItem item) => new()

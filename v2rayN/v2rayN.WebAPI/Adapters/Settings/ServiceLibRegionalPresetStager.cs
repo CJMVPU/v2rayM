@@ -48,7 +48,7 @@ internal sealed class RegionalPresetStager(
                 preset,
                 string.Empty,
                 string.Empty,
-                ConfigHandler.InitBuiltinSimpleDNS(),
+                ConfigDbHandler.InitBuiltinSimpleDNS(),
                 [CreateDefaultDns(ECoreType.Xray, "V2ray")],
                 new(null, []));
         }
@@ -97,7 +97,7 @@ internal sealed class RegionalPresetStager(
         var template = content is null ? null : JsonUtils.Deserialize<DNSItem>(content);
         if (template is null)
         {
-            // ConfigHandler.GetExternalDNSItem returns the current DNS item when the
+            // ConfigDbHandler.GetExternalDNSItem returns the current DNS item when the
             // template cannot be downloaded or parsed.
             return CloneDnsItem(existing);
         }
@@ -136,7 +136,7 @@ internal sealed class RegionalPresetStager(
         var content = await TryDownloadAsync(url, proxy, cancellationToken);
         var template = content is null ? null : JsonUtils.Deserialize<SimpleDNSItem>(content);
         return template is null
-            ? (ConfigHandler.InitBuiltinSimpleDNS(), true)
+            ? (ConfigDbHandler.InitBuiltinSimpleDNS(), true)
             : (template, false);
     }
 

@@ -11,11 +11,11 @@ namespace v2rayN.WebAPI.Adapters.Routing;
 
 internal sealed class ServiceLibRoutingRules : IRoutingRuleStore
 {
-    public async Task<RoutingRuleSnapshot?> FindAsync(string id) => await AppManager.Instance.GetRoutingItem(id) is { } item
+    public async Task<RoutingRuleSnapshot?> FindAsync(string id) => await ConfigDbQuery.GetRoutingItem(id) is { } item
         ? new(item.Id, item.IsActive, item.Url, item.RuleSet) : null;
     public async Task<bool> SaveAsync(string id, IRoutingRules rules)
     {
-        var item = await AppManager.Instance.GetRoutingItem(id);
+        var item = await ConfigDbQuery.GetRoutingItem(id);
         if (item is null) return false;
         var entries = JsonUtils.Deserialize<List<RulesItem>>(rules.Content);
         if (entries is null) return false;
@@ -43,7 +43,7 @@ internal sealed class ServiceLibRoutingRules : IRoutingRuleStore
         new DownloadService().TryDownloadString(url, true, string.Empty, token);
     public static IRoutingRules FromItems(IEnumerable<RulesItem> items) => new Document(items.ToList());
     public static async Task<IReadOnlyList<RulesItem>> ReadAsync(string id) =>
-        JsonUtils.Deserialize<List<RulesItem>>((await AppManager.Instance.GetRoutingItem(id))?.RuleSet ?? "[]") ?? [];
+        JsonUtils.Deserialize<List<RulesItem>>((await ConfigDbQuery.GetRoutingItem(id))?.RuleSet ?? "[]") ?? [];
     private sealed class Document(List<RulesItem> rules) : IRoutingRules
     {
         public string Content => JsonUtils.Serialize(rules, false);

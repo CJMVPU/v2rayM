@@ -64,7 +64,7 @@ struct RoutingSettingsFields: SettingsFields {
                     field("目标端口（例如 80,443）", rule, "port")
                     choice("网络", rule, "network", ["", "tcp", "udp", "tcp,udp"])
                     multiline("协议（http、tls、quic，每行一个）", rule, "protocol", array: true)
-                    multiline("入站标签（留空匹配全部；原生 TUN 为 tun）", rule, "inboundTag", array: true)
+                    multiline("入站标签（tun：原生 TUN；dns-module：DNS；留空匹配全部）", rule, "inboundTag", array: true)
                 } else {
                     Text("还没有规则，点击“添加规则”开始配置。").font(AppFont.caption).foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 12)

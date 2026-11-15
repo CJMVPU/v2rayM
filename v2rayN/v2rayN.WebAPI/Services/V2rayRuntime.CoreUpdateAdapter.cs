@@ -44,7 +44,7 @@ public sealed partial class V2rayRuntime
         public async Task<bool> CaptureRunningProfileAsync()
         {
             runningProfile = await owner._mutations.RunAsync(() =>
-                AppManager.Instance.GetProfileItem(owner.CurrentCoreRuntime.ProfileId ?? string.Empty));
+                ConfigDbQuery.GetProfileItem(owner.CurrentCoreRuntime.ProfileId ?? string.Empty));
             return runningProfile is not null;
         }
         public async Task PrepareCandidateAsync(CancellationToken cancellationToken)

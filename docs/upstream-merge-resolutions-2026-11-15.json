@@ -1,0 +1,927 @@
+{
+  "localParent": "1f3b5f138b8c12b658a085a4f38d3c9c015f6531",
+  "upstreamParent": "c374f26d285df5444e590bb58c92f7e003efbddf",
+  "previousUpstream": "e3457fa4b4776d380d3bac271e63eeb42847ebaa",
+  "paths": [
+    {
+      "path": "v2rayN/Directory.Packages.props",
+      "decision": "Retain validated dependency versions; Downloader major migration and TUnit runner change deferred as separately scoped upgrades.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/ServiceLib.Tests/CoreConfig/Context/CoreConfigContextBuilderTests.cs",
+      "decision": "Preserve local Xray-only implementation/tests while applying upstream configuration class split and query relocation explicitly.",
+      "changedFromLocal": true
+    },
+    {
+      "path": "v2rayN/ServiceLib.Tests/CoreConfig/CoreConfigTestFactory.cs",
+      "decision": "Preserve local Xray-only implementation/tests while applying upstream configuration class split and query relocation explicitly.",
+      "changedFromLocal": true
+    },
+    {
+      "path": "v2rayN/ServiceLib.Tests/CoreConfig/Singbox/CoreConfigSingboxServiceTests.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/ServiceLib.Tests/CoreConfig/V2ray/CoreConfigV2rayServiceTests.cs",
+      "decision": "Retain local native TUN/failure regressions and add the upstream DNS/targetStrategy cases separately.",
+      "changedFromLocal": true
+    },
+    {
+      "path": "v2rayN/ServiceLib.Tests/Fmt/ShadowsocksFmtTests.cs",
+      "decision": "Adopt applicable Xray DNS/SIP008 fixes, presets, and regression coverage; review explicit config calls after migration.",
+      "changedFromLocal": true
+    },
+    {
+      "path": "v2rayN/ServiceLib.Tests/GlobalUsings.cs",
+      "decision": "Preserve local Xray-only implementation/tests while applying upstream configuration class split and query relocation explicitly.",
+      "changedFromLocal": true
+    },
+    {
+      "path": "v2rayN/ServiceLib.Tests/Handler/AutoStartupHandlerTests.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/ServiceLib.Tests/Handler/ConfigHandlerCustomSubscriptionTests.cs",
+      "decision": "Preserve local Xray-only implementation/tests while applying upstream configuration class split and query relocation explicitly.",
+      "changedFromLocal": true
+    },
+    {
+      "path": "v2rayN/ServiceLib.Tests/Handler/CoreConfigHandlerTests.cs",
+      "decision": "Adopt applicable Xray DNS/SIP008 fixes, presets, and regression coverage; review explicit config calls after migration.",
+      "changedFromLocal": true
+    },
+    {
+      "path": "v2rayN/ServiceLib.Tests/Helper/SQLiteHelperTests.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/ServiceLib.Tests/Manager/ProfileExManagerConcurrencyTests.cs",
+      "decision": "Adapt dictionary/max-sort optimization to existing lock and revision-aware persistence; invalidate maximum after lowering, reload and clear.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/ServiceLib.Tests/Manager/ProfileExManagerPersistenceTests.cs",
+      "decision": "Adapt dictionary/max-sort optimization to existing lock and revision-aware persistence; invalidate maximum after lowering, reload and clear.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/ServiceLib.Tests/TestDatabase.cs",
+      "decision": "Adopt applicable Xray DNS/SIP008 fixes, presets, and regression coverage; review explicit config calls after migration.",
+      "changedFromLocal": true
+    },
+    {
+      "path": "v2rayN/ServiceLib.Tests/ViewModels/AddServerViewModelTests.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/ServiceLib/Global.cs",
+      "decision": "Adopt applicable Xray DNS/SIP008 fixes, presets, and regression coverage; review explicit config calls after migration.",
+      "changedFromLocal": true
+    },
+    {
+      "path": "v2rayN/ServiceLib/GlobalUsings.cs",
+      "decision": "Preserve local Xray-only implementation/tests while applying upstream configuration class split and query relocation explicitly.",
+      "changedFromLocal": true
+    },
+    {
+      "path": "v2rayN/ServiceLib/Handler/AutoStartupHandler.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/ServiceLib/Handler/Builder/CoreConfigContextBuilder.cs",
+      "decision": "Preserve local Xray-only implementation/tests while applying upstream configuration class split and query relocation explicitly.",
+      "changedFromLocal": true
+    },
+    {
+      "path": "v2rayN/ServiceLib/Handler/ConnectionHandler.cs",
+      "decision": "Preserve local Xray-only implementation/tests while applying upstream configuration class split and query relocation explicitly.",
+      "changedFromLocal": true
+    },
+    {
+      "path": "v2rayN/ServiceLib/Handler/CoreConfigHandler.cs",
+      "decision": "Preserve local Xray-only implementation/tests while applying upstream configuration class split and query relocation explicitly.",
+      "changedFromLocal": true
+    },
+    {
+      "path": "v2rayN/ServiceLib/Handler/Data/ConfigDbHandler.cs",
+      "decision": "Adapt upstream storage split using protected local implementations and explicit transaction Config parameters.",
+      "changedFromLocal": true
+    },
+    {
+      "path": "v2rayN/ServiceLib/Handler/Data/ConfigDbQuery.cs",
+      "decision": "Adapt upstream storage split using protected local implementations and explicit transaction Config parameters.",
+      "changedFromLocal": true
+    },
+    {
+      "path": "v2rayN/ServiceLib/Handler/Data/ConfigState.cs",
+      "decision": "Adapt upstream storage split using protected local implementations and explicit transaction Config parameters.",
+      "changedFromLocal": true
+    },
+    {
+      "path": "v2rayN/ServiceLib/Handler/Data/ConfigTextHandler.cs",
+      "decision": "Adapt upstream storage split using protected local implementations and explicit transaction Config parameters.",
+      "changedFromLocal": true
+    },
+    {
+      "path": "v2rayN/ServiceLib/Handler/Fmt/ShadowsocksFmt.cs",
+      "decision": "Adopt applicable Xray DNS/SIP008 fixes, presets, and regression coverage; review explicit config calls after migration.",
+      "changedFromLocal": true
+    },
+    {
+      "path": "v2rayN/ServiceLib/Handler/SubscriptionHandler.cs",
+      "decision": "Preserve local Xray-only implementation/tests while applying upstream configuration class split and query relocation explicitly.",
+      "changedFromLocal": true
+    },
+    {
+      "path": "v2rayN/ServiceLib/Handler/SysProxy/ProxySettingLinux.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/ServiceLib/Handler/SysProxy/ProxySettingOSX.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/ServiceLib/Manager/AppManager.cs",
+      "decision": "Preserve local Xray-only implementation/tests while applying upstream configuration class split and query relocation explicitly.",
+      "changedFromLocal": true
+    },
+    {
+      "path": "v2rayN/ServiceLib/Manager/ClashApiManager.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/ServiceLib/Manager/CoreManager.cs",
+      "decision": "Preserve local Xray-only implementation/tests while applying upstream configuration class split and query relocation explicitly.",
+      "changedFromLocal": true
+    },
+    {
+      "path": "v2rayN/ServiceLib/Manager/GroupProfileManager.cs",
+      "decision": "Preserve local Xray-only implementation/tests while applying upstream configuration class split and query relocation explicitly.",
+      "changedFromLocal": true
+    },
+    {
+      "path": "v2rayN/ServiceLib/Manager/PacManager.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/ServiceLib/Manager/ProfileExManager.cs",
+      "decision": "Adapt dictionary/max-sort optimization to existing lock and revision-aware persistence; invalidate maximum after lowering, reload and clear.",
+      "changedFromLocal": true
+    },
+    {
+      "path": "v2rayN/ServiceLib/Manager/TaskManager.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/ServiceLib/Manager/WebDavManager.cs",
+      "decision": "Preserve local Xray-only implementation/tests while applying upstream configuration class split and query relocation explicitly.",
+      "changedFromLocal": true
+    },
+    {
+      "path": "v2rayN/ServiceLib/Models/CoreConfigs/SingboxConfig.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/ServiceLib/Models/Dto/SsSIP008.cs",
+      "decision": "Adopt applicable Xray DNS/SIP008 fixes, presets, and regression coverage; review explicit config calls after migration.",
+      "changedFromLocal": true
+    },
+    {
+      "path": "v2rayN/ServiceLib/Resx/ResUI.ru.resx",
+      "decision": "Retain native UI resource scope; upstream added labels belong to retired desktop features.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/ServiceLib/Services/CoreConfig/Singbox/SingboxOutboundService.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/ServiceLib/Services/CoreConfig/V2ray/V2rayBalancerService.cs",
+      "decision": "Preserve local Xray-only implementation/tests while applying upstream configuration class split and query relocation explicitly.",
+      "changedFromLocal": true
+    },
+    {
+      "path": "v2rayN/ServiceLib/Services/CoreConfig/V2ray/V2rayConfigTemplateService.cs",
+      "decision": "Adopt applicable Xray DNS/SIP008 fixes, presets, and regression coverage; review explicit config calls after migration.",
+      "changedFromLocal": true
+    },
+    {
+      "path": "v2rayN/ServiceLib/Services/CoreConfig/V2ray/V2rayDnsService.cs",
+      "decision": "Adopt applicable Xray DNS/SIP008 fixes, presets, and regression coverage; review explicit config calls after migration.",
+      "changedFromLocal": true
+    },
+    {
+      "path": "v2rayN/ServiceLib/Services/CoreConfig/V2ray/V2rayOutboundService.cs",
+      "decision": "Retain existing KCP seed/mask preservation and native Xray restrictions; MASQUE extension remains deferred.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/ServiceLib/Services/SpeedtestService.cs",
+      "decision": "Preserve local Xray-only implementation/tests while applying upstream configuration class split and query relocation explicitly.",
+      "changedFromLocal": true
+    },
+    {
+      "path": "v2rayN/ServiceLib/Services/UpdateService.cs",
+      "decision": "Preserve local Xray-only implementation/tests while applying upstream configuration class split and query relocation explicitly.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/ServiceLib/ViewModels/AddGroupServerViewModel.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/ServiceLib/ViewModels/AddServer2ViewModel.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/ServiceLib/ViewModels/AddServerViewModel.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/ServiceLib/ViewModels/BackupAndRestoreViewModel.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/ServiceLib/ViewModels/CheckUpdateViewModel.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/ServiceLib/ViewModels/ClashConnectionsViewModel.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/ServiceLib/ViewModels/ClashProxiesViewModel.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/ServiceLib/ViewModels/DNSSettingViewModel.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/ServiceLib/ViewModels/FullConfigTemplateViewModel.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/ServiceLib/ViewModels/GlobalHotkeySettingViewModel.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/ServiceLib/ViewModels/MainWindowViewModel.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/ServiceLib/ViewModels/MsgViewModel.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/ServiceLib/ViewModels/OptionSettingViewModel.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/ServiceLib/ViewModels/ProfilesSelectViewModel.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/ServiceLib/ViewModels/ProfilesViewModel.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/ServiceLib/ViewModels/RoutingRuleDetailsViewModel.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/ServiceLib/ViewModels/RoutingRuleSettingViewModel.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/ServiceLib/ViewModels/RoutingSettingViewModel.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/ServiceLib/ViewModels/StatusBarViewModel.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/ServiceLib/ViewModels/SubEditViewModel.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/ServiceLib/ViewModels/SubSettingViewModel.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.Desktop/App.axaml.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.Desktop/Base/WindowBase.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.Desktop/GlobalUsings.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.Desktop/Program.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.Desktop/ViewModels/ThemeSettingViewModel.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.Desktop/Views/AddServerWindow.axaml",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.Desktop/Views/AddServerWindow.axaml.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.Desktop/Views/ClashConnectionsView.axaml.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.Desktop/Views/DNSSettingWindow.axaml.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.Desktop/Views/FullConfigTemplateWindow.axaml.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.Desktop/Views/MainWindow.axaml.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.Desktop/Views/OptionSettingWindow.axaml.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.Desktop/Views/ProfilesView.axaml",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.Desktop/Views/ProfilesView.axaml.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.Desktop/Views/StatusBarView.axaml.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Adapters/HeadlessWindowDialog.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Adapters/Settings/ServiceLibRegionalPresetStager.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": true
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Api/WebApiEndpoints.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Assets/web-assets.json",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Configuration/NativeEnvironmentFile.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Contracts/ApiModels.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/GlobalUsings.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Launcher/Locales/en-US.json",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Launcher/Locales/zh-CN.json",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Launcher/Locales/zh-TW.json",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Launcher/NativeWebRestorePreflight.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Launcher/NativeWebUpdateHelper.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Launcher/NativeWebUpdateWorkflow.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Launcher/WebInstanceLock.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Launcher/WebLauncher.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Launcher/WebRestartCoordinator.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Launcher/WebStopper.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Program.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Properties/launchSettings.json",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Security/WebCorsPolicy.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Security/WebListenerSecurityPolicy.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Security/WebSessionService.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Security/WebSetupAccessPolicy.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Services/BuiltinDnsProfileBootstrap.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Services/CoreLaunchPreflight.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Services/CoreProcessTracker.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Services/CoreRuntimeSnapshot.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Services/CoreUpdatePackageStager.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Services/GeoFilesUpdateTransaction.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Services/LogBuffer.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Services/RegionalPresetStager.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Services/RuntimeOperationCoordinator.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Services/RuntimeRequestOperationPolicy.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Services/ShutdownCleanupSequence.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Services/V2rayRuntime.Backup.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Services/V2rayRuntime.CoreUpdate.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Services/V2rayRuntime.Profiles.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Services/V2rayRuntime.Scheduling.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Services/V2rayRuntime.Settings.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": true
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Services/V2rayRuntime.WebUpdate.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Services/V2rayRuntime.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": true
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Services/WebBuildIdentity.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Services/WebReleaseChannel.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Services/WebUpdateDeploymentPolicy.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Services/WebUpdatePackageStager.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Tests/BackupRestorePreflightTests.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Tests/BuiltinDnsProfileBootstrapTests.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Tests/CoreProcessTrackerTests.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Tests/CoreRestartPreflightTests.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Tests/CoreUpdateWorkflowTests.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Tests/DnsEditorParityTests.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": true
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Tests/GlobalUsings.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Tests/LogBufferTests.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Tests/NativeWebUpdateFileSwapTests.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Tests/NativeWebUpdateHelperTests.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Tests/NativeWebUpdateWorkflowTests.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Tests/ParityValidationTests.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": true
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Tests/RegionalPresetStagingTests.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": true
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Tests/RoutingParityTests.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Tests/SniffingSettingsIntegrationTests.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": true
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Tests/SseShutdownTests.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Tests/SubscriptionCreationTests.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": true
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Tests/SubscriptionParityTests.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Tests/SubscriptionValidationTests.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Tests/UpdatePreReleaseSettingsTests.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Tests/WebAuthEndpointTests.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Tests/WebAuthRateLimitTests.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Tests/WebCorsTests.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Tests/WebInstanceLockProcessTests.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Tests/WebLauncherTests.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Tests/WebListenerSecurityPolicyTests.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Tests/WebProbeUriResolverTests.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Tests/WebReleaseChannelTests.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Tests/WebRestartCoordinatorTests.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Tests/WebTunScopeTests.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Tests/WebUpdatePackageStagerTests.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN.WebAPI/Tests/WebUpdateReleaseSelectionTests.cs",
+      "decision": "Preserve DDD application orchestration, native auth/update/rollback and tests; port new storage calls explicitly, omit upstream formatting-only churn.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN/Base/WindowBase.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN/Converters/MaterialDesignFonts.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN/GlobalUsings.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN/Manager/HotkeyManager.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN/Manager/WindowsManager.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN/ViewModels/ThemeSettingViewModel.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN/Views/AddGroupServerWindow.xaml.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN/Views/AddServer2Window.xaml.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN/Views/AddServerWindow.xaml",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN/Views/AddServerWindow.xaml.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN/Views/ClashConnectionsView.xaml.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN/Views/DNSSettingWindow.xaml.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN/Views/FullConfigTemplateWindow.xaml.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN/Views/GlobalHotkeySettingWindow.xaml.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN/Views/MainWindow.xaml.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN/Views/OptionSettingWindow.xaml.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN/Views/ProfilesSelectWindow.xaml.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN/Views/ProfilesView.xaml.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN/Views/RoutingRuleDetailsWindow.xaml.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN/Views/RoutingRuleSettingWindow.xaml.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN/Views/RoutingSettingWindow.xaml.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN/Views/StatusBarView.xaml.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN/Views/SubEditWindow.xaml.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    },
+    {
+      "path": "v2rayN/v2rayN/Views/SubSettingWindow.xaml.cs",
+      "decision": "Keep retired desktop, multi-engine, OS proxy or UI-only code deleted; native product scope.",
+      "changedFromLocal": false
+    }
+  ]
+}

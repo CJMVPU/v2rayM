@@ -67,7 +67,7 @@ public sealed partial class V2rayRuntime
         public async Task<CoreConnectionProfile?> ResolveProfileAsync(string? id)
         {
             _resolvedProfile = id is null ? await owner.GetDefaultProfileAsync()
-                : await owner._mutations.RunAsync(() => AppManager.Instance.GetProfileItem(id));
+                : await owner._mutations.RunAsync(() => ConfigDbQuery.GetProfileItem(id));
             return _resolvedProfile is null ? null : new(_resolvedProfile.IndexId);
         }
         public Task SelectProfileAsync(string id) => owner._mutations.RunAsync(async () =>

@@ -11,7 +11,7 @@ namespace v2rayN.WebAPI.Adapters.Profiles;
 internal sealed class ServiceLibProfileExport(Func<Config> config) : IProfileExportSource
 {
     public async Task<IProfileExportSnapshot> CaptureAsync(IReadOnlyList<string> ids) =>
-        new Snapshot(config(), await AppManager.Instance.GetProfileItemsOrderedByIndexIds(ids.ToArray()));
+        new Snapshot(config(), await ConfigDbQuery.GetProfileItemsOrderedByIndexIds(ids.ToArray()));
     private sealed class Snapshot(Config config, List<ProfileItem> items) : IProfileExportSnapshot
     {
         public int Count => items.Count;

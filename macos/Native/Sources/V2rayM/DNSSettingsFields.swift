@@ -5,6 +5,7 @@ struct DNSSettingsFields: SettingsFields {
     @Binding var simpleDNS: SettingsValue
     @Binding var dns: SettingsValue
     @Binding var dirty: Bool
+    var remotePresets: [String] = []
     let saveSimple: () -> Void
     let saveCustom: () -> Void
     var body: some View {
@@ -14,7 +15,16 @@ struct DNSSettingsFields: SettingsFields {
                     .foregroundStyle(.orange).font(AppFont.caption)
                     .opacity(dns["enabled"].flag ? 1 : 0).accessibilityHidden(!dns["enabled"].flag)
                 field("直连 DNS", $simpleDNS, "directDNS")
-                field("远程 DNS", $simpleDNS, "remoteDNS")
+                SettingsFieldRow(title: "远程 DNS") {
+                    TextField("", text: text($simpleDNS, "remoteDNS"))
+                        .textFieldStyle(.roundedBorder).accessibilityLabel("远程 DNS")
+                    Menu("常用地址") {
+                        ForEach(remotePresets, id: \.self) { address in
+                            Button(address) { text($simpleDNS, "remoteDNS").wrappedValue = address }
+                        }
+                    }.frame(width: 90).disabled(remotePresets.isEmpty)
+                        .help("选择预设或直接输入自定义 DNS 地址，保存后生效")
+                }
                 field("引导 DNS（纯 IP）", $simpleDNS, "bootstrapDNS")
                 ForEach([("直连解析策略", "strategy4Freedom"), ("代理解析策略", "strategy4Proxy"), ("代理拨号解析策略", "strategy4ProxyDial")], id: \.1) { label, key in
                     choice(label, $simpleDNS, key, ["", "AsIs", "UseIP", "UseIPv4v6", "UseIPv6v4", "UseIPv4", "UseIPv6"])

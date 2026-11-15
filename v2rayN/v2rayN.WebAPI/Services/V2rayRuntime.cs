@@ -171,9 +171,9 @@ public sealed partial class V2rayRuntime
 
     public async Task<StatusView> GetStatusAsync()
     {
-        var selectedProfile = await AppManager.Instance.GetProfileItem(Config.IndexId);
-        var profileItems = await AppManager.Instance.ProfileItems(string.Empty) ?? [];
-        var subscriptions = await AppManager.Instance.SubItems() ?? [];
+        var selectedProfile = await ConfigDbQuery.GetProfileItem(Config.IndexId);
+        var profileItems = await ConfigDbQuery.ProfileItems(string.Empty) ?? [];
+        var subscriptions = await ConfigDbQuery.SubItems() ?? [];
         var snapshot = CurrentCoreRuntime;
         var processIds = GetActiveCoreProcessIds();
         var listenerDefinitions = snapshot.ProxyPort.HasValue && snapshot.State != CoreRuntimeState.Stopped
@@ -210,7 +210,7 @@ public sealed partial class V2rayRuntime
 
         var runningProfile = string.IsNullOrEmpty(snapshot.ProfileId)
             ? null
-            : await AppManager.Instance.GetProfileItem(snapshot.ProfileId);
+            : await ConfigDbQuery.GetProfileItem(snapshot.ProfileId);
         var configuredProxyPort = Config.Inbound.FirstOrDefault()?.LocalPort;
         return new StatusView(
             coreRunning,
@@ -250,7 +250,7 @@ public sealed partial class V2rayRuntime
 
     private async Task<ProfileItem?> GetDefaultProfileAsync() => await _mutations.RunAsync(async () =>
     {
-        var selected = await ConfigHandler.GetDefaultServer(Config);
+        var selected = await ConfigTextHandler.GetDefaultServer(Config);
         if (selected is not null)
         {
             await EnsureConfigSaveSucceededAsync(() => _configStore.SaveAsync());

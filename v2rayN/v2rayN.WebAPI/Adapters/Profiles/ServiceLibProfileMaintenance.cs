@@ -15,15 +15,15 @@ internal sealed class ServiceLibProfileMaintenance(Func<Config> config, Func<str
         item.IndexId == config().IndexId || item.IndexId == running());
     public async Task<int> DeduplicateAsync(string group)
     {
-        var result = await ConfigHandler.DedupServerList(config(), group, Eligible);
+        var result = await ConfigDbHandler.DedupServerList(config(), group, Eligible);
         return result.Item1 - result.Item2;
     }
-    public Task<int> RemoveFailedAsync(string group) => ConfigHandler.RemoveInvalidServerResult(config(), group, Eligible);
-    public async Task<bool> GroupExistsAsync(string group) => await AppManager.Instance.GetSubItem(group) is not null;
+    public Task<int> RemoveFailedAsync(string group) => ConfigDbHandler.RemoveInvalidServerResult(config(), group, Eligible);
+    public async Task<bool> GroupExistsAsync(string group) => await ConfigDbQuery.GetSubItem(group) is not null;
     public async Task<ProfileGroupGeneration> GenerateAsync(string? group, bool byRegion)
     {
-        var subscription = string.IsNullOrEmpty(group) ? null : await AppManager.Instance.GetSubItem(group);
-        var result = byRegion ? await ConfigHandler.AddGroupRegionServer(config(), subscription) : await ConfigHandler.AddGroupAllServer(config(), subscription);
+        var subscription = string.IsNullOrEmpty(group) ? null : await ConfigDbQuery.GetSubItem(group);
+        var result = byRegion ? await ConfigDbHandler.AddGroupRegionServer(config(), subscription) : await ConfigDbHandler.AddGroupAllServer(config(), subscription);
         return new(result.Success, result.Data as string, result.Data as IReadOnlyList<string>);
     }
 }

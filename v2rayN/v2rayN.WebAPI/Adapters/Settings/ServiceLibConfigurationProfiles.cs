@@ -15,8 +15,8 @@ internal interface ISettingsProfileWriter
 
 internal sealed class ServiceLibConfigurationProfiles(Func<Config> config) : ISettingsProfileWriter
 {
-    public async Task<bool> SaveDnsAsync(DNSItem item) => await ConfigHandler.SaveDNSItems(config(), item) == 0;
-    public async Task<bool> SaveTemplateAsync(FullConfigTemplateItem item) => await ConfigHandler.SaveFullConfigTemplate(config(), item) == 0;
+    public async Task<bool> SaveDnsAsync(DNSItem item) => await ConfigDbHandler.SaveDNSItems(config(), item) == 0;
+    public async Task<bool> SaveTemplateAsync(FullConfigTemplateItem item) => await ConfigDbHandler.SaveFullConfigTemplate(config(), item) == 0;
     public static DnsProfileSettings Describe(DNSItem item) => new(item.Remarks, item.Enabled, item.UseSystemHosts,
         item.NormalDNS, item.TunDNS, item.DomainStrategy4Freedom, item.DomainDNSAddress);
     public static CoreTemplateSettings Describe(FullConfigTemplateItem item) => new(item.Remarks, item.Enabled, item.Config,
@@ -43,9 +43,9 @@ internal sealed class ServiceLibConfigurationProfiles(Func<Config> config) : ISe
         return item;
     }
     public static async Task<IReadOnlyList<DnsProfileView>> ReadDnsAsync() =>
-        (await AppManager.Instance.DNSItems() ?? []).Select(ToView).ToArray();
+        (await ConfigDbQuery.DNSItems() ?? []).Select(ToView).ToArray();
     public static async Task<IReadOnlyList<CoreConfigTemplateView>> ReadTemplatesAsync() =>
-        (await AppManager.Instance.FullConfigTemplateItem() ?? []).Select(ToView).ToArray();
+        (await ConfigDbQuery.FullConfigTemplateItem() ?? []).Select(ToView).ToArray();
     public static DnsProfileView ToView(DNSItem item) => new(item.Id, item.Remarks, item.Enabled, item.CoreType,
         item.UseSystemHosts, item.NormalDNS, item.TunDNS, item.DomainStrategy4Freedom, item.DomainDNSAddress);
     public static CoreConfigTemplateView ToView(FullConfigTemplateItem item) => new(item.Id, item.Remarks, item.Enabled,

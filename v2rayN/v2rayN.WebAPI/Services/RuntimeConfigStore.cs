@@ -22,13 +22,13 @@ public interface IRuntimeConfigStore
 
 internal sealed class ServiceLibRuntimeConfigStore : IRuntimeConfigStore
 {
-    public Config Current => AppManager.Instance.Config;
-    public Task<int> SaveAsync() => ConfigHandler.SaveConfig(Current);
+    public Config Current => ConfigTextHandler.Config;
+    public Task<int> SaveAsync() => ConfigTextHandler.SaveConfig(Current);
     public async Task<RuntimeConfigSnapshot> CaptureAsync() => new(
         JsonUtils.DeepCopy(Current) ?? throw new InvalidOperationException("Could not snapshot runtime configuration."),
-        (await AppManager.Instance.RoutingItems() ?? []).ToArray(),
-        (await AppManager.Instance.DNSItems() ?? []).ToArray(),
-        (await AppManager.Instance.FullConfigTemplateItem() ?? []).ToArray());
+        (await ConfigDbQuery.RoutingItems() ?? []).ToArray(),
+        (await ConfigDbQuery.DNSItems() ?? []).ToArray(),
+        (await ConfigDbQuery.FullConfigTemplateItem() ?? []).ToArray());
 
     private readonly JournaledConfigRestorer _restorer;
     public ServiceLibRuntimeConfigStore()

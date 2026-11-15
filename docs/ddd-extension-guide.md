@@ -47,15 +47,22 @@ helper 可用性和 CIDR 语法检查在适配器，不把系统 API 引入领�
 ## 合并 ServiceLib 上游
 
 先执行 [上游合并规则](upstream-merge-policy.md)。保持 fork 关系和 Xray-only 产品范围。
-本轮对 ServiceLib 的改动只有以下五处接缝；合并时检查其语义，不能仅检查文本冲突是否消失。
+ServiceLib 的关键接缝如下；合并时检查其语义，不能仅检查文本冲突是否消失。
 
 | 文件 | 需保留的语义 | 主要回归 |
 | --- | --- | --- |
-| `Handler/ConfigHandler.cs` | 清理/去重支持可选 eligible 过滤，保护不支持、复杂、选中与运行节点 | `ProfileCleanupEligibilityTests`、`ProfileMaintenance` 应用测试 |
+| `Handler/Data/ConfigDbHandler.cs` | 清理/去重支持可选 eligible 过滤，保护不支持、复杂、选中与运行节点 | `ProfileCleanupEligibilityTests`、`ProfileMaintenance` 应用测试 |
 | `Helper/SqliteHelper.cs` | 通过 SQLite 在线备份获得包含已提交 WAL 的一致快照 | `BackupSnapshotTests`、`RestoreDatabaseSnapshotTests` |
 | `Services/CoreConfig/V2ray/CoreConfigV2rayService.cs` | 最终模板/自定义出站处理完成后才标记生成成功 | `CoreConfigV2rayServiceTests` |
 | `Services/DownloadService.cs` | 可选代理端口快照；未提供时保持原调用行为 | 计划更新用例与打包回环 |
 | `Services/UpdateService.cs` | 可选已安装版本快照及读取入口，网络阶段不依赖正在变化的安装文件 | `ScheduledUpdateCheckApplicationTests` |
+
+2026-11-15 合并上游配置拆分后：`ConfigDbQuery` 承载数据库查询，`ConfigDbHandler` 承载写入和迁移，
+`ConfigTextHandler` 承载文本读写及当前节点选择，`ConfigState` 保存宿主初始化的配置引用。
+`ServiceLibRuntimeConfigStore` 是本地事务入口；领域/应用层不能直接读取共享 `ConfigState`。
+需要配置的写入方法继续显式接收 `Config`，以保证应用用例持有的事务快照不会被全局值替换。
+不要为兼容上游无参调用添加隐式单例重载，也不要恢复旧 `ConfigHandler` 转发层。
+数据库查询保留参数绑定、批量查询和请求顺序；节点扩展保留修订号保存及最大排序值下降后的缓存失效。
 
 上游枚举在适配器显式映射，未知值拒绝或返回失败；不重编号持久化枚举，不删除未知用户记录。
 Xray 发布版本与本地修复标识、兼容验证等待和可信更新认证继续分别处理。

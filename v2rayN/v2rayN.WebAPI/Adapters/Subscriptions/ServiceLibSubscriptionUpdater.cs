@@ -14,12 +14,12 @@ internal sealed class ServiceLibSubscriptionUpdater(Func<Config> config, Func<Ta
     public async Task StampAsync(string id, long unixTime)
     {
         var items = id.Length == 0
-            ? (await AppManager.Instance.SubItems() ?? []).Where(item => item.Enabled).ToArray()
-            : await AppManager.Instance.GetSubItem(id) is { } selected ? [selected] : [];
+            ? (await ConfigDbQuery.SubItems() ?? []).Where(item => item.Enabled).ToArray()
+            : await ConfigDbQuery.GetSubItem(id) is { } selected ? [selected] : [];
         foreach (var item in items)
         {
             item.UpdateTime = unixTime;
-            if (await ConfigHandler.AddSubItem(config(), item) != 0)
+            if (await ConfigDbHandler.AddSubItem(config(), item) != 0)
                 throw new IOException("ServiceLib could not save the subscription timestamp.");
         }
     }

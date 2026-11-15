@@ -11,7 +11,7 @@ public class ProfileCleanupEligibilityTests
         var config = CoreConfigTestFactory.CreateConfig();
         CoreConfigTestFactory.BindAppManagerConfig(config);
         config.GuiItem.KeepOlderDedupl = true;
-        SQLiteHelper.Instance.CreateTable<ProfileItem>();
+        TestDatabase.Initialize();
         var group = "cleanup-" + Guid.NewGuid().ToString("N");
         var rows = new[] { "unsupported", "first", "duplicate" }.Select(suffix => new ProfileItem
         {
@@ -22,9 +22,9 @@ public class ProfileCleanupEligibilityTests
         try
         {
             foreach (var row in rows) await SQLiteHelper.Instance.ReplaceAsync(row);
-            var result = await ConfigHandler.DedupServerList(config, group, XrayOnlyPolicy.Supports);
+            var result = await ConfigDbHandler.DedupServerList(config, group, XrayOnlyPolicy.Supports);
             await (result.Item1 - result.Item2).Should().BeEqualTo(1);
-            var remaining = await AppManager.Instance.ProfileItems(group);
+            var remaining = await ConfigDbQuery.ProfileItems(group);
             await remaining!.Count.Should().BeEqualTo(2);
             await remaining.Any(item => item.IndexId == group + "unsupported").Should().BeTrue();
             await remaining.Count(XrayOnlyPolicy.Supports).Should().BeEqualTo(1);

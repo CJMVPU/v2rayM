@@ -15,8 +15,8 @@ internal sealed class ServiceLibSpeedTests(Func<Config> config, Services.EventHu
 {
     public async Task<ISpeedTestBatch> PrepareAsync(IReadOnlyList<string>? ids)
     {
-        var profiles = ids is { Count: > 0 } ? await AppManager.Instance.GetProfileItemsOrderedByIndexIds(ids.ToArray())
-            : await AppManager.Instance.ProfileItems(config().SubIndexId ?? string.Empty) ?? [];
+        var profiles = ids is { Count: > 0 } ? await ConfigDbQuery.GetProfileItemsOrderedByIndexIds(ids.ToArray())
+            : await ConfigDbQuery.ProfileItems(config().SubIndexId ?? string.Empty) ?? [];
         return new Batch(profiles, () => new SpeedtestService(config(), result =>
         {
         int? delay = int.TryParse(result.Delay, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var parsedDelay)

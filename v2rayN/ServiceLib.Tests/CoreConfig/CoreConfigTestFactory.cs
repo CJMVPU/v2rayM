@@ -4,8 +4,7 @@ internal static class CoreConfigTestFactory
 {
     public static void BindAppManagerConfig(Config config)
     {
-        var field = typeof(AppManager).GetField("_config", BindingFlags.Instance | BindingFlags.NonPublic);
-        field?.SetValue(AppManager.Instance, config);
+        ConfigState.Instance.SetCurrent(config);
     }
 
     public static Config CreateConfig(ECoreType vmessCoreType = ECoreType.Xray)

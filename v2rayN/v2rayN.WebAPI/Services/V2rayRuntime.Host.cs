@@ -38,18 +38,18 @@ public sealed partial class V2rayRuntime
             }
             await EnsureConfigSaveSucceededAsync(() => _configStore.SaveAsync());
         });
-        await ConfigHandler.InitBuiltinDNS(Config);
+        await ConfigDbHandler.InitBuiltinDNS(Config);
         await BuiltinDnsProfileBootstrap.EnsureAsync(
             Config,
-            async () => await AppManager.Instance.DNSItems() ?? [],
-            ConfigHandler.SaveDNSItems);
-        await ConfigHandler.InitBuiltinFullConfigTemplate(Config);
+            async () => await ConfigDbQuery.DNSItems() ?? [],
+            ConfigDbHandler.SaveDNSItems);
+        await ConfigDbHandler.InitBuiltinFullConfigTemplate(Config);
         // Keep startup aligned with Desktop's StatusBarViewModel. In particular,
         // InitBuiltinRouting owns the RoutingIndexId -> IsActive migration and must
         // run even when a restored Desktop database already has routing rows.
-        await ConfigHandler.InitBuiltinRouting(Config);
-        _ = await ConfigHandler.GetDefaultRouting(Config);
-        var restoredSubscriptions = await AppManager.Instance.SubItems() ?? [];
+        await ConfigDbHandler.InitBuiltinRouting(Config);
+        _ = await ConfigDbHandler.GetDefaultRouting(Config);
+        var restoredSubscriptions = await ConfigDbQuery.SubItems() ?? [];
         var normalizedSubIndexId = NormalizeSelectedSubscriptionId(
             Config.SubIndexId,
             restoredSubscriptions.Select(item => item.Id).ToArray());
@@ -59,7 +59,7 @@ public sealed partial class V2rayRuntime
             Config.SubIndexId = normalizedSubIndexId;
         }
         var selectedProfileId = Config.IndexId;
-        var defaultProfile = await ConfigHandler.GetDefaultServer(Config);
+        var defaultProfile = await ConfigTextHandler.GetDefaultServer(Config);
         await _mutations.RunAsync(() => EnsureConfigSaveSucceededAsync(() => _configStore.SaveAsync()));
         return new(selectedProfileId, defaultProfile?.IndexId);
     }
@@ -105,7 +105,7 @@ public sealed partial class V2rayRuntime
         public async Task<bool> ProfileExistsAsync(string id, CancellationToken token)
         {
             token.ThrowIfCancellationRequested();
-            return await AppManager.Instance.GetProfileItem(id) is not null;
+            return await ConfigDbQuery.GetProfileItem(id) is not null;
         }
         public async Task<RuntimeStartResult> StartCoreAsync(string? id, CancellationToken token)
         {

@@ -11,8 +11,8 @@ internal sealed class ServiceLibProfileQueries(Func<Config> config) : IProfileQu
     public async Task<IReadOnlyList<ProfileListEntry>> CaptureAsync(string? subscriptionId)
     {
         var groupId = subscriptionId ?? config().SubIndexId ?? string.Empty;
-        var profiles = await AppManager.Instance.ProfileItems(groupId) ?? [];
-        var subscriptions = (await AppManager.Instance.SubItems() ?? []).ToDictionary(item => item.Id, item => item.Remarks);
+        var profiles = await ConfigDbQuery.ProfileItems(groupId) ?? [];
+        var subscriptions = (await ConfigDbQuery.SubItems() ?? []).ToDictionary(item => item.Id, item => item.Remarks);
         var extensions = await ProfileExManager.Instance.GetProfileExs();
         var extensionMap = extensions.ToDictionary(item => item.IndexId);
         var statistics = (config().GuiItem.EnableStatistics ? StatisticsManager.Instance.ServerStat : null) ?? [];
@@ -53,12 +53,12 @@ internal sealed class ServiceLibProfileQueries(Func<Config> config) : IProfileQu
 
     public async Task<ProfileGroupSnapshot> CaptureGroupsAsync()
     {
-        var subscriptions = await AppManager.Instance.SubItems() ?? [];
-        var profiles = await AppManager.Instance.ProfileItems(string.Empty) ?? [];
+        var subscriptions = await ConfigDbQuery.SubItems() ?? [];
+        var profiles = await ConfigDbQuery.ProfileItems(string.Empty) ?? [];
         return new(profiles.Select(item => item.Subid ?? string.Empty).ToArray(),
             subscriptions.Select(item => new ProfileSubscription(item.Id, item.Remarks)).ToArray(), config().SubIndexId ?? string.Empty);
     }
     public bool Matches(string value, string query) => Utils.IsRegexMatch(value, query);
-    internal static Task<ProfileItem?> ReadDetailsAsync(string id) => AppManager.Instance.GetProfileItem(id);
-    internal static async Task<string?> ReadSubscriptionShareAsync(string id) => (await AppManager.Instance.GetSubItem(id))?.Url;
+    internal static Task<ProfileItem?> ReadDetailsAsync(string id) => ConfigDbQuery.GetProfileItem(id);
+    internal static async Task<string?> ReadSubscriptionShareAsync(string id) => (await ConfigDbQuery.GetSubItem(id))?.Url;
 }

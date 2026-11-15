@@ -4,6 +4,13 @@
 产品范围、安全与上游合并规则仍由 AGENTS.md 和 upstream-merge-policy.md 决定。
 扩展方式见 [扩展指南](ddd-extension-guide.md)，全程序职责与验证范围见 [架构审查](ddd-audit-2026-11-15.md)。
 
+## 上游存储适配
+
+上游截至 `c374f26d` 的配置拆分已接入：ServiceLib 内使用 `Handler/Data` 下的文本、数据库写入、
+数据库查询和配置状态类，`AppManager` 保留运行环境职责。WebAPI 的配置存储适配器映射这些入口，
+应用服务继续通过仓储/事务端口编排；上游共享状态不进入领域层或应用层。
+写入仍显式接收事务拥有的 Config；查询参数化、配置恢复、用户未知记录和签名 helper 边界保持原有语义。
+
 ## 已实现的边界
 
 - `v2rayN/V2rayM.Domain` 是无 NuGet、ServiceLib、ASP.NET 依赖的领域程序集。

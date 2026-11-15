@@ -21,6 +21,6 @@ public class ProfileMatcherTests
     }
 
     private static ProfileItem? Match(IEnumerable<ProfileItem> items, ProfileItem target) =>
-        (ProfileItem?)typeof(ConfigHandler).GetMethod("FindMatchedProfileItem", BindingFlags.Static | BindingFlags.NonPublic)!
+        (ProfileItem?)typeof(ConfigDbHandler).GetMethod("FindMatchedProfileItem", BindingFlags.Static | BindingFlags.NonPublic)!
             .Invoke(null, [items, target]);
 }

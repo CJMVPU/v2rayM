@@ -14,10 +14,10 @@ namespace v2rayN.WebAPI.Adapters.Profiles;
 internal sealed class ServiceLibProfileEditor(Func<Config> config, Func<string, bool> running) : IProfileEditorRepository
 {
     public string SelectedGroup => config().SubIndexId ?? string.Empty;
-    public async Task<ProfileIdentity?> FindAsync(string id) => await AppManager.Instance.GetProfileItem(id) is { } item
+    public async Task<ProfileIdentity?> FindAsync(string id) => await ConfigDbQuery.GetProfileItem(id) is { } item
         ? new(item.IndexId, (int)item.ConfigType, item.Subid, item.IsSub) : null;
-    public async Task<bool> GroupExistsAsync(string id) => await AppManager.Instance.GetSubItem(id) is not null;
-    public async Task<int> CountChildrenAsync(IReadOnlyList<string> ids) => (await AppManager.Instance.GetProfileItemsByIndexIds(ids.ToArray())).Count;
+    public async Task<bool> GroupExistsAsync(string id) => await ConfigDbQuery.GetSubItem(id) is not null;
+    public async Task<int> CountChildrenAsync(IReadOnlyList<string> ids) => (await ConfigDbQuery.GetProfileItemsByIndexIds(ids.ToArray())).Count;
     public bool IsRunning(string id) => running(id);
 }
 
@@ -46,12 +46,12 @@ internal sealed class ServiceLibProfileEditSession(ProfileItem profile, Func<Con
     }
     public Task<bool> HasCycleAsync() => GroupProfileManager.HasCycle(profile);
     public Task<int> PersistAsync(bool isNew) => profile.ConfigType.IsGroupType()
-        ? ConfigHandler.AddServerCommon(config(), profile)
+        ? ConfigDbHandler.AddServerCommon(config(), profile)
         : profile.ConfigType switch
         {
-            EConfigType.Custom when isNew => ConfigHandler.AddCustomServer(config(), profile, blDelete: false),
-            EConfigType.Outbound when isNew => ConfigHandler.AddCustomOutboundServer(config(), profile, blDelete: false, toFile: true),
-            EConfigType.Custom or EConfigType.Outbound => ConfigHandler.EditCustomServer(config(), profile),
-            _ => ConfigHandler.AddServer(config(), profile),
+            EConfigType.Custom when isNew => ConfigDbHandler.AddCustomServer(config(), profile, blDelete: false),
+            EConfigType.Outbound when isNew => ConfigDbHandler.AddCustomOutboundServer(config(), profile, blDelete: false, toFile: true),
+            EConfigType.Custom or EConfigType.Outbound => ConfigDbHandler.EditCustomServer(config(), profile),
+            _ => ConfigDbHandler.AddServer(config(), profile),
         };
 }

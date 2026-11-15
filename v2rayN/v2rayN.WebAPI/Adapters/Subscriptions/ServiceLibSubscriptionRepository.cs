@@ -17,16 +17,16 @@ internal sealed class ServiceLibSubscriptionHeaders : ISubscriptionHeaders
 internal sealed class ServiceLibSubscriptionRepository(Func<Config> config) : ISubscriptionRepository
 {
     public async Task<IReadOnlyList<Subscription>> ListAsync() =>
-        (await AppManager.Instance.SubItems() ?? []).Select(ToDomain).ToArray();
+        (await ConfigDbQuery.SubItems() ?? []).Select(ToDomain).ToArray();
     public async Task<Subscription?> FindAsync(string id) =>
-        await AppManager.Instance.GetSubItem(id) is { } item ? ToDomain(item) : null;
+        await ConfigDbQuery.GetSubItem(id) is { } item ? ToDomain(item) : null;
     public async Task<Subscription?> SaveAsync(Subscription subscription)
     {
         // Reload inside the shared mutation scope, retaining fields introduced upstream.
-        var existing = string.IsNullOrEmpty(subscription.Id) ? null : await AppManager.Instance.GetSubItem(subscription.Id);
+        var existing = string.IsNullOrEmpty(subscription.Id) ? null : await ConfigDbQuery.GetSubItem(subscription.Id);
         if (!string.IsNullOrEmpty(subscription.Id) && existing is null) return null;
         var item = ApplyToItem(subscription, existing ?? new SubItem());
-        if (await ConfigHandler.AddSubItem(config(), item) != 0) return null;
+        if (await ConfigDbHandler.AddSubItem(config(), item) != 0) return null;
         return await FindAsync(item.Id);
     }
 

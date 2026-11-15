@@ -10,8 +10,7 @@ public class ConfigHandlerCustomSubscriptionTests
     {
         var config = CoreConfigTestFactory.CreateConfig();
         CoreConfigTestFactory.BindAppManagerConfig(config);
-        SQLiteHelper.Instance.CreateTable<SubItem>();
-        SQLiteHelper.Instance.CreateTable<ProfileItem>();
+        TestDatabase.Initialize();
         var subId = $"invalid-sub-{Guid.NewGuid():N}";
         var fileName = $"retained-{Guid.NewGuid():N}.json";
         var path = Utils.GetConfigPath(fileName);
@@ -21,9 +20,9 @@ public class ConfigHandlerCustomSubscriptionTests
             await SQLiteHelper.Instance.ReplaceAsync(new SubItem { Id = subId, Remarks = "sub" });
             await SQLiteHelper.Instance.ReplaceAsync(new ProfileItem
                 { IndexId = subId + "-old", Subid = subId, IsSub = true, ConfigType = EConfigType.Custom, CoreType = ECoreType.Xray, Address = fileName });
-            var count = await ConfigHandler.AddBatchServers(config, "<html><body>upstream unavailable</body></html>", subId, true);
+            var count = await ConfigDbHandler.AddBatchServers(config, "<html><body>upstream unavailable</body></html>", subId, true);
             await (count <= 0).Should().BeTrue();
-            await (await AppManager.Instance.ProfileItems(subId))!.Count.Should().BeEqualTo(1);
+            await (await ConfigDbQuery.ProfileItems(subId))!.Count.Should().BeEqualTo(1);
             await File.Exists(path).Should().BeTrue();
         }
         finally { File.Delete(path); }
@@ -34,8 +33,7 @@ public class ConfigHandlerCustomSubscriptionTests
     {
         var config = CoreConfigTestFactory.CreateConfig();
         CoreConfigTestFactory.BindAppManagerConfig(config);
-        SQLiteHelper.Instance.CreateTable<SubItem>();
-        SQLiteHelper.Instance.CreateTable<ProfileItem>();
+        TestDatabase.Initialize();
         var subId = $"replace-sub-{Guid.NewGuid():N}";
         var fileName = $"manual-{Guid.NewGuid():N}.json";
         var path = Utils.GetConfigPath(fileName);
@@ -49,10 +47,10 @@ public class ConfigHandlerCustomSubscriptionTests
                 new ProfileItem { IndexId = subId + "-unsupported", Subid = subId, IsSub = true, ConfigType = EConfigType.Custom, CoreType = ECoreType.mihomo },
                 new ProfileItem { IndexId = subId + "-manual", Subid = subId, IsSub = false, ConfigType = EConfigType.Custom, CoreType = ECoreType.Xray, Address = fileName },
             });
-            var count = await ConfigHandler.AddBatchServers(config,
+            var count = await ConfigDbHandler.AddBatchServers(config,
                 "vless://00000000-0000-0000-0000-000000000001@127.0.0.1:443?encryption=none#replacement\nnot-a-valid-node", subId, true);
             await count.Should().BeEqualTo(1);
-            var profiles = (await AppManager.Instance.ProfileItems(subId))!;
+            var profiles = (await ConfigDbQuery.ProfileItems(subId))!;
             await profiles.Count.Should().BeEqualTo(3);
             await profiles.Any(item => item.IndexId == subId + "-unsupported").Should().BeTrue();
             await profiles.Any(item => item.IndexId == subId + "-manual").Should().BeTrue();
@@ -67,7 +65,7 @@ public class ConfigHandlerCustomSubscriptionTests
     {
         var config = CoreConfigTestFactory.CreateConfig();
         CoreConfigTestFactory.BindAppManagerConfig(config);
-        SQLiteHelper.Instance.CreateTable<SubItem>(); SQLiteHelper.Instance.CreateTable<ProfileItem>();
+        TestDatabase.Initialize();
         SQLiteHelper.Instance.CreateTable<ServerStatItem>();
         var subId = $"identity-sub-{Guid.NewGuid():N}";
         await SQLiteHelper.Instance.ReplaceAsync(new SubItem { Id = subId, Remarks = "sub" });
@@ -86,9 +84,9 @@ public class ConfigHandlerCustomSubscriptionTests
             stats.Add(new ServerStatItem { IndexId = old.IndexId, TotalUp = 77 });
             stats.Add(new ServerStatItem { IndexId = manual.IndexId, TotalUp = 200 });
         }
-        var count = await ConfigHandler.AddBatchServers(config, InnerFmt.ToUri([old])!, subId, true);
+        var count = await ConfigDbHandler.AddBatchServers(config, InnerFmt.ToUri([old])!, subId, true);
         await count.Should().BeEqualTo(1);
-        var current = (await AppManager.Instance.ProfileItems(subId))!;
+        var current = (await ConfigDbQuery.ProfileItems(subId))!;
         var imported = current.Single(item => item.IsSub);
         await (imported.IndexId != old.IndexId).Should().BeTrue();
         await config.IndexId.Should().BeEqualTo(imported.IndexId);
@@ -102,7 +100,7 @@ public class ConfigHandlerCustomSubscriptionTests
     {
         var config = CoreConfigTestFactory.CreateConfig();
         CoreConfigTestFactory.BindAppManagerConfig(config);
-        SQLiteHelper.Instance.CreateTable<SubItem>(); SQLiteHelper.Instance.CreateTable<ProfileItem>();
+        TestDatabase.Initialize();
         var subId = $"failure-sub-{Guid.NewGuid():N}";
         var trigger = "reject_" + Guid.NewGuid().ToString("N");
         await SQLiteHelper.Instance.ReplaceAsync(new SubItem { Id = subId, Remarks = "sub" });
@@ -114,12 +112,12 @@ public class ConfigHandlerCustomSubscriptionTests
             var failed = false;
             try
             {
-                await ConfigHandler.AddBatchServers(config,
+                await ConfigDbHandler.AddBatchServers(config,
                     "vless://00000000-0000-0000-0000-000000000001@127.0.0.1:443?encryption=none#replacement", subId, true);
             }
             catch (SQLiteException) { failed = true; }
             await failed.Should().BeTrue();
-            await (await AppManager.Instance.ProfileItems(subId))!.Single().IndexId.Should().BeEqualTo(subId + "-old");
+            await (await ConfigDbQuery.ProfileItems(subId))!.Single().IndexId.Should().BeEqualTo(subId + "-old");
         }
         finally { await SQLiteHelper.Instance.ExecuteAsync($"DROP TRIGGER {trigger}"); }
     }
@@ -129,7 +127,7 @@ public class ConfigHandlerCustomSubscriptionTests
     {
         var config = CoreConfigTestFactory.CreateConfig();
         CoreConfigTestFactory.BindAppManagerConfig(config);
-        SQLiteHelper.Instance.CreateTable<SubItem>(); SQLiteHelper.Instance.CreateTable<ProfileItem>();
+        TestDatabase.Initialize();
         var subId = $"shared-sub-{Guid.NewGuid():N}";
         var fileName = $"shared-{Guid.NewGuid():N}.json";
         var path = Utils.GetConfigPath(fileName);
@@ -142,7 +140,7 @@ public class ConfigHandlerCustomSubscriptionTests
                 new ProfileItem { IndexId = subId + "-old", Subid = subId, IsSub = true, ConfigType = EConfigType.Custom, Address = fileName },
                 new ProfileItem { IndexId = subId + "-manual", Subid = subId, IsSub = false, ConfigType = EConfigType.Custom, Address = fileName },
             });
-            var count = await ConfigHandler.AddBatchServers(config,
+            var count = await ConfigDbHandler.AddBatchServers(config,
                 "vless://00000000-0000-0000-0000-000000000001@127.0.0.1:443?encryption=none#replacement", subId, true);
             await count.Should().BeEqualTo(1);
             await File.Exists(path).Should().BeTrue();
@@ -154,7 +152,7 @@ public class ConfigHandlerCustomSubscriptionTests
     public async Task SubscriptionOnlyRemovalDoesNotDeleteManualCustomFiles()
     {
         var config = CoreConfigTestFactory.CreateConfig();
-        SQLiteHelper.Instance.CreateTable<ProfileItem>();
+        TestDatabase.Initialize();
         var subId = $"remove-sub-{Guid.NewGuid():N}";
         var fileName = $"manual-direct-{Guid.NewGuid():N}.json";
         var path = Utils.GetConfigPath(fileName);
@@ -166,8 +164,8 @@ public class ConfigHandlerCustomSubscriptionTests
                 new ProfileItem { IndexId = subId + "-old", Subid = subId, IsSub = true, ConfigType = EConfigType.VLESS },
                 new ProfileItem { IndexId = subId + "-manual", Subid = subId, IsSub = false, ConfigType = EConfigType.Custom, Address = fileName },
             });
-            await ConfigHandler.RemoveServersViaSubid(config, subId, true);
-            await (await AppManager.Instance.ProfileItems(subId))!.Single().IndexId.Should().BeEqualTo(subId + "-manual");
+            await ConfigDbHandler.RemoveServersViaSubid(config, subId, true);
+            await (await ConfigDbQuery.ProfileItems(subId))!.Single().IndexId.Should().BeEqualTo(subId + "-manual");
             await File.Exists(path).Should().BeTrue();
         }
         finally { File.Delete(path); }
@@ -185,8 +183,7 @@ public class ConfigHandlerCustomSubscriptionTests
     {
         var config = CoreConfigTestFactory.CreateConfig();
         CoreConfigTestFactory.BindAppManagerConfig(config);
-        SQLiteHelper.Instance.CreateTable<SubItem>();
-        SQLiteHelper.Instance.CreateTable<ProfileItem>();
+        TestDatabase.Initialize();
 
         var subId = $"sub-{Guid.NewGuid():N}";
         await SQLiteHelper.Instance.ReplaceAsync(new SubItem
@@ -201,8 +198,8 @@ public class ConfigHandlerCustomSubscriptionTests
         oldProfile.IsSub = true;
         await SQLiteHelper.Instance.InsertAsync(oldProfile);
 
-        var count = await ConfigHandler.AddBatchServers(config, FullXrayConfigs, subId, true);
-        var profiles = await AppManager.Instance.ProfileItems(subId) ?? [];
+        var count = await ConfigDbHandler.AddBatchServers(config, FullXrayConfigs, subId, true);
+        var profiles = await ConfigDbQuery.ProfileItems(subId) ?? [];
 
         await count.Should().BeEqualTo(2);
         await profiles.Should().HaveCount(2);
@@ -219,8 +216,7 @@ public class ConfigHandlerCustomSubscriptionTests
     {
         var config = CoreConfigTestFactory.CreateConfig();
         CoreConfigTestFactory.BindAppManagerConfig(config);
-        SQLiteHelper.Instance.CreateTable<SubItem>();
-        SQLiteHelper.Instance.CreateTable<ProfileItem>();
+        TestDatabase.Initialize();
 
         var subId = $"sub-failed-{Guid.NewGuid():N}";
         await SQLiteHelper.Instance.ReplaceAsync(new SubItem
@@ -236,8 +232,8 @@ public class ConfigHandlerCustomSubscriptionTests
         await SQLiteHelper.Instance.InsertAsync(existing);
 
         var invalidSubscription = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes("not a valid profile"));
-        var count = await ConfigHandler.AddBatchServers(config, invalidSubscription, subId, true);
-        var profiles = await AppManager.Instance.ProfileItems(subId) ?? [];
+        var count = await ConfigDbHandler.AddBatchServers(config, invalidSubscription, subId, true);
+        var profiles = await ConfigDbQuery.ProfileItems(subId) ?? [];
 
         await (count < 1).Should().BeTrue();
         await profiles.Should().HaveCount(1);

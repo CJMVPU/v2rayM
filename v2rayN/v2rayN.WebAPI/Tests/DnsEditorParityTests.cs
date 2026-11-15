@@ -17,6 +17,15 @@ namespace v2rayN.WebAPI.Tests;
 public class DnsEditorParityTests
 {
     [Test]
+    public async Task NativeDnsOptionsExposeIpLiteralDohPresets()
+    {
+        var options = V2rayRuntime.GetDnsEditorOptions();
+        await options.RemoteDnsAddresses.Should().Contain("https://1.1.1.1/dns-query");
+        await options.RemoteDnsAddresses.Should().Contain("https://8.8.8.8/dns-query");
+        await ServiceLib.Global.InboundTags.Should().Contain("dns-module");
+    }
+
+    [Test]
     public async Task DnsEditorOptionsAreTheCurrentServiceLibOptions()
     {
         var options = V2rayRuntime.GetEditorOptions();

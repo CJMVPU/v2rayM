@@ -35,7 +35,7 @@ internal sealed class ServiceLibRegionalPresetStore(IRuntimeConfigStore store)
             await SQLiteHelper.Instance.DeleteAllAsync<DNSItem>();
             foreach (var item in stage.DnsItems)
             {
-                if (await ConfigHandler.SaveDNSItems(store.Current, item) != 0)
+                if (await ConfigDbHandler.SaveDNSItems(store.Current, item) != 0)
                 {
                     throw new IOException($"The {item.CoreType} DNS profile could not be saved.");
                 }
@@ -43,7 +43,7 @@ internal sealed class ServiceLibRegionalPresetStore(IRuntimeConfigStore store)
 
             // Default routing uses embedded data only; this call performs no network I/O
             // because the route template source was cleared in the staged plan.
-            if (await ConfigHandler.InitRouting(store.Current, false) != 0)
+            if (await ConfigDbHandler.InitRouting(store.Current, false) != 0)
             {
                 throw new IOException("The built-in routing profiles could not be initialized.");
             }
@@ -52,7 +52,7 @@ internal sealed class ServiceLibRegionalPresetStore(IRuntimeConfigStore store)
         {
             foreach (var item in stage.DnsItems)
             {
-                if (await ConfigHandler.SaveDNSItems(store.Current, item) != 0)
+                if (await ConfigDbHandler.SaveDNSItems(store.Current, item) != 0)
                 {
                     throw new IOException($"The {item.CoreType} DNS profile could not be saved.");
                 }
@@ -60,10 +60,10 @@ internal sealed class ServiceLibRegionalPresetStore(IRuntimeConfigStore store)
 
             foreach (var itemId in stage.Routing.RemoveItemIds ?? [])
             {
-                var item = await AppManager.Instance.GetRoutingItem(itemId);
+                var item = await ConfigDbQuery.GetRoutingItem(itemId);
                 if (item is not null)
                 {
-                    await ConfigHandler.RemoveRoutingItem(item);
+                    await ConfigDbHandler.RemoveRoutingItem(item);
                 }
             }
 
@@ -72,7 +72,7 @@ internal sealed class ServiceLibRegionalPresetStore(IRuntimeConfigStore store)
                 store.Current.RoutingBasicItem.RoutingIndexId = string.Empty;
             }
 
-            var currentRoutes = await AppManager.Instance.RoutingItems() ?? [];
+            var currentRoutes = await ConfigDbQuery.RoutingItems() ?? [];
             var hasVersion = stage.Routing.TemplateVersion is { Length: > 0 } version
                 && currentRoutes.Any(item => item.Remarks?.StartsWith(version, StringComparison.Ordinal) == true);
             var builtinFallbackAlreadyInitialized = stage.Routing.IsBuiltinFallback && currentRoutes.Count > 0;
@@ -82,7 +82,7 @@ internal sealed class ServiceLibRegionalPresetStore(IRuntimeConfigStore store)
                 foreach (var item in stage.Routing.Items)
                 {
                     item.Sort = ++nextSort;
-                    if (await ConfigHandler.AddBatchRoutingRules(item, item.RuleSet ?? "[]") != 0)
+                    if (await ConfigDbHandler.AddBatchRoutingRules(item, item.RuleSet ?? "[]") != 0)
                     {
                         throw new IOException($"The routing profile '{item.Remarks}' could not be saved.");
                     }
@@ -91,7 +91,7 @@ internal sealed class ServiceLibRegionalPresetStore(IRuntimeConfigStore store)
                 var defaultItem = stage.Routing.DefaultRemarks is { } remarks
                     ? stage.Routing.Items.FirstOrDefault(item => item.Remarks == remarks)
                     : null;
-                if (defaultItem is not null && await ConfigHandler.SetDefaultRouting(store.Current, defaultItem) != 0)
+                if (defaultItem is not null && await ConfigDbHandler.SetDefaultRouting(store.Current, defaultItem) != 0)
                 {
                     throw new IOException("The first staged routing profile could not be activated.");
                 }
@@ -101,7 +101,7 @@ internal sealed class ServiceLibRegionalPresetStore(IRuntimeConfigStore store)
             {
                 var existingDefault = currentRoutes.FirstOrDefault(item => item.Id == existingDefaultId);
                 if (existingDefault is not null && !existingDefault.IsActive
-                    && await ConfigHandler.SetDefaultRouting(store.Current, existingDefault) != 0)
+                    && await ConfigDbHandler.SetDefaultRouting(store.Current, existingDefault) != 0)
                 {
                     throw new IOException("The migrated default routing profile could not be activated.");
                 }

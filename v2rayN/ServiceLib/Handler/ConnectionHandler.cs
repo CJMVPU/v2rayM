@@ -68,7 +68,7 @@ public static class ConnectionHandler
     /// </summary>
     public static async Task<int> GetRealPingTime(IWebProxy? webProxy, CancellationToken cancellationToken = default)
     {
-        var url = AppManager.Instance.Config.SpeedTestItem.SpeedPingTestUrl;
+        var url = ConfigTextHandler.Config.SpeedTestItem.SpeedPingTestUrl;
         var responseTime = -1;
         try
         {
@@ -112,7 +112,7 @@ public static class ConnectionHandler
     {
         try
         {
-            var url = AppManager.Instance.Config.SpeedTestItem.IPAPIUrl;
+            var url = ConfigTextHandler.Config.SpeedTestItem.IPAPIUrl;
             if (url.IsNullOrEmpty())
             {
                 return null;

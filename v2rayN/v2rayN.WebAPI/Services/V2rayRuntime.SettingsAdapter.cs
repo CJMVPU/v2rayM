@@ -40,7 +40,7 @@ public sealed partial class V2rayRuntime
             if (context is null) throw new InvalidOperationException("Recovery requires a captured settings transaction.");
             await CoreManager.Instance.Init(owner.Config, owner.OnCoreMessageAsync);
             var id = context.OldRuntime.ProfileId ?? owner.Config.IndexId;
-            var profile = await AppManager.Instance.GetProfileItem(id)
+            var profile = await ConfigDbQuery.GetProfileItem(id)
                 ?? throw new InvalidOperationException($"The previous Core profile {id} no longer exists.");
             var result = await owner.StartCoreLockedAsync(profile, CancellationToken.None);
             return new(result.Success, result.Code);

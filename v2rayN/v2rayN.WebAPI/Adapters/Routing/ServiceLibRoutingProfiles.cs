@@ -12,20 +12,20 @@ namespace v2rayN.WebAPI.Adapters.Routing;
 internal sealed class ServiceLibRoutingProfiles(Func<Config> config, Func<Task> saveConfig) : IRoutingProfileStore
 {
     public async Task<IReadOnlyList<IRoutingProfileDocument>> ListAsync() =>
-        (await AppManager.Instance.RoutingItems() ?? []).Select(item => (IRoutingProfileDocument)new Document(item)).ToArray();
+        (await ConfigDbQuery.RoutingItems() ?? []).Select(item => (IRoutingProfileDocument)new Document(item)).ToArray();
     public async Task<IRoutingProfileDocument?> FindAsync(string id) =>
-        await AppManager.Instance.GetRoutingItem(id) is { } item ? new Document(item) : null;
+        await ConfigDbQuery.GetRoutingItem(id) is { } item ? new Document(item) : null;
     public Task<bool> SaveAsync(IRoutingProfileDocument document) => SaveItemAsync(((Document)document).Item);
-    private async Task<bool> SaveItemAsync(RoutingItem item) => await ConfigHandler.SaveRoutingItem(config(), item) == 0;
-    public Task DeleteAsync(IRoutingProfileDocument document) => ConfigHandler.RemoveRoutingItem(((Document)document).Item);
+    private async Task<bool> SaveItemAsync(RoutingItem item) => await ConfigDbHandler.SaveRoutingItem(config(), item) == 0;
+    public Task DeleteAsync(IRoutingProfileDocument document) => ConfigDbHandler.RemoveRoutingItem(((Document)document).Item);
     public async Task<bool> ActivateAsync(IRoutingProfileDocument document) =>
-        await ConfigHandler.SetDefaultRouting(config(), ((Document)document).Item) == 0;
+        await ConfigDbHandler.SetDefaultRouting(config(), ((Document)document).Item) == 0;
     public async Task ClearSelectionAsync()
     {
         config().RoutingBasicItem.RoutingIndexId = string.Empty;
         await saveConfig();
     }
-    public async Task<bool> ImportPresetsAsync() => await ConfigHandler.InitRouting(config(), true) == 0;
+    public async Task<bool> ImportPresetsAsync() => await ConfigDbHandler.InitRouting(config(), true) == 0;
 
     public static IRoutingProfileDocument? Prepare(RoutingItem input)
     {

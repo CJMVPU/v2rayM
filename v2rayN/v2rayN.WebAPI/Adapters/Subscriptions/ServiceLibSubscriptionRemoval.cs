@@ -10,17 +10,17 @@ internal sealed class ServiceLibSubscriptionRemoval(Func<Config> config, Func<st
 {
     public async Task<SubscriptionRemovalPlan> PlanAsync(string id)
     {
-        if (await AppManager.Instance.GetSubItem(id) is null) return new(false, false, false);
-        var selected = await AppManager.Instance.GetProfileItem(config().IndexId);
+        if (await ConfigDbQuery.GetSubItem(id) is null) return new(false, false, false);
+        var selected = await ConfigDbQuery.GetProfileItem(config().IndexId);
         var runningId = runningProfile();
-        var running = string.IsNullOrEmpty(runningId) ? null : await AppManager.Instance.GetProfileItem(runningId);
+        var running = string.IsNullOrEmpty(runningId) ? null : await ConfigDbQuery.GetProfileItem(runningId);
         return new(true, selected?.Subid == id, running?.Subid == id);
     }
     public async Task DeleteAsync(string id, bool resetSelection)
     {
-        if (await ConfigHandler.DeleteSubItem(config(), id) != 0)
+        if (await ConfigDbHandler.DeleteSubItem(config(), id) != 0)
             throw new IOException("ServiceLib could not delete the subscription.");
-        if (resetSelection) _ = await ConfigHandler.GetDefaultServer(config());
+        if (resetSelection) _ = await ConfigTextHandler.GetDefaultServer(config());
         // Deleting the selected group also changes SubIndexId without removing the active profile.
         await save();
     }

@@ -88,7 +88,7 @@ struct SettingsEditor: View {
                                     }
                                 })
                         case .dns:
-                            DNSSettingsFields(simpleDNS: $dnsDraft.simpleDNS, dns: $dnsDraft.dns, dirty: $dirty,
+                            DNSSettingsFields(simpleDNS: $dnsDraft.simpleDNS, dns: $dnsDraft.dns, dirty: $dirty, remotePresets: dnsDraft.remotePresets,
                                 saveSimple: { action {
                                     try await model.settingsWrite("/api/settings/dns/simple", body: dnsDraft.simpleDNS)
                                     dnsDraft.savedSimpleDNS = dnsDraft.simpleDNS
@@ -150,6 +150,8 @@ struct SettingsEditor: View {
             }
             if pane == .routing { try await reloadRoutes() }
             if pane == .dns {
+                let options = try await model.settingsRead("/api/settings/dns/editor-options")
+                dnsDraft.remotePresets = options["remoteDnsAddresses"].items.map(\.text)
                 dnsDraft.simpleDNS = try await model.settingsRead("/api/settings/dns/simple")
                 let profiles = try await model.settingsRead("/api/settings/dns/profiles")
                 guard let xray = profiles.items.first(where: { $0["coreType"].text.lowercased() == "xray" }) else { throw ClientFailure("dns_profile_not_found") }

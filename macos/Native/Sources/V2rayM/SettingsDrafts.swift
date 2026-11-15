@@ -6,6 +6,7 @@ struct ParameterSettingsDraft {
     var tunSettings = SettingsValue.object([:])
 }
 struct DNSSettingsDraft {
+    var remotePresets = [String]()
     var savedSimpleDNS = SettingsValue.object([:])
     var savedCustomDNS = SettingsValue.object([:])
     var simpleDNS = SettingsValue.object([:])

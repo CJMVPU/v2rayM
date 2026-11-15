@@ -161,7 +161,7 @@ public sealed partial class V2rayRuntime
 
     internal static bool IsValidCustomDns(ECoreType coreType, string? content) => ServiceLibSettingsCapabilities.ValidCustomDns(content);
 
-    public async Task<IReadOnlyList<RoutingItem>> GetRoutingProfilesAsync() => await AppManager.Instance.RoutingItems() ?? [];
+    public async Task<IReadOnlyList<RoutingItem>> GetRoutingProfilesAsync() => await ConfigDbQuery.RoutingItems() ?? [];
 
     public async Task<OperationView> SaveRoutingProfileAsync(RoutingItem input, string? routingId = null)
     {
