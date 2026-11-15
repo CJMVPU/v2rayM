@@ -19,7 +19,8 @@ v2rayM 本机开发版
 4. 若提示后台服务未就绪，在“设置 → TUN 后台服务”中点击“安装并授权后台服务”，按系统提示完成授权。
 5. 系统代理与 TUN 互斥：开启一个会自动关闭另一个并连接节点，关闭当前开关即停止代理。
 
-本包使用 Apple Development 签名，供签名开发者自己的 Mac 测试使用，未经过 Apple 公证。
+本包供本机开发测试使用；此打包流程不执行 Apple 公证。
+签名类型取决于构建时的签名身份；ad-hoc 签名不能授权 TUN 后台服务。
 应用使用独立的 v2rayM 数据目录，不会自动迁移 v2rayN 的节点和订阅。
 TEXT
 hdiutil create -volname v2rayM -srcfolder "$staging" -format UDZO -fs HFS+ "$output"

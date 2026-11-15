@@ -39,14 +39,33 @@ final class TrafficTrendTests: XCTestCase {
         XCTAssertEqual(trend.samples[0].segment, trend.samples[1].segment)
         XCTAssertNotEqual(trend.samples[1].segment, trend.samples[2].segment)
     }
-    func testNodeAndCoreRestartResetHistoryAndRejectEarlierSamples() throws {
+    func testNodeAndCoreRestartPreserveHistoryAndRejectEarlierSamples() throws {
         var trend = TrafficTrend()
         trend.record(try state(at: 1000), now: Date(timeIntervalSince1970: 1000))
         trend.record(try state(at: 1005, profile: "b"), now: Date(timeIntervalSince1970: 1005))
-        XCTAssertEqual(trend.samples.count, 1)
-        XCTAssertEqual(trend.samples[0].date, Date(timeIntervalSince1970: 1005))
+        XCTAssertEqual(trend.samples.count, 2)
+        XCTAssertNotEqual(trend.samples[0].segment, trend.samples[1].segment)
+        let history = trend.samples
         trend.record(try state(at: 1005, profile: "b", started: 1008), now: Date(timeIntervalSince1970: 1010))
-        XCTAssertTrue(trend.samples.isEmpty)
+        XCTAssertEqual(trend.samples, history)
+        trend.record(try state(at: 1010, profile: "b", started: 1008), now: Date(timeIntervalSince1970: 1010))
+        XCTAssertEqual(trend.samples.count, 3)
+        XCTAssertNotEqual(trend.samples[1].segment, trend.samples[2].segment)
+        trend.record(try state(at: 1015, profile: "b", started: 1008), now: Date(timeIntervalSince1970: 1015))
+        XCTAssertEqual(trend.samples[2].segment, trend.samples[3].segment)
+    }
+    func testStopThenRestartPreservesRecentSamplesAndPeaks() throws {
+        var trend = TrafficTrend()
+        trend.record(try state(at: 1000), now: Date(timeIntervalSince1970: 1000))
+        let original = trend.samples[0]
+        trend.record(try state(at: 1002, running: false), now: Date(timeIntervalSince1970: 1002))
+        trend.record(try state(at: 1005, started: 1003, upload: 60, download: 120), now: Date(timeIntervalSince1970: 1005))
+        XCTAssertNil(trend.pausedAt)
+        XCTAssertEqual(trend.samples.count, 2)
+        XCTAssertEqual(trend.samples[0], original)
+        XCTAssertNotEqual(trend.samples[0].segment, trend.samples[1].segment)
+        XCTAssertEqual(trend.visible(at: Date(timeIntervalSince1970: 1005)).count, 2)
+        XCTAssertEqual(trend.peaks(at: Date(timeIntervalSince1970: 1005)), [5, 10])
     }
     func testCapacityAndTimeWindowRemainBoundedEvenWithoutNewSamples() throws {
         var trend = TrafficTrend()
@@ -67,12 +86,12 @@ final class TrafficTrendTests: XCTestCase {
         XCTAssertEqual(trend.peaks(at: Date(timeIntervalSince1970: 1065)), [0, 0])
         XCTAssertEqual(trend.visible(at: Date(timeIntervalSince1970: 1065)).count, 2)
     }
-    func testPeaksExcludeFutureAndPreviousSessions() throws {
+    func testPeaksExcludeFutureButRetainPreviousSessions() throws {
         var trend = TrafficTrend()
         trend.record(try state(at: 1000), now: Date(timeIntervalSince1970: 1000))
         XCTAssertEqual(trend.peaks(at: Date(timeIntervalSince1970: 999)), [0, 0])
         trend.record(try state(at: 1005, profile: "b", upload: 0, download: 0), now: Date(timeIntervalSince1970: 1005))
-        XCTAssertEqual(trend.peaks(at: Date(timeIntervalSince1970: 1005)), [0, 0])
+        XCTAssertEqual(trend.peaks(at: Date(timeIntervalSince1970: 1005)), [5, 10])
     }
 
     func testStoppedClockFreezesHistoryAndResumesWhenEnabled() throws {

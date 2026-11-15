@@ -54,6 +54,10 @@ public class DownloaderHelper
         return await reader.ReadToEndAsync(cancellationToken);
     }
 
+    // Progress messages cross the ServiceLib/WebAPI boundary; keep numeric values culture-independent.
+    private static string FormatSpeedTestResult(double bytesPerSecond) =>
+        (bytesPerSecond / 1000 / 1000).ToString("#0.0", System.Globalization.CultureInfo.InvariantCulture);
+
     public async Task DownloadDataAsync4Speed(IWebProxy webProxy, string url, Action<string> onProgress, CancellationToken cancellationToken = default)
     {
         if (url.IsNullOrEmpty())
@@ -94,7 +98,7 @@ public class DownloaderHelper
             if (ts.TotalMilliseconds >= 1000)
             {
                 lastUpdateTime = DateTime.Now;
-                var speed = (maxSpeed / 1000 / 1000).ToString("#0.0");
+                var speed = FormatSpeedTestResult(maxSpeed);
                 onProgress.Invoke(speed);
             }
         };
@@ -102,7 +106,7 @@ public class DownloaderHelper
         {
             if (hasValue && maxSpeed > 0)
             {
-                var finalSpeed = (maxSpeed / 1000 / 1000).ToString("#0.0");
+                var finalSpeed = FormatSpeedTestResult(maxSpeed);
                 onProgress.Invoke(finalSpeed);
             }
             else if (value.Error != null)

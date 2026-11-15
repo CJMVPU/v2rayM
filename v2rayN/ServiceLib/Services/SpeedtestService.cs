@@ -524,16 +524,19 @@ public class SpeedtestService(Config config, Func<SpeedTestResult, Task> updateF
         using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(timeout));
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
         var linkedCt = linkedCts.Token;
-        await downloadHandle.DownloadDataAsync(url, webProxy, async (success, msg) =>
-        {
-            decimal.TryParse(msg, out var dec);
-            if (dec > 0)
-            {
-                ProfileExManager.Instance.SetTestSpeed(it.IndexId, dec);
-            }
-            await UpdateFunc(it.IndexId, "", msg);
-        }, linkedCt);
+        await downloadHandle.DownloadDataAsync(url, webProxy,
+            (success, msg) => ApplySpeedTestResultAsync(it.IndexId, msg), linkedCt);
         completedIds.TryAdd(it.IndexId, 0);
+    }
+
+    private async Task ApplySpeedTestResultAsync(string indexId, string message)
+    {
+        if (decimal.TryParse(message, System.Globalization.NumberStyles.AllowDecimalPoint,
+            System.Globalization.CultureInfo.InvariantCulture, out var speed) && speed > 0)
+        {
+            ProfileExManager.Instance.SetTestSpeed(indexId, speed);
+        }
+        await UpdateFunc(indexId, "", message);
     }
 
     private async Task<int> DoUdpTest(ServerTestItem it,

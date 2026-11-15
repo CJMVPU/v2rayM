@@ -41,8 +41,10 @@ one-minute rolling averages already used by the speed card, in KiB/s.
 Duplicate/out-of-order timestamps are ignored. Missing, stale, invalid,
 disabled and stopped samples do not become synthetic zeroes. Interruptions and
 gaps of 12 seconds or more break the line. A different running profile or core
-start timestamp resets history; switching UI pages does not. Expired points are
-filtered even when refreshes stop. Both lines share one hidden axis; scale is determined from the five-minute
+start timestamp starts a new line segment while preserving recent history;
+switching UI pages also preserves history. Stopping or disabling statistics
+freezes the chart clock. When sampling resumes, the real five-minute window
+applies again, so points older than five minutes expire naturally. Both lines share one hidden axis; scale is determined from the five-minute
 observed samples with headroom. The header displays the actual combined
 upload/download peak over the last minute, without axis headroom. The chart
 uses its full width, seven horizontal grid lines and no endpoint captions.

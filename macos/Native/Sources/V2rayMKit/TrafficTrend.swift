@@ -31,10 +31,10 @@ public struct TrafficTrend: Equatable, Sendable {
         samples.removeAll { now.timeIntervalSince($0.date) > Self.duration }
         let identity = profile + "|" + start
         if session != identity {
-            samples.removeAll(keepingCapacity: true)
+            // The chart belongs to the app, not an individual core session.
+            // Retain recent history, but never join lines across restarts or nodes.
             session = identity
-            segment = 0
-            interrupted = false
+            interrupted = true
         }
         guard let traffic = state.traffic, let rates = traffic.rates(at: now),
               rates.allSatisfy({ $0.isFinite && $0 >= 0 }),
