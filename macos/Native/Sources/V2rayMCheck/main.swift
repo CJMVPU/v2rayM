@@ -398,14 +398,17 @@ import CryptoKit
             }
             try await checkSettings(api, running: true, unavailablePort: fixturePort)
             var hasTrafficSample = false
+            var trafficDiagnostic = ""
             for _ in 0..<40 {
                 let sampled: RuntimeStatus = try await api.value("/api/status")
+                trafficDiagnostic = "enabled=\(String(describing: sampled.trafficEnabled)), running=\(sampled.coreRunning), "
+                    + "sample=\(String(describing: sampled.traffic)), parsedAt=\(String(describing: DashboardStatus.date(sampled.traffic?.sampledAt))), now=\(Date())"
                 if sampled.trafficEnabled == true, let rates = sampled.traffic?.rates(at: Date()), rates.allSatisfy({ $0 >= 0 }) {
                     hasTrafficSample = true; break
                 }
                 try await Task.sleep(for: .milliseconds(200))
             }
-            try require(hasTrafficSample, "Dashboard receives fresh nonnegative Xray traffic rates with sampling interval")
+            try require(hasTrafficSample, "Dashboard receives fresh nonnegative Xray traffic rates with sampling interval; " + trafficDiagnostic)
             let versionStatus: RuntimeStatus = try await api.value("/api/status")
             try require(versionStatus.installedXrayVersion?.isEmpty == false, "Dashboard reads installed Xray version from actual binary")
             var statisticsDraft: SettingsValue = try await api.value("/api/settings")

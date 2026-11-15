@@ -27,6 +27,17 @@ final class DashboardStatusTests: XCTestCase {
         XCTAssertEqual(DashboardStatus.rate(2048), "2.0 MiB/s")
         XCTAssertEqual(DashboardStatus.rate(nil), "—")
     }
+    func testBackendDateTimeOffsetTimestamps() throws {
+        // System.Text.Json emits DateTimeOffset with an explicit UTC offset and
+        // up to seven fractional digits, unlike Foundation's default Z fixture.
+        for timestamp in ["1970-01-01T00:16:40+00:00", "1970-01-01T00:16:40.123+00:00",
+                          "1970-01-01T00:16:40.123456+00:00", "1970-01-01T00:16:40.1234567+00:00",
+                          "1970-01-01T08:16:40.1234567+08:00", "1969-12-31T19:16:40.1234567-05:00"] {
+            let parsed = try XCTUnwrap(DashboardStatus.date(timestamp), timestamp)
+            XCTAssertEqual(parsed.timeIntervalSince1970, timestamp.contains(".") ? 1000.1234567 : 1000,
+                           accuracy: 0.001, timestamp)
+        }
+    }
     func testDurationAndNewRouteHaveNoOldIdentity() {
         XCTAssertEqual(DashboardStatus.duration(since: "1970-01-01T00:00:00Z", now: now), "00:16:40")
         let draft = RoutingDraft.newProfile()
