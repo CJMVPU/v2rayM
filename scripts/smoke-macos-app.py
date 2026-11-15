@@ -2,6 +2,7 @@
 """Exercise the native client against loopback fixtures, without changing system proxy settings."""
 import argparse
 import http.server
+import os
 import random
 from pathlib import Path
 import select
@@ -108,16 +109,25 @@ def check(app, checker):
                 while abs(api_port - proxy_port) < 20:
                     proxy_port = free_port()
                 try:
-                    subprocess.run([str(checker), str(app.resolve()), str(root / 'data'), str(api_port),
+                    result = subprocess.run([str(checker), str(app.resolve()), str(root / 'data'), str(api_port),
                                     str(http_server.server_address[1]), str(proxy_port), str(socks_server.server_address[1])],
-                                   check=True, timeout=180)
+                                   check=True, timeout=180, stderr=subprocess.PIPE, text=True)
+                    if result.stderr:
+                        print(result.stderr, end='', flush=True)
                     if len(visited_socks) < 2:
                         raise RuntimeError('Each selected node must forward traffic through the SOCKS fixture.')
-                except BaseException:
+                except BaseException as error:
                     log = root / 'data/guiLogs/native-backend.log'
                     if log.is_file():
                         # Fixture inputs contain no real subscription tokens or credentials.
                         print(log.read_text(errors='replace')[-12000:])
+                    # Keep the checker's actual failure after the backend diagnostic
+                    # tail, where it remains visible next to the subprocess traceback.
+                    if isinstance(error, subprocess.CalledProcessError) and error.stderr:
+                        print(error.stderr, end='', flush=True)
+                        if os.environ.get('GITHUB_ACTIONS') == 'true':
+                            message = error.stderr.strip().replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+                            print(f'::error title=Native product check failed::{message}', flush=True)
                     raise
         finally:
             socks_server.shutdown()
