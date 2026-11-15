@@ -32,7 +32,7 @@ public sealed class SettingsRecoveryService
             catch (Exception exception)
             {
                 additionalFailure = exception;
-                runtime.Log($"Additional state rollback failed before Core recovery ({failureCode}): {exception}");
+                ApplicationDiagnostics.Report(runtime.Log, $"Additional state rollback failed before Core recovery ({failureCode}): {exception}");
             }
         }
         try
@@ -42,7 +42,7 @@ public sealed class SettingsRecoveryService
             var current = runtime.Current;
             if (hadActiveChild && current.State == CoreRuntimeState.Running && current.HasActiveChild && current.OriginalStillRunning)
             {
-                runtime.Log($"Core settings were restored; the original Core remained healthy ({failureCode}).");
+                ApplicationDiagnostics.Report(runtime.Log, $"Core settings were restored; the original Core remained healthy ({failureCode}).");
                 return new(additionalFailure is null, true, true, additionalFailure?.Message);
             }
             if (current.HasActiveChild || current.State != CoreRuntimeState.Stopped)
@@ -58,18 +58,18 @@ public sealed class SettingsRecoveryService
             if (!hadActiveChild)
             {
                 runtime.SetStopped();
-                runtime.Log($"Core settings apply failed ({failureCode}); the original stopped runtime intent was restored.");
+                ApplicationDiagnostics.Report(runtime.Log, $"Core settings apply failed ({failureCode}); the original stopped runtime intent was restored.");
                 return new(true, true, true, null);
             }
             var restored = await runtime.StartPreviousAsync();
             if (!restored.Success) throw new InvalidOperationException($"The previous Core runtime could not be restored ({restored.Code}).");
-            runtime.Log($"Core settings apply failed ({failureCode}); the previous configuration and Core runtime were restored.");
+            ApplicationDiagnostics.Report(runtime.Log, $"Core settings apply failed ({failureCode}); the previous configuration and Core runtime were restored.");
             return new(true, true, true, null);
         }
         catch (Exception exception)
         {
             runtime.SetFaulted($"Settings apply failed ({failureCode}); rollback failed: {exception.Message}");
-            runtime.Log($"Settings rollback failed after {failureCode}: {exception}");
+            ApplicationDiagnostics.Report(runtime.Log, $"Settings rollback failed after {failureCode}: {exception}");
             return new(false, false, configRestored, exception.Message);
         }
     }

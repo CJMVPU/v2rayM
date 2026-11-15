@@ -90,7 +90,7 @@ public sealed class CoreUpdateApplyService
             {
                 var rollback = await RestoreAsync(session, RecoveryState());
                 if (rollback.UpdateCommitted) return Committed();
-                if (!rollback.Completed) UpdateDiagnostics.Report(session.Log, rollback.FilesRestored
+                if (!rollback.Completed) ApplicationDiagnostics.Report(session.Log, rollback.FilesRestored
                     ? "Previous files were restored, but the old Core process could not be relaunched."
                     : "Rollback did not complete; the previous files were retained for recovery.");
             }
@@ -98,7 +98,7 @@ public sealed class CoreUpdateApplyService
         }
         catch (Exception exception)
         {
-            UpdateDiagnostics.Report(session.Log, $"Apply failed: {exception.Message}");
+            ApplicationDiagnostics.Report(session.Log, $"Apply failed: {exception.Message}");
             session.MarkInterruptedRuntimeFaulted(exception.Message);
             if (!RecoveryState().RequiresRecovery)
                 return new(false, false, session.TargetWasRunning, $"{exception.Message} No replacement was applied.", session.Version);
@@ -122,7 +122,7 @@ public sealed class CoreUpdateApplyService
                 var trusted = await session.RollbackTrustedAsync();
                 if (trusted == TrustedRollbackDisposition.AlreadyCommitted)
                 {
-                    UpdateDiagnostics.Report(session.Log, CommittedUpdateUnconfirmedDetail);
+                    ApplicationDiagnostics.Report(session.Log, CommittedUpdateUnconfirmedDetail);
                     return new(false, false, UpdateCommitted: true);
                 }
                 if (trusted != TrustedRollbackDisposition.Restored)
@@ -144,7 +144,7 @@ public sealed class CoreUpdateApplyService
         }
         catch (Exception exception)
         {
-            UpdateDiagnostics.Report(session.Log, $"Rollback failed: {exception.Message}");
+            ApplicationDiagnostics.Report(session.Log, $"Rollback failed: {exception.Message}");
             session.MarkRecoveryFailed(exception.Message);
             return new(filesRestored, false);
         }
@@ -153,6 +153,6 @@ public sealed class CoreUpdateApplyService
     private static void TryCleanup(Action cleanup, ICoreUpdateSession session, string label)
     {
         try { cleanup(); }
-        catch (Exception exception) { UpdateDiagnostics.Report(session.Log, $"{label}: {exception.Message}"); }
+        catch (Exception exception) { ApplicationDiagnostics.Report(session.Log, $"{label}: {exception.Message}"); }
     }
 }

@@ -13,11 +13,15 @@ struct LoginItemSettings: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Toggle("开机启动", isOn: Binding(get: { registered }, set: setEnabled))
-                .toggleStyle(.switch)
-                .disabled(updating || !bundled)
-            Text("登录 macOS 后自动启动 v2rayM。")
-                .font(AppFont.caption).foregroundStyle(.secondary)
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("开机启动")
+                    Text("登录 macOS 后自动启动 v2rayM").font(AppFont.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Toggle("开机启动", isOn: Binding(get: { registered }, set: setEnabled))
+                    .labelsHidden().toggleStyle(.switch).disabled(updating || !bundled)
+            }
             if status == .requiresApproval {
                 HStack {
                     Text("等待系统批准登录项").font(AppFont.caption).foregroundStyle(.secondary)

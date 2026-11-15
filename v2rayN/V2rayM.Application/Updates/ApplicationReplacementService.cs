@@ -52,11 +52,11 @@ public sealed class ApplicationReplacementService(IApplicationReplacement runtim
     private void Publish(ApplicationReplacementPhase phase)
     {
         try { runtime.Publish(phase); }
-        catch (Exception failure) { UpdateDiagnostics.Report(runtime.Log, $"Application update progress failed: {failure}"); }
+        catch (Exception failure) { ApplicationDiagnostics.Report(runtime.Log, $"Application update progress failed: {failure}"); }
     }
     private async Task CleanupAsync()
     {
         try { await runtime.CleanupAsync(); }
-        catch (Exception failure) { UpdateDiagnostics.Report(runtime.Log, $"Healthy application cleanup deferred: {failure}"); }
+        catch (Exception failure) { ApplicationDiagnostics.Report(runtime.Log, $"Healthy application cleanup deferred: {failure}"); }
     }
 }

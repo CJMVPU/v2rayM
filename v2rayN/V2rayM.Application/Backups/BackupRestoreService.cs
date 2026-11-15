@@ -69,20 +69,20 @@ public sealed class BackupRestoreService(IBackupRestoreSession session)
         }
         catch (Exception failure)
         {
-            BackupDiagnostics.Report(session.Log, $"Restore failed: {failure}");
+            ApplicationDiagnostics.Report(session.Log, $"Restore failed: {failure}");
             if (databaseCloseAttempted)
             {
                 try { session.RequestRestart(); }
-                catch (Exception restart) { BackupDiagnostics.Report(session.Log, $"Restore host restart request failed: {restart}"); }
+                catch (Exception restart) { ApplicationDiagnostics.Report(session.Log, $"Restore host restart request failed: {restart}"); }
             }
             else if (intentAttempted)
             {
                 try { await session.DeleteIntentAsync(); }
-                catch (Exception cleanup) { BackupDiagnostics.Report(session.Log, $"Restore intent cleanup failed: {cleanup}"); }
+                catch (Exception cleanup) { ApplicationDiagnostics.Report(session.Log, $"Restore intent cleanup failed: {cleanup}"); }
                 if (runtimeTouched && intent is not null)
                 {
                     try { await session.RecoverRuntimeAsync(intent); }
-                    catch (Exception recovery) { BackupDiagnostics.Report(session.Log, $"Restore runtime recovery failed: {recovery}"); }
+                    catch (Exception recovery) { ApplicationDiagnostics.Report(session.Log, $"Restore runtime recovery failed: {recovery}"); }
                 }
             }
             return new(BackupRestoreStatus.Failed);
@@ -90,13 +90,13 @@ public sealed class BackupRestoreService(IBackupRestoreSession session)
         finally
         {
             try { session.DeleteStaging(); }
-            catch (Exception failure) { BackupDiagnostics.Report(session.Log, $"Restore staging cleanup failed: {failure}"); }
+            catch (Exception failure) { ApplicationDiagnostics.Report(session.Log, $"Restore staging cleanup failed: {failure}"); }
             try { session.DeleteArchive(); }
-            catch (Exception failure) { BackupDiagnostics.Report(session.Log, $"Restore archive cleanup failed: {failure}"); }
+            catch (Exception failure) { ApplicationDiagnostics.Report(session.Log, $"Restore archive cleanup failed: {failure}"); }
             if (lease is not null)
             {
                 try { await lease.DisposeAsync(); }
-                catch (Exception failure) { BackupDiagnostics.Report(session.Log, $"Restore lease release failed: {failure}"); }
+                catch (Exception failure) { ApplicationDiagnostics.Report(session.Log, $"Restore lease release failed: {failure}"); }
             }
         }
     }

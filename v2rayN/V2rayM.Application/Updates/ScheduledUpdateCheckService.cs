@@ -27,7 +27,7 @@ public sealed class ScheduledUpdateCheckService(IScheduledUpdateCheck runtime)
             catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
             catch (Exception failure)
             {
-                UpdateDiagnostics.Report(runtime.Log, $"Scheduled update check failed for {target.Id}: {failure}");
+                ApplicationDiagnostics.Report(runtime.Log, $"Scheduled update check failed for {target.Id}: {failure}");
                 results.Add(new(target.Id, false, failure.Message));
             }
             token.ThrowIfCancellationRequested();

@@ -30,11 +30,11 @@ public class ProfileQueryApplicationTests
         private static ProfileListEntry Entry(string id, string name, string address, int sort) =>
             new(id, name, "socks", address, 1080, "tcp", "", "group", "Group", "unknown-stored-core", sort,
                 12, 13, null, 1, 2, 3, 99, false, true);
-        public Task<ProfileQuerySnapshot> CaptureAsync(string? group)
+        public Task<IReadOnlyList<ProfileListEntry>> CaptureAsync(string? group)
         {
             FullReads++;
-            return Task.FromResult(new ProfileQuerySnapshot([Entry("name", "match", "host", 2),
-                Entry("address", "other", "match", 1), Entry("excluded", "other", "host", 0)], [], ""));
+            return Task.FromResult<IReadOnlyList<ProfileListEntry>>([Entry("name", "match", "host", 2),
+                Entry("address", "other", "match", 1), Entry("excluded", "other", "host", 0)]);
         }
         public Task<ProfileGroupSnapshot> CaptureGroupsAsync() => Task.FromResult(new ProfileGroupSnapshot(
             ["group", "group", "", "orphan"], [new("group", "Group"), new("empty", "Empty")], "empty"));

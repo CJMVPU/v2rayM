@@ -50,7 +50,7 @@ public sealed class ApplicationUpdateService(IApplicationUpdateRuntime runtime)
         }
         catch (Exception failure)
         {
-            UpdateDiagnostics.Report(runtime.Log, $"Application update failed: {failure}");
+            ApplicationDiagnostics.Report(runtime.Log, $"Application update failed: {failure}");
             runtime.Publish(ApplicationUpdatePhase.Failed, artifact?.Version ?? version,
                 failure is OperationCanceledException && runtime.IsStopping ? "Canceled during graceful shutdown." : failure.Message);
         }
@@ -59,7 +59,7 @@ public sealed class ApplicationUpdateService(IApplicationUpdateRuntime runtime)
             if (artifact is not null)
             {
                 try { runtime.Cleanup(artifact); }
-                catch (Exception failure) { UpdateDiagnostics.Report(runtime.Log, $"Application staging cleanup failed: {failure}"); }
+                catch (Exception failure) { ApplicationDiagnostics.Report(runtime.Log, $"Application staging cleanup failed: {failure}"); }
             }
         }
     }
@@ -93,7 +93,7 @@ public sealed class ApplicationPackageStagingService<T>(IApplicationPackageStagi
         catch
         {
             try { staging.Cleanup(); }
-            catch (Exception failure) { UpdateDiagnostics.Report(staging.Log, $"Application package cleanup failed: {failure}"); }
+            catch (Exception failure) { ApplicationDiagnostics.Report(staging.Log, $"Application package cleanup failed: {failure}"); }
             throw;
         }
     }

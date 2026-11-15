@@ -65,7 +65,7 @@ public sealed class CoreUpdateRunService
             }
             run.Publish(new(result.AwaitingValidation ? CoreUpdateRunPhase.AwaitingValidation : CoreUpdateRunPhase.Completed,
                 result.Success, result.CoreWasRunning, result.Version ?? artifact?.Version, result.Detail));
-            if (!result.Success && !result.AwaitingValidation) UpdateDiagnostics.Report(run.Log, $"Update failed: {result.Detail}");
+            if (!result.Success && !result.AwaitingValidation) ApplicationDiagnostics.Report(run.Log, $"Update failed: {result.Detail}");
         }
         catch (OperationCanceledException) when (run.IsStopping)
         {
@@ -73,7 +73,7 @@ public sealed class CoreUpdateRunService
         }
         catch (Exception exception)
         {
-            UpdateDiagnostics.Report(run.Log, $"Update failed: {exception.Message}");
+            ApplicationDiagnostics.Report(run.Log, $"Update failed: {exception.Message}");
             run.Publish(new(CoreUpdateRunPhase.Failed, false, run.WasRunning, artifact?.Version, exception.Message));
         }
         finally
@@ -81,9 +81,9 @@ public sealed class CoreUpdateRunService
             if (artifact is not null)
             {
                 try { await run.DiscardTrustedAsync(artifact); }
-                catch (Exception cleanup) { UpdateDiagnostics.Report(run.Log, $"Privileged staging cleanup deferred: {cleanup.Message}"); }
+                catch (Exception cleanup) { ApplicationDiagnostics.Report(run.Log, $"Privileged staging cleanup deferred: {cleanup.Message}"); }
                 try { run.CleanupLocal(artifact); }
-                catch (Exception cleanup) { UpdateDiagnostics.Report(run.Log, $"Package staging cleanup deferred: {cleanup.Message}"); }
+                catch (Exception cleanup) { ApplicationDiagnostics.Report(run.Log, $"Package staging cleanup deferred: {cleanup.Message}"); }
             }
         }
     }

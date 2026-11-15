@@ -125,6 +125,31 @@ public class CoreConnectionApplicationTests
     }
 
     [Test]
+    public async Task DiagnosticFailuresCannotUndoAHealthyStartOrStop()
+    {
+        var runtime = new CoreConnectionTestRuntime
+        { Current = new(CoreRuntimeState.Stopped, null, []), FailDiagnostics = true };
+        var service = new CoreConnectionService(runtime);
+        await (await service.StartAsync("profile-1", default)).Status.Should().BeEqualTo(CoreConnectionStatus.Started);
+        await runtime.Current.State.Should().BeEqualTo(CoreRuntimeState.Running);
+        await runtime.Current.ProcessIds.Single().Should().BeEqualTo(9);
+        await (await service.StopAsync(default)).Status.Should().BeEqualTo(CoreConnectionStatus.Stopped);
+        await runtime.Current.State.Should().BeEqualTo(CoreRuntimeState.Stopped);
+    }
+
+    [Test]
+    public async Task FailedDiagnosticSinkCannotSkipFailedLaunchCleanup()
+    {
+        var runtime = new CoreConnectionTestRuntime
+        { Current = new(CoreRuntimeState.Stopped, null, []), FailDiagnostics = true, FailLaunch = true };
+        var result = await new CoreConnectionService(runtime).StartAsync("profile-1", default);
+        await result.Status.Should().BeEqualTo(CoreConnectionStatus.StartFailed);
+        await result.Detail.Should().BeEqualTo("launch failed");
+        await runtime.Current.ProcessIds.Count.Should().BeEqualTo(0);
+        await runtime.Calls.Contains("stop").Should().BeTrue();
+    }
+
+    [Test]
     public async Task MissingProfilesAndForeignListenerCannotLaunch()
     {
         var runtime = new CoreConnectionTestRuntime { MissingProfile = true };
@@ -145,6 +170,7 @@ public class CoreConnectionApplicationTests
 internal sealed class CoreConnectionTestRuntime : ICoreConnectionRuntime
 {
     public CoreConnectionState Current { get; set; } = new(CoreRuntimeState.Running, "profile-1", [7]);
+    public bool FailDiagnostics;
     public bool RejectPreflight, ThrowPreflight, FailStop, FailLaunch, MissingProfile, OccupiedPort;
     public bool ListenerReady = true, OwnChildAfterLaunch = true, CleanupTokenCanBeCanceled;
     public CancellationTokenSource? CancelDuringWait;
@@ -190,8 +216,8 @@ internal sealed class CoreConnectionTestRuntime : ICoreConnectionRuntime
         return Task.FromResult(ListenerReady);
     }
     public Task StartMonitorAsync() { Calls.Add("start-monitor"); return Task.CompletedTask; }
-    public Task PublishStatusAsync() { Calls.Add("publish"); return Task.CompletedTask; }
-    public void Log(string message) { }
+    public Task PublishStatusAsync() { Calls.Add("publish"); return FailDiagnostics ? Task.FromException(new Exception("status sink closed")) : Task.CompletedTask; }
+    public void Log(string message) { if (FailDiagnostics) throw new Exception("log sink closed"); }
     internal sealed record TestPlan(string ProfileId, CoreLaunchPreflightResult? Preflight) : ICoreLaunchPlan
     { public int ProxyPort => 10808; }
 }

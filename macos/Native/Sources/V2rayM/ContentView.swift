@@ -9,10 +9,12 @@ private enum Page: String, CaseIterable, Identifiable {
 struct ContentView: View {
     @EnvironmentObject var model: AppModel
     @State private var page: Page = .home
+    @State private var settingsEditing = false
     @State private var selectedProfile: String?
     @State private var importing = false
     @State private var deletingProfile: Profile?
     @State private var editingProfile: Profile?
+    private var editingContent: Bool { settingsEditing || importing || editingProfile != nil }
     private var controlsDisabled: Bool { !model.ready || model.busy || model.moduleUpdateActive }
     var body: some View {
         VStack(spacing: 0) {
@@ -30,7 +32,7 @@ struct ContentView: View {
                 case .home: homePage
                 case .profiles: profilePage
                 case .logs: ObservedLogConsole(state: model.logState)
-                case .settings: settingsPage
+                case .settings: SettingsPage(navigationLocked: $settingsEditing).environmentObject(model)
                 }
             }
         }
@@ -57,9 +59,7 @@ struct ContentView: View {
             do { try await Task.sleep(for: .seconds(6)) } catch { return }
             if model.message == message { model.message = nil }
         }
-        .onChange(of: model.homeRequest) { page = .home }
-        .sheet(isPresented: $importing) { ImportSheet { model.importNodes($0) } }
-        .sheet(item: $editingProfile) { ProfileEditor(profile: $0).environmentObject(model) }
+        .onChange(of: model.homeRequest) { if !editingContent { page = .home } }
         .alert("删除节点？", isPresented: Binding(get: { deletingProfile != nil }, set: { if !$0 { deletingProfile = nil } })) {
             Button("取消", role: .cancel) { deletingProfile = nil }
             Button("删除", role: .destructive) { if let item = deletingProfile { model.deleteProfile(item) }; deletingProfile = nil }
@@ -84,7 +84,7 @@ struct ContentView: View {
                                 }
                             }
                             .contentShape(Rectangle())
-                    }.buttonStyle(HoverButtonStyle(plain: true))
+                    }.buttonStyle(HoverButtonStyle(plain: true)).disabled(editingContent)
                         .help(item.rawValue)
                         .accessibilityLabel(item.rawValue)
                         .accessibilityAddTraits(page == item ? [.isSelected] : [])
@@ -92,14 +92,18 @@ struct ContentView: View {
             }.frame(height: 30, alignment: .bottom)
                 .accessibilityElement(children: .contain).accessibilityLabel("页面")
             Spacer(minLength: 8)
+            Button { importing = true } label: {
+                Image(systemName: "square.and.arrow.down").frame(width: 26, height: 26)
+            }.buttonStyle(HoverButtonStyle(plain: true)).disabled(controlsDisabled)
+                .help("导入节点").accessibilityLabel("导入节点").disabled(editingContent)
             if model.proxyNeedsRecovery {
                 Button("恢复代理") { model.recoverProxy() }.disabled(model.busy || model.moduleUpdateActive)
             } else {
                 Toggle("系统代理", isOn: Binding(get: { model.desiredMode == .system }, set: { model.toggleProxy($0) }))
-                    .toggleStyle(.switch).fixedSize().disabled(!model.canToggle(.system))
+                    .toggleStyle(.switch).fixedSize().disabled(!model.canToggle(.system) || editingContent)
             }
             Toggle("TUN", isOn: Binding(get: { model.desiredMode == .tun }, set: { model.toggleTun($0) }))
-                .toggleStyle(.switch).fixedSize().disabled(!model.canToggle(.tun) || model.tun == nil)
+                .toggleStyle(.switch).fixedSize().disabled(!model.canToggle(.tun) || model.tun == nil || editingContent)
         }.controlSize(.small).padding(.horizontal, 12).frame(height: 32)
             .overlay {
                 Text("powered by cj")
@@ -189,85 +193,32 @@ struct ContentView: View {
         HomeDashboard()
             .environmentObject(model)
     }
-    private func activateRoute(_ route: RoutingProfile) {
-        guard !route.isActive else { return }
-        model.run { try await $0.perform("/api/settings/routing-profiles/\(route.id)/activate") }
-    }
 
-    private func settingsSection<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(title).font(AppFont.body).foregroundStyle(.secondary)
-            content()
-        }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(nsColor: .controlBackgroundColor))
-    }
-    private var settingsPage: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(spacing: 1) {
-                settingsSection("通用") { LoginItemSettings().environmentObject(model) }
-                settingsSection("代理设置") {
-                    HStack(spacing: 12) {
-                        Text("路由规则").fixedSize()
-                        ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 16) {
-                            ForEach(model.routes) { route in
-                                Button { activateRoute(route) } label: {
-                                    HStack(spacing: 7) {
-                                        Image(systemName: route.isActive ? "largecircle.fill.circle" : "circle")
-                                            .foregroundStyle(route.isActive ? DashboardTheme.cyan : DashboardTheme.muted)
-                                        Text(route.remarks).lineLimit(1).fixedSize()
-                                            .foregroundStyle(route.isActive ? Color.accentColor : Color.primary)
-                                    }.contentShape(Rectangle())
-                                }.buttonStyle(HoverButtonStyle(plain: true)).disabled(controlsDisabled)
-                                    .accessibilityLabel(route.remarks)
-                                    .accessibilityAddTraits(route.isActive ? [.isSelected] : [])
-                            }
-                        }
-                        }
-                    }
-                    LabeledContent("代理端口", value: model.status?.configuredProxyPort.map(String.init) ?? "—")
-                    LabeledContent("Xray 内核", value: model.status?.xrayAvailable == true ? "已安装" : "未安装")
-                }
-                settingsSection("配置") { AdvancedSettingsPanel().environmentObject(model) }
-                settingsSection("更新") { ModuleUpdatePanel().environmentObject(model) }
-                settingsSection("TUN 后台服务") {
-                    LabeledContent("TUN 状态", value: model.tun?.isRunning == true ? "运行中" : "已关闭")
-                    LabeledContent("后台服务", value: model.tun?.helperDescription ?? "正在检查")
-                    HStack {
-                        if model.tun?.helperAvailable != true {
-                            Button("安装并授权后台服务") { model.authorizeTun() }.disabled(controlsDisabled)
-                        }
-                        Button("打开后台服务设置") { model.openTunApproval() }.disabled(controlsDisabled)
-                    }
-                    Text("开启前请先暂停其他软件的 TUN 或 VPN。")
-                        .font(AppFont.caption).foregroundStyle(.secondary)
-                }
-                settingsSection("日志与数据") {
-                    Text("日志按顺序追加，最多保留 10,000 行；超出容量后淘汰最旧记录，切换代理模式不会清空。")
-                        .font(AppFont.caption).foregroundStyle(.secondary)
-                    Text(model.dataDirectory.path).font(AppFont.caption).textSelection(.enabled)
-                    Button("在访达中打开") { NSWorkspace.shared.open(model.dataDirectory) }
-                }
-            }.frame(maxWidth: .infinity)
-        }.scrollIndicators(.never).background(Color(nsColor: .separatorColor))
-    }
 }
-private struct ImportSheet: View {
-    @Environment(\.dismiss) var dismiss
+private struct ImportPane: View {
+    let close: () -> Void
     let save: (String) -> Void
     @State private var content = ""
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("导入节点").font(AppFont.title)
+            HStack {
+                Button(action: close) { Label("返回", systemImage: "chevron.left") }
+                Text("导入节点").font(AppFont.title)
+                Spacer()
+            }
             Text("粘贴分享链接或兼容的配置内容，可一次导入多个节点。").foregroundStyle(.secondary)
-            TextEditor(text: $content).font(AppFont.body).scrollIndicators(.never).border(.separator).frame(height: 220)
+            TextEditor(text: $content).font(AppFont.body).scrollIndicators(.never).scrollContentBackground(.hidden)
+                .padding(10).frame(maxHeight: .infinity)
+                .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(DashboardTheme.line))
+                .accessibilityLabel("节点分享链接或配置")
             HStack {
                 Spacer()
-                Button("取消") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("导入") { save(content); dismiss() }.keyboardShortcut(.defaultAction)
+                Button("取消", action: close).keyboardShortcut(.cancelAction)
+                Button("导入") { save(content); close() }.keyboardShortcut(.defaultAction)
                     .disabled(content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
-        }.padding(24).frame(width: 560).font(AppFont.body)
+        }.padding(16).frame(maxWidth: .infinity, maxHeight: .infinity).font(AppFont.body)
             .background(HiddenScrollbars())
     }
 }

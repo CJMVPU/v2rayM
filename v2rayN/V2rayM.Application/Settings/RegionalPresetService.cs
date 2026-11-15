@@ -35,7 +35,7 @@ public sealed class RegionalPresetService
                 var config = await RegionalPresetTransaction.RunAsync(
                     () => session.WriteConfigurationAsync(token), session.RestoreConfigurationAsync);
                 if (config.Success) return;
-                session.Log($"Configuration apply failed; restored={config.RollbackSucceeded}: {config.Error}");
+                ApplicationDiagnostics.Report(session.Log, $"Configuration apply failed; restored={config.RollbackSucceeded}: {config.Error}");
                 if (!config.RollbackSucceeded)
                 {
                     rollback = await session.RestoreRuntimeAsync(token.IsCancellationRequested
@@ -62,7 +62,7 @@ public sealed class RegionalPresetService
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (Exception exception)
         {
-            session.Log($"Regional preset apply/recovery failed: {exception}");
+            ApplicationDiagnostics.Report(session.Log, $"Regional preset apply/recovery failed: {exception}");
             var filesRestored = session.FilesWereRestored(exception);
             if (runtimeFailed) return new(RegionalPresetStatus.RuntimeFailed, FilesRestored: filesRestored);
             rollback ??= await session.RestoreRuntimeAsync("regional_preset_geofiles_failed", filesRestored);

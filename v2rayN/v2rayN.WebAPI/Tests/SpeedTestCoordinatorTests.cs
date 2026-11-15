@@ -66,19 +66,25 @@ public class SpeedTestCoordinatorTests
         await using var lease = await maintenance.WaitAsync(TimeSpan.FromSeconds(2));
     }
     [Test]
-    public async Task ShutdownCannotDrainWhilePreparationStillReadsStorage()
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task ShutdownCannotDrainWhilePreparationStillReadsStorage(bool delayCancellation)
     {
-        var operations = new RuntimeOperationCoordinator(); var source = new BlockingSource(new Batch());
+        var operations = new RuntimeOperationCoordinator(); var batch = new Batch(); var source = new BlockingSource(batch);
         var service = new SpeedTestCoordinator(operations, new RuntimeMutationGate(), source, new Events());
         var start = service.StartAsync(SpeedTestAction.Tcping, null, default);
         await source.Entered.Task;
-        var drain = operations.StopAndDrainAsync(default);
-        await drain.IsCompleted.Should().BeFalse();
+        // Exercise the exact CI race deterministically: close admission before
+        // propagating linked-token cancellation, then finish storage preparation.
+        if (delayCancellation) operations.RejectNewOperations();
+        var drain = delayCancellation ? null : operations.StopAndDrainAsync(default);
+        if (drain is not null) await drain.IsCompleted.Should().BeFalse();
         source.Release.SetResult();
         var cancelled = false;
         try { await start; } catch (OperationCanceledException) { cancelled = true; }
         await cancelled.Should().BeTrue();
-        await (await drain).Should().BeTrue();
+        await batch.Entered.Task.IsCompleted.Should().BeFalse();
+        await (await (drain ?? operations.StopAndDrainAsync(default))).Should().BeTrue();
         await service.RunningTask!;
     }
     private sealed class BlockingSource(Batch batch) : ISpeedTestSource

@@ -43,7 +43,7 @@ public sealed class BackupArchiveService(IMutationScope mutations)
         }
         catch (Exception failure)
         {
-            BackupDiagnostics.Report(session.Log, $"Backup creation failed: {failure}");
+            ApplicationDiagnostics.Report(session.Log, $"Backup creation failed: {failure}");
             return new(BackupArchiveStatus.Failed);
         }
         finally
@@ -51,19 +51,10 @@ public sealed class BackupArchiveService(IMutationScope mutations)
             if (!transferred)
             {
                 try { session.DeleteArchive(); }
-                catch (Exception failure) { BackupDiagnostics.Report(session.Log, $"Partial backup cleanup failed: {failure}"); }
+                catch (Exception failure) { ApplicationDiagnostics.Report(session.Log, $"Partial backup cleanup failed: {failure}"); }
             }
             try { session.DeleteSnapshot(); }
-            catch (Exception failure) { BackupDiagnostics.Report(session.Log, $"Backup snapshot cleanup failed: {failure}"); }
+            catch (Exception failure) { ApplicationDiagnostics.Report(session.Log, $"Backup snapshot cleanup failed: {failure}"); }
         }
-    }
-}
-
-internal static class BackupDiagnostics
-{
-    public static void Report(Action<string> log, string message)
-    {
-        try { log(message); }
-        catch (Exception) { /* Diagnostics cannot prevent resource cleanup. */ }
     }
 }

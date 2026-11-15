@@ -74,15 +74,15 @@ public sealed class CoreConnectionService(ICoreConnectionRuntime runtime)
             await runtime.StopMonitorAsync();
             await runtime.StopAndConfirmAsync(token);
             runtime.SetStopped();
-            runtime.Log("Core stopped.");
-            await runtime.PublishStatusAsync();
+            ApplicationDiagnostics.Report(runtime.Log, "Core stopped.");
+            await PublishStatusAsync();
             return new(CoreConnectionStatus.Stopped);
         }
         catch (Exception exception)
         {
             runtime.SetFaulted(exception.Message);
-            runtime.Log($"Core stop failed: {exception}");
-            await runtime.PublishStatusAsync();
+            ApplicationDiagnostics.Report(runtime.Log, $"Core stop failed: {exception}");
+            await PublishStatusAsync();
             return Failure(CoreConnectionStatus.StopFailed, exception.Message);
         }
     }
@@ -112,7 +112,7 @@ public sealed class CoreConnectionService(ICoreConnectionRuntime runtime)
         {
             // A preflight failure has not touched the serving process or its state.
             if (stage != "preflight") runtime.SetFaulted(exception.Message);
-            runtime.Log($"Core restart failed during {stage}: {exception}");
+            ApplicationDiagnostics.Report(runtime.Log, $"Core restart failed during {stage}: {exception}");
             return Failure(stage == "stop" ? CoreConnectionStatus.StopFailed : CoreConnectionStatus.RestartFailed,
                 exception.Message) with { Stage = stage };
         }
@@ -134,7 +134,7 @@ public sealed class CoreConnectionService(ICoreConnectionRuntime runtime)
             catch (Exception exception)
             {
                 runtime.SetFaulted(exception.Message);
-                runtime.Log($"Core stop before launch failed: {exception}");
+                ApplicationDiagnostics.Report(runtime.Log, $"Core stop before launch failed: {exception}");
                 return Failure(CoreConnectionStatus.StopFailed, exception.Message);
             }
         }
@@ -149,24 +149,24 @@ public sealed class CoreConnectionService(ICoreConnectionRuntime runtime)
                     : "The Web runtime could not identify a live Core child process.";
                 detail = await CleanupFailedStartAsync(detail);
                 runtime.SetFaulted(detail);
-                runtime.Log(detail);
-                await runtime.PublishStatusAsync();
+                ApplicationDiagnostics.Report(runtime.Log, detail);
+                await PublishStatusAsync();
                 return Failure(CoreConnectionStatus.StartFailed, detail, plan.ProfileId);
             }
             runtime.SetRunning();
             await runtime.StartMonitorAsync();
-            runtime.Log("Core started.");
-            await runtime.PublishStatusAsync();
+            ApplicationDiagnostics.Report(runtime.Log, "Core started.");
+            await PublishStatusAsync();
             return new(CoreConnectionStatus.Started, plan.ProfileId, runtime.Current.ProcessIds);
         }
         catch (Exception exception)
         {
-            runtime.Log($"Core start failed: {exception}");
+            ApplicationDiagnostics.Report(runtime.Log, $"Core start failed: {exception}");
             var detail = exception.Message;
             if (runtime.Current.State == CoreRuntimeState.Starting || runtime.Current.HasActiveChildren)
                 detail = await CleanupFailedStartAsync(detail);
             runtime.SetFaulted(detail);
-            await runtime.PublishStatusAsync();
+            await PublishStatusAsync();
             return Failure(CoreConnectionStatus.StartFailed, detail, plan.ProfileId);
         }
     }
@@ -176,10 +176,16 @@ public sealed class CoreConnectionService(ICoreConnectionRuntime runtime)
         try { await runtime.StopAndConfirmAsync(CancellationToken.None); }
         catch (Exception exception)
         {
-            runtime.Log($"Core start cleanup failed: {exception}");
+            ApplicationDiagnostics.Report(runtime.Log, $"Core start cleanup failed: {exception}");
             detail += $" Cleanup also failed: {exception.Message}";
         }
         return detail;
+    }
+
+    private async Task PublishStatusAsync()
+    {
+        try { await runtime.PublishStatusAsync(); }
+        catch (Exception failure) { ApplicationDiagnostics.Report(runtime.Log, $"Core status publication failed: {failure}"); }
     }
 
     private CoreConnectionResult Failure(CoreConnectionStatus status, string detail, string? profileId = null) =>

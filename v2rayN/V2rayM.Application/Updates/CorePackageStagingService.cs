@@ -34,9 +34,9 @@ public sealed class CorePackageStagingService
         catch
         {
             try { await staging.DiscardTrustedAsync(); }
-            catch (Exception cleanup) { UpdateDiagnostics.Report(staging.Log, $"Privileged staging cleanup deferred: {cleanup.Message}"); }
+            catch (Exception cleanup) { ApplicationDiagnostics.Report(staging.Log, $"Privileged staging cleanup deferred: {cleanup.Message}"); }
             try { staging.CleanupLocal(); }
-            catch (Exception cleanup) { UpdateDiagnostics.Report(staging.Log, $"Package staging cleanup deferred: {cleanup.Message}"); }
+            catch (Exception cleanup) { ApplicationDiagnostics.Report(staging.Log, $"Package staging cleanup deferred: {cleanup.Message}"); }
             throw;
         }
     }

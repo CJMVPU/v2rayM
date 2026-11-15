@@ -4,7 +4,7 @@ import V2rayMKit
 struct ProfileEditor: View {
     let profile: Profile
     @EnvironmentObject private var model: AppModel
-    @Environment(\.dismiss) private var dismiss
+    let close: () -> Void
     @State private var value = SettingsValue.object([:])
     @State private var original = SettingsValue.object([:])
     @State private var loaded = false
@@ -19,9 +19,14 @@ struct ProfileEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
+                Button { if dirty { discard = true } else { close() } } label: {
+                    Label("节点", systemImage: "chevron.left")
+                }.disabled(saving)
+                Divider().frame(height: 20)
                 Text("配置节点").font(AppFont.title)
+                Text(profile.remarks).font(AppFont.caption).foregroundStyle(.secondary).lineLimit(1)
                 Spacer()
-                Button("关闭") { if dirty { discard = true } else { dismiss() } }.disabled(saving)
+                Text(dirty ? "未保存" : "").font(AppFont.caption).foregroundStyle(.orange).frame(width: 56)
             }
             Divider()
             if loaded {
@@ -83,13 +88,12 @@ struct ProfileEditor: View {
                 Button("保存节点") { Task { await save() } }
                     .disabled(!loaded || saving || model.busy || model.moduleUpdateActive || !dirty)
             }.frame(height: 32)
-        }.padding(16).frame(width: 740, height: 500).font(AppFont.body)
+        }.padding(16).frame(maxWidth: .infinity, maxHeight: .infinity).font(AppFont.body)
             .background(HiddenScrollbars())
             .buttonStyle(HoverButtonStyle())
-            .interactiveDismissDisabled(dirty || saving)
             .task { await load() }
             .confirmationDialog("放弃未保存的修改？", isPresented: $discard) {
-                Button("放弃修改", role: .destructive) { dismiss() }
+                Button("放弃修改", role: .destructive) { close() }
                 Button("继续编辑", role: .cancel) {}
             }
     }

@@ -35,12 +35,12 @@ public sealed class SettingsApplyService
         {
             // A process adapter can throw before producing a structured failure.
             // Persisted settings still require compensation in that case.
-            runtime.Log($"Settings for {section} threw during Core restart: {exception}");
+            ApplicationDiagnostics.Report(runtime.Log, $"Settings for {section} threw during Core restart: {exception}");
             const string code = "core_restart_failed";
             return new(false, FailureCode: code, Rollback: await rollback(code));
         }
         if (result.Success) return new(true, Restarted: true);
-        runtime.Log($"Settings for {section} failed to apply: {result.Code}");
+        ApplicationDiagnostics.Report(runtime.Log, $"Settings for {section} failed to apply: {result.Code}");
         return new(false, FailureCode: result.Code, Rollback: await rollback(result.Code));
     }
 }

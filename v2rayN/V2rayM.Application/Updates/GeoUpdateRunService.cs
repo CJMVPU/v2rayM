@@ -17,7 +17,7 @@ public sealed class GeoUpdateRunService
     private static void Publish(IGeoUpdateRun run, GeoUpdatePhase phase, string? detail = null)
     {
         try { run.Publish(phase, detail); }
-        catch (Exception failure) { UpdateDiagnostics.Report(run.Log, $"GeoFiles progress publication failed: {failure.Message}"); }
+        catch (Exception failure) { ApplicationDiagnostics.Report(run.Log, $"GeoFiles progress publication failed: {failure.Message}"); }
     }
 
     public async Task RunAsync(IGeoUpdateRun run)
@@ -43,7 +43,7 @@ public sealed class GeoUpdateRunService
                     Publish(run, GeoUpdatePhase.RollingBack);
                     await rollback();
                     if (!await run.RestartAsync(CancellationToken.None))
-                        UpdateDiagnostics.Report(run.Log, "Previous rules restored, but Core recovery was not confirmed.");
+                        ApplicationDiagnostics.Report(run.Log, "Previous rules restored, but Core recovery was not confirmed.");
                     throw;
                 }
             } : null, lease.Token);
@@ -55,7 +55,7 @@ public sealed class GeoUpdateRunService
         }
         catch (Exception failure)
         {
-            UpdateDiagnostics.Report(run.Log, $"GeoFiles update failed: {failure.Message}");
+            ApplicationDiagnostics.Report(run.Log, $"GeoFiles update failed: {failure.Message}");
             Publish(run, GeoUpdatePhase.Failed, failure.Message);
         }
     }

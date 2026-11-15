@@ -47,7 +47,7 @@ public sealed class RuntimeStartupService(IRuntimeStartup runtime)
                     runtime.ProfileExistsAsync, runtime.StartCoreAsync,
                     message => runtime.Log(restore is not null ? "restore" : "update", message), token);
             else if (setupRequired && intent.WasRunning)
-                runtime.Log("core", "Core startup was suppressed until first-run Management Key setup is complete.");
+                ApplicationDiagnostics.Report(message => runtime.Log("core", message), "Core startup was suppressed until first-run Management Key setup is complete.");
 
             // Restore markers are consumed only after initialization/recovery.
             // Update markers belong to the external health verifier's commit.
@@ -56,10 +56,10 @@ public sealed class RuntimeStartupService(IRuntimeStartup runtime)
         else if (RuntimeStartupPolicy.ShouldAutoStart(null, runtime.AutoStartConfigured, setupRequired))
         {
             var started = await runtime.StartCoreAsync(null, token);
-            if (!started.Success) runtime.Log("core", started.Detail ?? started.Code);
+            if (!started.Success) ApplicationDiagnostics.Report(message => runtime.Log("core", message), started.Detail ?? started.Code);
         }
         else if (setupRequired)
-            runtime.Log("core", "Core autostart was suppressed until first-run Management Key setup is complete.");
+            ApplicationDiagnostics.Report(message => runtime.Log("core", message), "Core autostart was suppressed until first-run Management Key setup is complete.");
 
         // Recovery can take longer than the first scheduler interval. Do not
         // permit background mutations until the startup intention is resolved.

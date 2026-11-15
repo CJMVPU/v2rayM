@@ -8,7 +8,7 @@ namespace v2rayN.WebAPI.Adapters.Profiles;
 
 internal sealed class ServiceLibProfileQueries(Func<Config> config) : IProfileQuerySource
 {
-    public async Task<ProfileQuerySnapshot> CaptureAsync(string? subscriptionId)
+    public async Task<IReadOnlyList<ProfileListEntry>> CaptureAsync(string? subscriptionId)
     {
         var groupId = subscriptionId ?? config().SubIndexId ?? string.Empty;
         var profiles = await AppManager.Instance.ProfileItems(groupId) ?? [];
@@ -48,7 +48,7 @@ internal sealed class ServiceLibProfileQueries(Func<Config> config) : IProfileQu
                     !item.IsComplex() && item.Port > 0);
             })
             .ToArray();
-        return new(entries, subscriptions.Select(item => new ProfileSubscription(item.Key, item.Value)).ToArray(), config().SubIndexId ?? string.Empty);
+        return entries;
     }
 
     public async Task<ProfileGroupSnapshot> CaptureGroupsAsync()

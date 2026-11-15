@@ -26,13 +26,13 @@ public sealed class BackupUploadService(IBackupUpload remote)
         }
         catch (Exception failure)
         {
-            BackupDiagnostics.Report(remote.Log, $"Remote backup failed: {failure}");
+            ApplicationDiagnostics.Report(remote.Log, $"Remote backup failed: {failure}");
             return new(BackupUploadStatus.UploadFailed);
         }
         finally
         {
             try { remote.DeleteLocal(artifact); }
-            catch (Exception failure) { BackupDiagnostics.Report(remote.Log, $"Uploaded backup cleanup failed: {failure}"); }
+            catch (Exception failure) { ApplicationDiagnostics.Report(remote.Log, $"Uploaded backup cleanup failed: {failure}"); }
         }
     }
 }

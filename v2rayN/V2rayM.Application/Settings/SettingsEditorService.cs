@@ -104,9 +104,9 @@ public sealed class SettingsEditorService(ISettingsEditorStore store, IMutationS
                 if (session is not null)
                 {
                     try { await session.RestoreAsync(); restored = true; }
-                    catch (Exception rollback) { rollbackDetail = rollback.Message; effects.Log($"Settings persistence rollback failed: {rollback}"); }
+                    catch (Exception rollback) { rollbackDetail = rollback.Message; ApplicationDiagnostics.Report(effects.Log, $"Settings persistence rollback failed: {rollback}"); }
                 }
-                effects.Log($"Settings persistence failed before runtime apply: {exception}");
+                ApplicationDiagnostics.Report(effects.Log, $"Settings persistence failed before runtime apply: {exception}");
                 return new SettingsEditResult(SettingsEditStatus.PersistenceFailed, ConfigRestored: restored,
                     ExceptionType: exception.GetType().Name, Detail: exception.Message, RollbackDetail: rollbackDetail);
             }
@@ -118,7 +118,7 @@ public sealed class SettingsEditorService(ISettingsEditorStore store, IMutationS
         if (statisticsChanged)
         {
             try { await effects.RefreshStatisticsAsync(); }
-            catch (Exception exception) { effects.Log($"Statistics reinitialization failed after settings apply: {exception}"); }
+            catch (Exception exception) { ApplicationDiagnostics.Report(effects.Log, $"Statistics reinitialization failed after settings apply: {exception}"); }
         }
         return applied ? result : result with { Status = SettingsEditStatus.RuntimeApplyFailed };
     }

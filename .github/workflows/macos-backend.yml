@@ -37,10 +37,18 @@ jobs:
           python3 scripts/test-macos-signing-identity.py
           python3 scripts/test-macos-geo-download.py
           bash v2rayN/v2rayN.WebAPI/Tests/Integration/test-release-packaging.sh
-      - name: Verify backend and shared proxy logic before packaging
-        run: |
-          dotnet test --project v2rayN/ServiceLib.Tests --configuration Release
-          dotnet test --project v2rayN/v2rayN.WebAPI/Tests --configuration Release
+      - name: Verify shared proxy logic
+        run: dotnet test --project v2rayN/ServiceLib.Tests --configuration Release
+      - name: Verify backend and application workflows
+        run: dotnet test --project v2rayN/v2rayN.WebAPI/Tests --configuration Release
+      - name: Retain test reports, including failures
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-test-reports
+          path: TestResults/
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Prepare pinned offline city data
         run: python3 scripts/prepare-macos-geo.py
       - name: Test native client and signed-helper policies without installing services

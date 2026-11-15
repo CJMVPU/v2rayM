@@ -165,7 +165,7 @@ public sealed class UpdateBatchService(IUpdateBatchRuntime runtime)
         {
             var detail = failure is OperationCanceledException && runtime.IsStopping
                 ? "Canceled during graceful shutdown." : failure.Message;
-            UpdateDiagnostics.Report(runtime.Log, $"Update batch failed at {current?.Id}: {failure}");
+            ApplicationDiagnostics.Report(runtime.Log, $"Update batch failed at {current?.Id}: {failure}");
             if (current is not null) Publish(current, new("failed", true, false, Detail: detail));
             FailPending("This target was not applied because the batch could not complete.");
             runtime.Complete(false, apply);
@@ -180,9 +180,9 @@ public sealed class UpdateBatchService(IUpdateBatchRuntime runtime)
                 foreach (var item in artifacts)
                 {
                     try { await runtime.DiscardAsync(item.Artifact); }
-                    catch (Exception failure) { UpdateDiagnostics.Report(runtime.Log, $"Update batch trusted cleanup failed: {failure}"); }
+                    catch (Exception failure) { ApplicationDiagnostics.Report(runtime.Log, $"Update batch trusted cleanup failed: {failure}"); }
                     try { runtime.Cleanup(item.Artifact); }
-                    catch (Exception failure) { UpdateDiagnostics.Report(runtime.Log, $"Update batch local cleanup failed: {failure}"); }
+                    catch (Exception failure) { ApplicationDiagnostics.Report(runtime.Log, $"Update batch local cleanup failed: {failure}"); }
                 }
             }
         }

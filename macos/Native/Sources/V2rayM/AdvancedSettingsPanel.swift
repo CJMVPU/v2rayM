@@ -1,32 +1,45 @@
 import SwiftUI
 import V2rayMKit
 
-private enum SettingsPane: String, CaseIterable, Identifiable {
+enum SettingsPane: String, CaseIterable, Identifiable {
     case parameters = "参数设置", routing = "路由设置", dns = "DNS 设置"
     var id: String { rawValue }
+    var symbol: String {
+        switch self { case .parameters: return "slider.horizontal.3"; case .routing: return "arrow.triangle.branch"; case .dns: return "network" }
+    }
+    var detail: String {
+        switch self { case .parameters: return "监听、嗅探、Xray 与原生 TUN"; case .routing: return "方案、匹配顺序与分流规则"; case .dns: return "常规解析与自定义 DNS" }
+    }
 }
 
 struct AdvancedSettingsPanel: View {
     @EnvironmentObject var model: AppModel
-    @State private var pane: SettingsPane?
+    let select: (SettingsPane) -> Void
     var body: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: 10) {
             ForEach(SettingsPane.allCases) { item in
-                Button(item.rawValue) { pane = item }.disabled(!model.ready || model.busy || model.moduleUpdateActive)
+                Button { select(item) } label: {
+                    VStack(alignment: .leading, spacing: 7) {
+                        HStack {
+                            Label(item.rawValue, systemImage: item.symbol)
+                            Spacer(minLength: 0)
+                            Image(systemName: "chevron.right").font(AppFont.caption).foregroundStyle(.secondary)
+                        }
+                        Text(item.detail).font(AppFont.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }.padding(8).frame(maxWidth: .infinity, alignment: .leading)
+                }.disabled(!model.ready || model.busy || model.moduleUpdateActive)
             }
-            Spacer()
-            Text("Xray · 原生 TUN").font(AppFont.caption).foregroundStyle(.secondary)
-        }.sheet(item: $pane) { pane in SettingsEditor(pane: pane).environmentObject(model) }
+        }
     }
 }
 
-private struct SettingsEditor: View {
+struct SettingsEditor: View {
     @State private var parameterDraft = ParameterSettingsDraft()
     @State private var dnsDraft = DNSSettingsDraft()
     @State private var routingDraft = RoutingSettingsDraft()
     let pane: SettingsPane
     @EnvironmentObject var model: AppModel
-    @Environment(\.dismiss) private var dismiss
+    let close: () -> Void
     @State private var loaded = false
     @State private var working = false
     @State private var result = ""
@@ -38,9 +51,17 @@ private struct SettingsEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text(pane.rawValue).font(AppFont.title)
+                Button { if dirty { dismissConfirmation = true } else { close() } } label: {
+                    Label("设置", systemImage: "chevron.left")
+                }.disabled(working).help("返回设置总览")
+                Divider().frame(height: 20)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(pane.rawValue).font(AppFont.title)
+                    Text(pane.detail).font(AppFont.caption).foregroundStyle(.secondary)
+                }
                 Spacer()
-                Button("关闭") { if dirty { dismissConfirmation = true } else { dismiss() } }.disabled(working)
+                Text(dirty ? "未保存" : "").font(AppFont.caption).foregroundStyle(.orange)
+                    .frame(width: 56)
             }
             Divider()
             if loaded {
@@ -51,7 +72,7 @@ private struct SettingsEditor: View {
                         case .routing:
                             RoutingSettingsFields(routes: routingDraft.routes, route: $routingDraft.route, rules: $routingDraft.rules,
                                 routeID: $routingDraft.routeID, ruleIndex: $routingDraft.ruleIndex, dirty: $dirty,
-                                select: { item in action { try await loadRoute(item) } },
+                                select: { item in action(success: "已切换方案") { try await loadRoute(item) } },
                                 create: newRoute, delete: { deleteConfirmation = true }, activate: {
                                     action {
                                         try await model.settingsWrite("/api/settings/routing-profiles/\(routingDraft.routeID)/activate", method: "POST")
@@ -78,19 +99,21 @@ private struct SettingsEditor: View {
             }
             Divider()
             HStack {
-                Text(result).font(AppFont.caption).foregroundStyle(failed ? Color.orange : Color.secondary)
+                Text(!model.ready ? "后台服务未就绪，草稿已保留" : result.isEmpty ? (working ? "正在处理…" : "修改后保存，设置将自动应用") : result).font(AppFont.caption).foregroundStyle(failed ? Color.orange : Color.secondary)
                     .lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
                 if working { ProgressView().controlSize(.small) }
-                if pane == .parameters { Button("保存参数") { saveParameters() }.disabled(!loaded || working) }
-                if pane == .routing { Button("保存方案与规则") { saveRoute() }.disabled(!loaded || working) }
+                if !model.ready {
+                    Button("重新连接服务") { Task { await model.connect() } }.disabled(working || model.connecting)
+                }
+                if pane == .parameters { Button("保存参数") { saveParameters() }.disabled(!loaded || working || !dirty || !model.ready) }
+                if pane == .routing { Button("保存方案与规则") { saveRoute() }.disabled(!loaded || working || !dirty || !model.ready) }
             }.frame(height: 32)
-        }.padding(16).frame(width: 796, height: 510).font(AppFont.body).buttonStyle(HoverButtonStyle())
+        }.padding(16).frame(maxWidth: .infinity, maxHeight: .infinity).font(AppFont.body).buttonStyle(HoverButtonStyle())
             .background(HiddenScrollbars())
-            .interactiveDismissDisabled(dirty || working)
             .task { await load() }
             .alert("放弃未保存的修改？", isPresented: $dismissConfirmation) {
                 Button("继续编辑", role: .cancel) {}
-                Button("放弃修改", role: .destructive) { dismiss() }
+                Button("放弃修改", role: .destructive) { close() }
             }
             .alert("删除这个路由方案？", isPresented: $deleteConfirmation) {
                 Button("取消", role: .cancel) {}
@@ -100,21 +123,23 @@ private struct SettingsEditor: View {
                 } }
             }
     }
-    private func action(_ work: @escaping () async throws -> Void) {
+    private func action(success: String = "已保存并应用", _ work: @escaping () async throws -> Void) {
         working = true; result = ""; failed = false
         Task {
             defer { working = false }
-            do { try await work(); result = "已保存并应用"; dirty = pane == .dns && (dnsDraft.simpleDNS != dnsDraft.savedSimpleDNS || dnsDraft.dns != dnsDraft.savedCustomDNS) }
+            do { try await work(); result = success; dirty = pane == .dns && (dnsDraft.simpleDNS != dnsDraft.savedSimpleDNS || dnsDraft.dns != dnsDraft.savedCustomDNS) }
             catch { result = error.localizedDescription; failed = true }
         }
     }
     private func load() async {
-        working = true
+        working = true; failed = false; result = ""
         defer { working = false }
         do {
-            parameterDraft.settings = try await model.settingsRead("/api/settings")
-            parameterDraft.settings["application"] = parameterDraft.settings["app"]
-            if pane == .parameters { parameterDraft.tunSettings = try await model.settingsRead("/api/macos/tun/settings") }
+            if pane == .parameters {
+                parameterDraft.settings = try await model.settingsRead("/api/settings")
+                parameterDraft.settings["application"] = parameterDraft.settings["app"]
+                parameterDraft.tunSettings = try await model.settingsRead("/api/macos/tun/settings")
+            }
             if pane == .routing { try await reloadRoutes() }
             if pane == .dns {
                 dnsDraft.simpleDNS = try await model.settingsRead("/api/settings/dns/simple")
@@ -131,9 +156,10 @@ private struct SettingsEditor: View {
         if let selected { try await loadRoute(selected) } else { newRoute() }
     }
     private func loadRoute(_ selected: SettingsValue) async throws {
-        routingDraft.route = selected; routingDraft.routeID = selected["id"].text
-        routingDraft.rules = try await model.settingsRead("/api/settings/routing-profiles/\(routingDraft.routeID)/rules").items
-        routingDraft.ruleIndex = 0; dirty = false
+        routingDraft = try await routingDraft.selecting(selected) { id in
+            try await model.settingsRead("/api/settings/routing-profiles/\(id)/rules").items
+        }
+        dirty = false
     }
     private func newRoute() {
         routingDraft.routeID = ""; routingDraft.route = RoutingDraft.newProfile()

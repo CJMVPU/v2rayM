@@ -131,12 +131,37 @@ public class SettingsRecoveryApplicationTests
         await string.Join(",", store.Calls).Should().BeEqualTo("recover,capture,recover,capture,restore");
     }
 
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task FailedDiagnosticsCannotSkipSettingsCompensation(bool throws)
+    {
+        var runtime = new Runtime { Current = new(CoreRuntimeState.Running, true), FailRestart = true, ThrowRestart = throws, FailLog = true };
+        var result = await new SettingsApplyService().CompleteAsync(runtime, "test", true,
+            failure => new SettingsRecoveryService().RestoreAsync(runtime, true, failure));
+        await result.Success.Should().BeFalse();
+        await result.Rollback!.RolledBack.Should().BeTrue();
+        await string.Join(",", runtime.Calls).Should().BeEqualTo("restart,restore,stop,start");
+    }
+
+    [Test]
+    public async Task FailedAdditionalRollbackAndLoggerStillRestoreConfiguration()
+    {
+        var runtime = new Runtime { FailLog = true };
+        var result = await new SettingsRecoveryService().RestoreAsync(runtime, true, "apply failed",
+            () => throw new Exception("files failed"));
+        await result.ConfigRestored.Should().BeTrue();
+        await result.RolledBack.Should().BeFalse();
+        await result.Detail.Should().BeEqualTo("files failed");
+        await string.Join(",", runtime.Calls).Should().BeEqualTo("restore,fault");
+    }
+
     private sealed class Runtime : ISettingsRecoveryRuntime, ISettingsApplyRuntime
     {
         public SettingsRuntimeState Current { get; set; } = new(CoreRuntimeState.Stopped, false);
         public List<string> Calls = [];
         public string? Failure;
-        public bool ThrowRestart, FailRestart;
+        public bool ThrowRestart, FailRestart, FailLog;
         public Task RestoreConfigurationAsync()
         { Calls.Add("restore"); if (Failure == "restore") throw new InvalidOperationException("restore failed"); return Task.CompletedTask; }
         public Task<RuntimeCommandResult> RestartAsync()
@@ -147,7 +172,7 @@ public class SettingsRecoveryApplicationTests
         { Calls.Add("start"); return Task.FromResult(new RuntimeCommandResult(Failure != "start", "start failed")); }
         public void SetStopped() { Calls.Add("stopped"); Current = new(CoreRuntimeState.Stopped, false); }
         public void SetFaulted(string detail) { Calls.Add("fault"); Current = Current with { State = CoreRuntimeState.Faulted }; }
-        public void Log(string message) { }
+        public void Log(string message) { if (FailLog) throw new Exception("log sink closed"); }
     }
     private sealed class Scope : IExclusiveScope, IMutationScope, IAsyncDisposable
     {

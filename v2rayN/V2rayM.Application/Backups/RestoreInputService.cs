@@ -33,7 +33,7 @@ public sealed class RestoreInputService(IRestoreInput input)
             if (!transferred)
             {
                 try { input.DeleteArchive(); }
-                catch (Exception failure) { BackupDiagnostics.Report(input.Log, $"Restore input cleanup failed: {failure}"); }
+                catch (Exception failure) { ApplicationDiagnostics.Report(input.Log, $"Restore input cleanup failed: {failure}"); }
             }
         }
     }

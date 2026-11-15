@@ -51,7 +51,7 @@ public sealed class SpeedTestCoordinator(IOperationScope operations, IMutationSc
                     await operations.RunAsync(async operationToken =>
                     {
                         var batch = await mutations.RunAsync(() => source.PrepareAsync(ids), operationToken);
-                        operationToken.ThrowIfCancellationRequested();
+                        ThrowIfStopping(operationToken);
                         if (singleProfile && !batch.CanProbeSingle)
                         { admission.TrySetResult(new(SpeedTestAdmission.InvalidProfile)); return; }
                         if (batch.ProfileIds.Count == 0) { admission.TrySetResult(new(SpeedTestAdmission.Empty)); return; }
@@ -59,11 +59,12 @@ public sealed class SpeedTestCoordinator(IOperationScope operations, IMutationSc
                         { admission.TrySetResult(new(SpeedTestAdmission.Unsupported)); return; }
                         lock (_gate)
                         {
-                            operationToken.ThrowIfCancellationRequested();
+                            ThrowIfStopping(operationToken);
                             _batch = batch;
                         }
                         events.Started(action, batch.ProfileIds);
                         admission.TrySetResult(new(SpeedTestAdmission.Started, batch.ProfileIds.Count));
+                        ThrowIfStopping(operationToken);
                         await batch.RunAsync(action, operationToken);
                     }, cancellation.Token);
                 }
@@ -94,6 +95,13 @@ public sealed class SpeedTestCoordinator(IOperationScope operations, IMutationSc
             }
             throw;
         }
+    }
+    private void ThrowIfStopping(CancellationToken token)
+    {
+        // Admission closes synchronously. Linked cancellation callbacks can still
+        // be queued while storage preparation completes on another worker.
+        if (operations.IsStopping) throw new OperationCanceledException(operations.ShutdownToken);
+        token.ThrowIfCancellationRequested();
     }
     public void Stop()
     {

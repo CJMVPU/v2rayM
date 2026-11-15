@@ -1,6 +1,6 @@
-namespace V2rayM.Application.Updates;
+namespace V2rayM.Application;
 
-internal static class UpdateDiagnostics
+internal static class ApplicationDiagnostics
 {
     public static void Report(Action<string> report, string message)
     {

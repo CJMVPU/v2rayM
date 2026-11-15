@@ -81,7 +81,7 @@ public sealed class ScheduledMaintenanceService(IScheduledMaintenance runtime, T
             token.ThrowIfCancellationRequested();
             try { await runtime.ExecuteAsync(action, token); }
             catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
-            catch (Exception exception) { runtime.Log(action, exception.Message); }
+            catch (Exception exception) { ApplicationDiagnostics.Report(message => runtime.Log(action, message), exception.Message); }
         }
     }
 }

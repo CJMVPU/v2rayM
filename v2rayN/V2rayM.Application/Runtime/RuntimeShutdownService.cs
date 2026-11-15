@@ -28,7 +28,7 @@ public sealed class RuntimeShutdownService(IRuntimeShutdown runtime)
             new("operation drain", async deadline =>
             {
                 var drained = await runtime.DrainOperationsAsync(deadline.Token, deadline.Remaining);
-                if (!drained) runtime.Log("Shutdown operation drain timed out; skipped all Core, state-save, and database cleanup.");
+                if (!drained) ApplicationDiagnostics.Report(runtime.Log, "Shutdown operation drain timed out; skipped all Core, state-save, and database cleanup.");
                 return drained;
             }),
         };
@@ -44,7 +44,7 @@ public sealed class RuntimeShutdownService(IRuntimeShutdown runtime)
         }
         var completed = await ShutdownCleanupSequence.RunAsync(steps, budget ?? RuntimeShutdownBudgets.RuntimeCleanup,
             token, runtime.Log, runtime.SetStage);
-        if (completed && saveState) runtime.Log("Runtime stopped.");
+        if (completed && saveState) ApplicationDiagnostics.Report(runtime.Log, "Runtime stopped.");
         return completed;
     }
 }

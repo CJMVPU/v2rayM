@@ -24,11 +24,10 @@ public sealed record ProfileListEntry(
 
 public sealed record ProfileSubscription(string Id, string Name);
 public sealed record ProfileGroupSnapshot(IReadOnlyList<string> ProfileGroups, IReadOnlyList<ProfileSubscription> Subscriptions, string SelectedGroup);
-public sealed record ProfileQuerySnapshot(IReadOnlyList<ProfileListEntry> Profiles, IReadOnlyList<ProfileSubscription> Subscriptions, string SelectedGroup);
 public sealed record ProfileGroupEntry(string Id, string? Name, bool All, int Count, bool Selected);
 public interface IProfileQuerySource
 {
-    Task<ProfileQuerySnapshot> CaptureAsync(string? subscriptionId);
+    Task<IReadOnlyList<ProfileListEntry>> CaptureAsync(string? subscriptionId);
     Task<ProfileGroupSnapshot> CaptureGroupsAsync();
     bool Matches(string value, string query);
 }
@@ -40,7 +39,7 @@ public sealed class ProfileQueryService(IProfileQuerySource source)
     {
         var snapshot = await source.CaptureAsync(group);
         var query = filter?.Trim();
-        return snapshot.Profiles.Where(item => string.IsNullOrEmpty(query)
+        return snapshot.Where(item => string.IsNullOrEmpty(query)
             || source.Matches(item.Remarks, query) || source.Matches(item.Address, query))
             .OrderBy(item => item.Sort).ToArray();
     }

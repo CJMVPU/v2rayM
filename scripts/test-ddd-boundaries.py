@@ -50,6 +50,23 @@ class BoundaryTests(unittest.TestCase):
         self.write('macos/Native/Sources/V2rayMDomain/Bad.swift', 'import Foundation\nlet process = Process()\n')
         self.assertTrue(guard.check(self.root))
 
+    def test_attributed_or_scoped_import_cannot_bypass_native_boundary(self):
+        for declaration in ['@preconcurrency import V2rayMKit', 'internal import V2rayMKit', 'import struct V2rayMKit.APIClient']:
+            with self.subTest(declaration=declaration):
+                self.write('macos/Native/Sources/V2rayMApplication/Bad.swift', declaration + '\n')
+                self.assertTrue(guard.check(self.root))
+
+    def test_package_formatting_is_not_an_architecture_change(self):
+        path = self.root / 'macos/Native/Package.swift'
+        path.write_text(path.read_text().replace('.target(name: "V2rayMDomain"),',
+            '.target(\n    name: "V2rayMDomain"\n),').replace('dependencies: ["V2rayMDomain"]', 'dependencies: [\n "V2rayMDomain",\n]'))
+        self.assertEqual(guard.check(self.root), [])
+
+    def test_upstream_library_cannot_depend_on_fork_workflows(self):
+        self.write('v2rayN/ServiceLib/ServiceLib.csproj',
+            '<Project><ItemGroup><ProjectReference Include="../V2rayM.Application/V2rayM.Application.csproj" /></ItemGroup></Project>')
+        self.assertTrue(guard.check(self.root))
+
     def test_native_domain_target_cannot_gain_dependencies(self):
         path = self.root / 'macos/Native/Package.swift'
         path.write_text(path.read_text().replace('.target(name: "V2rayMDomain"),', '.target(name: "V2rayMDomain", dependencies: ["V2rayMKit"]),'))
