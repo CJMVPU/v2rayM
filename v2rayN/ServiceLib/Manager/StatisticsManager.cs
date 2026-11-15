@@ -22,7 +22,7 @@ public class StatisticsManager
         get { lock (_gate) return _lstServerStat.Select(Clone).ToList(); }
     }
 
-    public async Task Init(Config config, Func<ServerSpeedItem, Task> updateFunc)
+    public async Task Init(Config config, Func<ServerSpeedItem, Task> updateFunc, Func<int>? statisticsPort = null)
     {
         await _lifecycleGate.WaitAsync();
         try
@@ -35,7 +35,7 @@ public class StatisticsManager
             {
                 await InitData();
                 _initialized = true;
-                _statisticsXray = new StatisticsXrayService(config, UpdateServerStat);
+                _statisticsXray = new StatisticsXrayService(config, UpdateServerStat, statisticsPort);
                 await _statisticsXray.StartAsync();
             }
         }

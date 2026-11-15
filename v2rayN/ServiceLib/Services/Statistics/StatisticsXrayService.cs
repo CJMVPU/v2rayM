@@ -14,12 +14,16 @@ public class StatisticsXrayService
     private Task _runTask = Task.CompletedTask;
     private bool _closed;
     private readonly Func<ServerSpeedItem, Task>? _updateFunc;
-    private string Url => $"{Global.HttpProtocol}{Global.Loopback}:{AppManager.Instance.StatePort}/debug/vars";
+    private readonly Func<int> _statisticsPort;
+    private string Url => $"{Global.HttpProtocol}{Global.Loopback}:{_statisticsPort()}/debug/vars";
 
-    public StatisticsXrayService(Config config, Func<ServerSpeedItem, Task> updateFunc)
+    public StatisticsXrayService(Config config, Func<ServerSpeedItem, Task> updateFunc, Func<int>? statisticsPort = null)
     {
         _config = config;
         _updateFunc = updateFunc;
+        // A native host can pin sampling to the serving process while a settings
+        // preflight resets the configuration cache used for the next launch.
+        _statisticsPort = statisticsPort ?? (() => AppManager.Instance.StatePort);
         // Re-enabling statistics while a core is already running must not add its
         // lifetime counters a second time to the saved node totals.
         _discardFirstCounter = AppManager.Instance.RunningCoreType == ECoreType.Xray;

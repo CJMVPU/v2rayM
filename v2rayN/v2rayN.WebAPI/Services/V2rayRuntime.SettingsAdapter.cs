@@ -57,7 +57,7 @@ public sealed partial class V2rayRuntime
             await StatisticsManager.Instance.CloseAsync();
             owner._trafficWindow.Clear();
             if (owner.Config.GuiItem.EnableStatistics || owner.Config.GuiItem.DisplayRealTimeSpeed)
-                await StatisticsManager.Instance.Init(owner.Config, owner.OnStatisticsUpdateAsync);
+                await StatisticsManager.Instance.Init(owner.Config, owner.OnStatisticsUpdateAsync, owner.GetStatisticsPort);
         }
         public void Log(string message) => owner.AddLog("settings", message);
     }

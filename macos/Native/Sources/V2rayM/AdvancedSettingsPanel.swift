@@ -52,7 +52,7 @@ struct SettingsEditor: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Button { if dirty { dismissConfirmation = true } else { close() } } label: {
-                    Label("设置", systemImage: "chevron.left")
+                    Label("返回设置", systemImage: "chevron.left")
                 }.disabled(working).help("返回设置总览")
                 Divider().frame(height: 20)
                 VStack(alignment: .leading, spacing: 3) {

@@ -20,22 +20,22 @@ extension SettingsFields {
         }.frame(minHeight: 24)
     }
     func field(_ title: String, _ root: Binding<SettingsValue>, _ key: String) -> some View {
-        HStack { Text(title).frame(width: 180, alignment: .leading); TextField("", text: text(root, key)).textFieldStyle(.roundedBorder).accessibilityLabel(title) }
+        SettingsFieldRow(title: title) { TextField("", text: text(root, key)).textFieldStyle(.roundedBorder).accessibilityLabel(title) }
     }
     func number(_ title: String, _ root: Binding<SettingsValue>, _ key: String, range: ClosedRange<Int>) -> some View {
         let binding = value(root, key)
-        return HStack {
-            Text(title).frame(width: 180, alignment: .leading)
+        return SettingsFieldRow(title: title) {
             TextField("", value: Binding<Int>(get: { Int(binding.wrappedValue.text) ?? 0 }, set: { binding.wrappedValue = .number(Double(min(range.upperBound, max(range.lowerBound, $0)))) }), format: .number.grouping(.never))
                 .textFieldStyle(.roundedBorder).frame(width: 110).accessibilityLabel(title)
             Spacer()
         }
     }
     func choice(_ title: String, _ root: Binding<SettingsValue>, _ key: String, _ options: [String]) -> some View {
-        HStack {
-            Text(title).frame(width: 180, alignment: .leading)
+        SettingsFieldRow(title: title) {
             Picker(title, selection: text(root, key)) {
-                ForEach(Array(Set(options + [root.wrappedValue[key].text])).sorted(), id: \.self) { option in Text(option.isEmpty ? "默认" : option).tag(option) }
+                ForEach(settingsOptions(options, current: root.wrappedValue[key].text), id: \.self) { option in
+                    Text(settingsOptionLabel(option)).tag(option)
+                }
             }.labelsHidden().frame(maxWidth: .infinity, alignment: .leading).accessibilityLabel(title)
         }
     }
@@ -53,4 +53,24 @@ extension SettingsFields {
                 .accessibilityLabel(title)
         }
     }
+}
+
+// Translate presentation only. Persisted Xray values and unknown upstream options
+// retain their original spelling and remain selectable.
+private func settingsOptions(_ options: [String], current: String) -> [String] {
+    var seen = Set<String>()
+    return (options + [current]).filter { seen.insert($0).inserted }
+}
+
+func settingsOptionLabel(_ option: String) -> String {
+    ["": "默认", "AsIs": "保持域名", "IPIfNonMatch": "未匹配时解析 IP", "IPOnDemand": "按需解析 IP",
+     "UseIP": "使用 IP", "UseIPv4v6": "优先 IPv4", "UseIPv6v4": "优先 IPv6",
+     "UseIPv4": "仅 IPv4", "UseIPv6": "仅 IPv6", "debug": "调试", "info": "信息",
+     "warning": "警告", "error": "错误", "none": "关闭", "reject": "拒绝", "skip": "跳过复用",
+     "proxy": "代理", "direct": "直连", "block": "阻断", "tcp": "TCP", "udp": "UDP",
+     "tcp,udp": "TCP 与 UDP", "system": "系统证书", "chrome": "Chrome 证书", "mozilla": "Mozilla 证书"][option] ?? option
+}
+
+func settingsRouteLabel(_ name: String) -> String {
+    ["Whitelist": "白名单", "Blacklist": "黑名单", "Global": "全局代理"][name] ?? name
 }

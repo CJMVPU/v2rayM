@@ -17,7 +17,7 @@ private struct ModuleUpdateContent: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("Xray 与 Geo 数据独立维护").font(AppFont.caption).foregroundStyle(.secondary)
+                Text("Xray 内核与分流规则数据独立维护").font(AppFont.caption).foregroundStyle(.secondary)
                 Spacer()
                 Button(model.moduleUpdateActive ? "处理中…" : "更新全部模块") { model.updateModules(.all) }
                     .disabled(!model.ready || model.busy || model.moduleUpdateActive)
@@ -26,7 +26,7 @@ private struct ModuleUpdateContent: View {
                 let progress = observation.progress.first(where: { $0.coreType == id })
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
-                        Label(ModuleUpdateNames.label(id), systemImage: id == "GeoFiles" ? "globe" : "shippingbox")
+                        Label(id == "GeoFiles" ? "分流规则数据" : "Xray 内核", systemImage: id == "GeoFiles" ? "globe" : "shippingbox")
                             .font(AppFont.body).frame(width: 168, alignment: .leading)
                         Spacer(minLength: 12)
                         Text(progress?.phaseLabel ?? (model.moduleUpdateActive && model.moduleScope?.targets.contains(id) == true ? "等待更新" : "尚未检查"))

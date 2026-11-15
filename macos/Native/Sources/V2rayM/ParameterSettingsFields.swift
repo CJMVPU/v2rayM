@@ -22,7 +22,7 @@ struct ParameterSettingsFields: SettingsFields {
                     toggle("局域网使用独立端口", inbound, "newPort4LAN").disabled(!inbound.wrappedValue["allowLANConn"].flag)
                     let lanAuth = inbound.wrappedValue["allowLANConn"].flag && inbound.wrappedValue["newPort4LAN"].flag
                     field("局域网用户名", inbound, "user").disabled(!lanAuth)
-                    HStack { Text("局域网密码").frame(width: 180, alignment: .leading); SecureField("", text: text(inbound, "pass")).textFieldStyle(.roundedBorder) }.disabled(!lanAuth)
+                    SettingsFieldRow(title: "局域网密码") { SecureField("", text: text(inbound, "pass")).textFieldStyle(.roundedBorder).accessibilityLabel("局域网密码") }.disabled(!lanAuth)
                     Text("用户名与密码仅用于独立局域网端口，需同时填写。").font(AppFont.caption).foregroundStyle(.secondary)
                     Divider()
                     toggle("启用流量嗅探", inbound, "sniffingEnabled")
@@ -30,7 +30,7 @@ struct ParameterSettingsFields: SettingsFields {
                     HStack {
                         Text("嗅探协议").frame(width: 180, alignment: .leading)
                         ForEach(["http", "tls", "quic"], id: \.self) { protocolName in
-                            Toggle(protocolName, isOn: Binding(get: { inbound.wrappedValue["destOverride"].items.contains(.string(protocolName)) }, set: { on in
+                            Toggle(protocolName.uppercased(), isOn: Binding(get: { inbound.wrappedValue["destOverride"].items.contains(.string(protocolName)) }, set: { on in
                                 var names = inbound.wrappedValue["destOverride"].items.filter { $0 != .string(protocolName) }
                                 if on { names.append(.string(protocolName)) }; inbound.wrappedValue["destOverride"] = .array(names)
                             }))
@@ -46,12 +46,12 @@ struct ParameterSettingsFields: SettingsFields {
                     toggle("记录内核日志", core, "logEnabled")
                     choice("日志等级", core, "loglevel", ["debug", "info", "warning", "error", "none"]).disabled(!core.wrappedValue["logEnabled"].flag)
                     field("默认 TLS 指纹", core, "defFingerprint")
-                    field("默认 User-Agent", core, "defUserAgent")
+                    field("默认用户代理标识", core, "defUserAgent")
                     field("出口源地址", core, "sendThrough")
                     field("出口网卡（空为自动）", core, "bindInterface")
-                    number("Mux 并发数", core, "mux4RayConcurrency", range: 0...1024)
+                    number("连接复用并发数", core, "mux4RayConcurrency", range: 0...1024)
                     number("XUDP 并发数", core, "mux4RayXudpConcurrency", range: 0...1024)
-                    choice("XUDP UDP/443", core, "mux4RayXudpProxyUDP443", ["reject", "skip"])
+                    choice("UDP 443 复用策略", core, "mux4RayXudpProxyUDP443", ["reject", "skip"])
                     toggle("启用 TLS 分片", core, "enableFragment")
                     toggle("对最终出口分片", core, "enableFinalFragment")
                     let fragmentEnabled = core.wrappedValue["enableFragment"].flag || core.wrappedValue["enableFinalFragment"].flag
@@ -67,9 +67,9 @@ struct ParameterSettingsFields: SettingsFields {
                     toggle("保存节点累计流量", app, "enableStatistics")
                     toggle("采集实时流量", app, "displayRealTimeSpeed")
                     Text("任一开启即采集流量；累计统计与实时显示用途不同。").font(AppFont.caption).foregroundStyle(.secondary)
-                    number("Geo 自动更新（小时）", app, "geoAutoUpdateInterval", range: 0...720)
+                    number("规则数据更新间隔（小时）", app, "geoAutoUpdateInterval", range: 0...720)
                     choice("根证书来源", app, "rootCertProvider", settings["options"]["rootCertProviders"].items.map(\.text))
-                    field("Geo 文件来源", app, "geoSourceUrl")
+                    field("规则数据来源", app, "geoSourceUrl")
                     field("路由规则模板来源", app, "routeRulesTemplateSourceUrl")
                     number("测速超时（秒）", speed, "speedTestTimeout", range: 1...300)
                     number("测速并发数", speed, "mixedConcurrencyCount", range: 1...100)
@@ -78,19 +78,19 @@ struct ParameterSettingsFields: SettingsFields {
                 }
             } else {
                 SettingsFormSection(title: "原生 TUN", subtitle: "仅使用 Xray 原生虚拟网卡。") {
-                    HStack(spacing: 8) {
-                        Text("MTU").frame(width: 48, alignment: .leading)
-                        let presets = [1280, 1408, 1500, 4064, 9000, 65535]
-                        ForEach(presets, id: \.self) { mtu in
+                    SettingsFieldRow(title: "MTU 预设") {
+                        ForEach([1280, 1408, 1500, 4064, 9000, 65535], id: \.self) { mtu in
                             Button(String(mtu)) { tunSettings["mtu"] = .number(Double(mtu)); dirty = true }
-                                .foregroundStyle(tunSettings["mtu"].text == String(mtu) ? Color.accentColor : Color.primary)
-                                .buttonStyle(HoverButtonStyle())
+                                .foregroundStyle(tunSettings["mtu"].text == String(mtu) ? DashboardTheme.cyan : Color.primary)
                                 .accessibilityAddTraits(tunSettings["mtu"].text == String(mtu) ? .isSelected : [])
                         }
-                        Text("自定义").foregroundStyle(.secondary)
+                        Spacer(minLength: 0)
+                    }
+                    SettingsFieldRow(title: "自定义 MTU") {
                         TextField("1280–65535", value: Binding<Int>(get: { Int(tunSettings["mtu"].text) ?? 1500 },
                             set: { tunSettings["mtu"] = .number(Double($0)); dirty = true }), format: .number.grouping(.never))
-                            .textFieldStyle(.roundedBorder).frame(width: 80)
+                            .textFieldStyle(.roundedBorder).frame(width: 110).accessibilityLabel("自定义 MTU")
+                        Text("有效范围 1280–65535").font(AppFont.caption).foregroundStyle(.secondary)
                         Spacer(minLength: 0)
                     }
                     toggle("为虚拟网卡配置 IPv6", $tunSettings, "enableIPv6Address")

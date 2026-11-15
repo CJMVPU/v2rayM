@@ -73,7 +73,7 @@ public sealed partial class V2rayRuntime
         await CoreManager.Instance.Init(Config, OnCoreMessageAsync);
         if (Config.GuiItem.EnableStatistics || Config.GuiItem.DisplayRealTimeSpeed)
         {
-            await StatisticsManager.Instance.Init(Config, OnStatisticsUpdateAsync);
+            await StatisticsManager.Instance.Init(Config, OnStatisticsUpdateAsync, GetStatisticsPort);
         }
         _xrayPath = FindXrayExecutable(out var missingXrayMessage);
         if (_xrayPath is null)

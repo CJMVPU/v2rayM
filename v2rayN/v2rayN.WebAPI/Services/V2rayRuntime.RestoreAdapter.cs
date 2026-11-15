@@ -138,7 +138,7 @@ public sealed partial class V2rayRuntime
             {
                 // Core recovery does not recreate the statistics sampler stopped
                 // by restore. The database remains open on this recovery path.
-                if (statisticsCloseAttempted) await StatisticsManager.Instance.Init(owner.Config, owner.OnStatisticsUpdateAsync);
+                if (statisticsCloseAttempted) await StatisticsManager.Instance.Init(owner.Config, owner.OnStatisticsUpdateAsync, owner.GetStatisticsPort);
             }
         }
         public void DeleteStaging() { if (Directory.Exists(stagingRoot)) Directory.Delete(stagingRoot, recursive: true); }

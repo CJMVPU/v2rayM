@@ -15,14 +15,17 @@ struct RoutingSettingsFields: SettingsFields {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             SettingsFormSection(title: "路由方案", subtitle: "保存修改后可切换或启用方案。") {
-                HStack {
+                SettingsFieldRow(title: "当前编辑方案") {
                     Picker("方案", selection: Binding(get: { routeID }, set: { id in
                         guard let item = routes.first(where: { $0["id"].text == id }) else { return }
                         select(item)
                     })) {
                         if routeID.isEmpty { Text("新方案").tag("") }
-                        ForEach(routes.indices, id: \.self) { i in Text(routes[i]["remarks"].text).tag(routes[i]["id"].text) }
-                    }.disabled(dirty)
+                        ForEach(routes.indices, id: \.self) { i in Text(settingsRouteLabel(routes[i]["remarks"].text)).tag(routes[i]["id"].text) }
+                    }.labelsHidden().disabled(dirty)
+                }
+                HStack {
+                    Spacer()
                     Button("新增") { create() }.disabled(dirty)
                     Button("复制") { routeID = ""; route["remarks"] = .string(route["remarks"].text + " 副本"); dirty = true }.disabled(dirty)
                     Button("删除") { delete() }.disabled(routeID.isEmpty || dirty)
@@ -41,20 +44,23 @@ struct RoutingSettingsFields: SettingsFields {
                     }
                 }
                 if rules.indices.contains(ruleIndex) {
-                    Picker("编辑规则", selection: $ruleIndex) {
-                        ForEach(rules.indices, id: \.self) { i in Text("\(i + 1). " + (rules[i]["remarks"].text.isEmpty ? rules[i]["outboundTag"].text : rules[i]["remarks"].text)).tag(i) }
+                    SettingsFieldRow(title: "当前编辑规则") {
+                        Picker("编辑规则", selection: $ruleIndex) {
+                            ForEach(rules.indices, id: \.self) { i in Text("\(i + 1). " + (rules[i]["remarks"].text.isEmpty ? settingsOptionLabel(rules[i]["outboundTag"].text) : rules[i]["remarks"].text)).tag(i) }
+                        }.labelsHidden()
                     }
                     let rule = Binding<SettingsValue>(get: { rules.indices.contains(ruleIndex) ? rules[ruleIndex] : .null }, set: { if rules.indices.contains(ruleIndex) { rules[ruleIndex] = $0; dirty = true } })
                     HStack {
-                        toggle("启用", rule, "enabled"); Spacer()
+                        Spacer()
                         Button("上移") { rules.swapAt(ruleIndex, ruleIndex - 1); ruleIndex -= 1; dirty = true }.disabled(ruleIndex == 0)
                         Button("下移") { rules.swapAt(ruleIndex, ruleIndex + 1); ruleIndex += 1; dirty = true }.disabled(ruleIndex == rules.count - 1)
                         Button("删除规则") { rules.remove(at: ruleIndex); ruleIndex = max(0, min(ruleIndex, rules.count - 1)); dirty = true }
                     }
+                    toggle("启用规则", rule, "enabled")
                     field("备注", rule, "remarks")
                     choice("出口", rule, "outboundTag", ["proxy", "direct", "block"])
                     multiline("域名（每行一个，支持 domain:、full:、geosite:）", rule, "domain", array: true)
-                    multiline("IP / CIDR / geoip（每行一个）", rule, "ip", array: true)
+                    multiline("IP 与网段（每行一项，支持 geoip:）", rule, "ip", array: true)
                     field("目标端口（例如 80,443）", rule, "port")
                     choice("网络", rule, "network", ["", "tcp", "udp", "tcp,udp"])
                     multiline("协议（http、tls、quic，每行一个）", rule, "protocol", array: true)

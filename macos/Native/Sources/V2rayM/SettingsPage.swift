@@ -39,7 +39,7 @@ struct SettingsPage: View {
                                         guard !route.isActive else { return }
                                         model.run { try await $0.perform("/api/settings/routing-profiles/\(route.id)/activate") }
                                     } label: {
-                                        Label(route.remarks, systemImage: route.isActive ? "checkmark.circle.fill" : "circle")
+                                        Label(settingsRouteLabel(route.remarks), systemImage: route.isActive ? "checkmark.circle.fill" : "circle")
                                             .lineLimit(1).fixedSize()
                                             .foregroundStyle(route.isActive ? DashboardTheme.cyan : Color.primary)
                                             .padding(.vertical, 3)
@@ -61,7 +61,7 @@ struct SettingsPage: View {
                     ModuleUpdatePanel().environmentObject(model)
                 }
                 HStack(alignment: .top, spacing: 12) {
-                    SettingsCard(title: "TUN 后台服务", symbol: "checkmark.shield") {
+                    SettingsCard(title: "TUN 后台服务", symbol: "checkmark.shield", fillHeight: true) {
                         LabeledContent("运行状态", value: model.tun?.isRunning == true ? "运行中" : "已关闭")
                         LabeledContent("后台服务", value: model.tun?.helperDescription ?? "正在检查")
                         HStack {
@@ -73,14 +73,14 @@ struct SettingsPage: View {
                         Text("开启前请先暂停其他软件的 TUN 或 VPN。")
                             .font(AppFont.caption).foregroundStyle(.secondary)
                     }
-                    SettingsCard(title: "日志与数据", symbol: "folder") {
+                    SettingsCard(title: "日志与数据", symbol: "folder", fillHeight: true) {
                         Text("保留最近 10,000 行日志，切换模式时保留历史。")
                             .font(AppFont.caption).foregroundStyle(.secondary)
                         Text(model.dataDirectory.path).font(AppFont.caption).foregroundStyle(.secondary)
                             .lineLimit(2).textSelection(.enabled)
                         Button("在访达中打开") { NSWorkspace.shared.open(model.dataDirectory) }
                     }
-                }
+                }.fixedSize(horizontal: false, vertical: true)
             }.padding(16)
         }.scrollIndicators(.never).background(DashboardTheme.background)
     }

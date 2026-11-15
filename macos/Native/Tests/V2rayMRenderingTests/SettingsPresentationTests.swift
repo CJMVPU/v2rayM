@@ -51,6 +51,8 @@ import V2rayMKit
             """)
         try render(SettingsPage(navigationLocked: .constant(false)).environmentObject(model),
             name: "settings", height: 568, directory: directory)
+        try render(SettingsPage(navigationLocked: .constant(false)).environmentObject(model),
+            name: "settings-full", height: 900, directory: directory)
         for group in ["监听与嗅探", "Xray 参数", "应用与测速", "原生 TUN"] {
             try render(ParameterSettingsFields(settings: .constant(settings), tunSettings: .constant(tun),
                 dirty: .constant(false), parameterGroup: group).environmentObject(model).padding(16),

@@ -368,6 +368,8 @@ public sealed partial class V2rayRuntime
         LogManager.Configuration = logging;
     }
 
+    private int GetStatisticsPort() => CurrentCoreRuntime.ApiPort ?? AppManager.Instance.StatePort;
+
     private Task OnStatisticsUpdateAsync(ServerSpeedItem update)
     {
         if (CurrentCoreRuntime.State != CoreRuntimeState.Running) return Task.CompletedTask;
