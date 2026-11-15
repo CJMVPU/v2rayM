@@ -55,7 +55,7 @@ struct ConnectionDashboard: View {
                     }.padding(.horizontal, 12).padding(.bottom, 12).frame(maxHeight: .infinity, alignment: .bottom)
                 }.frame(height: gaugeHeight)
                 TrafficTrendView(trend: trend, now: trend.displayDate(at: now),
-                    animate: running && trafficEnabled == true && windowVisible && !reduceMotion,
+                    animate: coreRunning && trafficEnabled == true && windowVisible && !reduceMotion,
                     emptyTitle: DashboardStatus.trafficDescription(state: state, enabled: trafficEnabled, hasSample: false))
                     .frame(height: trendHeight)
             }
@@ -139,6 +139,7 @@ struct TrafficTrendView: View {
     @State private var scaleTo = 1.0
     @State private var scaleChanged = Date.distantPast
     @State private var sampleArrived = Date.distantPast
+    @State private var retirement: TrafficTrendRetirement?
     private func eased(_ elapsed: Double) -> Double {
         let t = min(1, max(0, elapsed / 1.2))
         return t * t * (3 - 2 * t)
@@ -161,7 +162,7 @@ struct TrafficTrendView: View {
                 legend("上传", color: DashboardTheme.cyan)
                 legend("下载", color: DashboardTheme.purple)
             }
-            TimelineView(.animation(minimumInterval: 1 / 60, paused: !animate || points.isEmpty)) { timeline in
+            TimelineView(.animation(minimumInterval: 1 / 60, paused: !animate || (points.isEmpty && retirement == nil))) { timeline in
                 let date = animate ? timeline.date : now
                 let ceiling = animate ? scale(at: date) : maximum
                 let reveal = animate ? eased(date.timeIntervalSince(sampleArrived)) : 1
@@ -172,37 +173,18 @@ struct TrafficTrendView: View {
                         grid.move(to: CGPoint(x: 0, y: y)); grid.addLine(to: CGPoint(x: size.width, y: y))
                         context.stroke(grid, with: .color(.primary.opacity(index == 6 ? 0.13 : 0.08)), lineWidth: 0.5)
                     }
-                    for (key, color) in [(\TrafficTrendSample.upload, DashboardTheme.cyan), (\TrafficTrendSample.download, DashboardTheme.purple)] {
-                        var line = Path()
-                        var previous: TrafficTrendSample?
-                        var previousPosition: CGPoint?
-                        for point in points {
-                            let age = date.timeIntervalSince(point.date)
-                            let x = 2 + (1 - age / TrafficTrend.duration) * max(0, size.width - 4)
-                            let y = size.height - 3 - point[keyPath: key] / max(1, ceiling) * max(0, size.height - 6)
-                            var position = CGPoint(x: x, y: y)
-                            if let previousPosition, previous?.segment == point.segment {
-                                if point.id == points.last?.id {
-                                    position.x = previousPosition.x + (position.x - previousPosition.x) * reveal
-                                    position.y = previousPosition.y + (position.y - previousPosition.y) * reveal
-                                }
-                                // Horizontal tangents make a smooth, bounded curve: no
-                                // spline overshoot, invented peaks or bridges across gaps.
-                                let middle = (previousPosition.x + position.x) / 2
-                                line.addCurve(to: position,
-                                    control1: CGPoint(x: middle, y: previousPosition.y),
-                                    control2: CGPoint(x: middle, y: position.y))
-                            } else {
-                                line.move(to: position)
-                                context.fill(Path(ellipseIn: CGRect(x: position.x - 1.2, y: position.y - 1.2, width: 2.4, height: 2.4)), with: .color(color))
-                            }
-                            previous = point; previousPosition = position
-                        }
-                        context.stroke(line, with: .color(color), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+                    if let retirement, animate {
+                        var old = context
+                        old.opacity = 1 - retirement.progress(at: timeline.date)
+                        draw(retirement.samples, date: retirement.displayDate, ceiling: retirement.ceiling,
+                             reveal: 1, context: old, size: size)
                     }
+                    var current = context
+                    if let retirement, animate { current.opacity = retirement.progress(at: timeline.date) }
+                    draw(points, date: date, ceiling: ceiling, reveal: reveal, context: current, size: size)
                 }.clipped()
             }.overlay {
-                if points.isEmpty { Text(emptyTitle).font(AppFont.caption).foregroundStyle(DashboardTheme.muted) }
+                if points.isEmpty && retirement == nil { Text(emptyTitle).font(AppFont.caption).foregroundStyle(DashboardTheme.muted) }
             }
         }.padding(.top, 7)
             .overlay(alignment: .top) { Rectangle().fill(Color.primary.opacity(0.1)).frame(height: 0.5) }
@@ -211,9 +193,52 @@ struct TrafficTrendView: View {
                 let date = Date()
                 scaleFrom = scale(at: date); scaleTo = value; scaleChanged = date
             }
+            .onChange(of: trend) { old, new in
+                if animate, old.pausedAt != nil, new.pausedAt == nil {
+                    retirement = TrafficTrendRetirement(previous: old, resumedAt: Date())
+                } else if new.pausedAt != nil { retirement = nil }
+            }
+            .onChange(of: animate) { _, enabled in if !enabled { retirement = nil } }
+            .task(id: retirement?.startedAt) {
+                guard retirement != nil else { return }
+                do { try await Task.sleep(for: .seconds(TrafficTrendRetirement.duration)) }
+                catch { return }
+                retirement = nil
+            }
             .onChange(of: points.last?.id) { _, _ in sampleArrived = Date() }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("近五分钟代理流量趋势，每五秒采样，显示一分钟均速。最近一分钟峰值 " + peakLabel + "。\(points.count) 个有效采样点。" + (points.isEmpty ? emptyTitle : ""))
+    }
+    private func draw(_ points: [TrafficTrendSample], date: Date, ceiling: Double, reveal: Double,
+                      context: GraphicsContext, size: CGSize) {
+        for (key, color) in [(\TrafficTrendSample.upload, DashboardTheme.cyan), (\TrafficTrendSample.download, DashboardTheme.purple)] {
+            var line = Path()
+            var previous: TrafficTrendSample?
+            var previousPosition: CGPoint?
+            for point in points {
+                let age = date.timeIntervalSince(point.date)
+                let x = 2 + (1 - age / TrafficTrend.duration) * max(0, size.width - 4)
+                let y = size.height - 3 - point[keyPath: key] / max(1, ceiling) * max(0, size.height - 6)
+                var position = CGPoint(x: x, y: y)
+                if let previousPosition, previous?.segment == point.segment {
+                    if point.id == points.last?.id {
+                        position.x = previousPosition.x + (position.x - previousPosition.x) * reveal
+                        position.y = previousPosition.y + (position.y - previousPosition.y) * reveal
+                    }
+                    // Horizontal tangents make a smooth, bounded curve: no
+                    // spline overshoot, invented peaks or bridges across gaps.
+                    let middle = (previousPosition.x + position.x) / 2
+                    line.addCurve(to: position,
+                        control1: CGPoint(x: middle, y: previousPosition.y),
+                        control2: CGPoint(x: middle, y: position.y))
+                } else {
+                    line.move(to: position)
+                    context.fill(Path(ellipseIn: CGRect(x: position.x - 1.2, y: position.y - 1.2, width: 2.4, height: 2.4)), with: .color(color))
+                }
+                previous = point; previousPosition = position
+            }
+            context.stroke(line, with: .color(color), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+        }
     }
     private func legend(_ title: String, color: Color) -> some View {
         HStack(spacing: 4) {

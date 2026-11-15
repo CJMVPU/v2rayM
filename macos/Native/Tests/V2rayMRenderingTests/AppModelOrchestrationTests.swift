@@ -170,7 +170,7 @@ private final class RuntimeFixtureClock: NativeClock, @unchecked Sendable {
     func testEmptyLogPollDoesNotRepublishUnchangedLogDocument() async {
         let (model, _, _, _, _, _) = await fixture()
         var publications = 0
-        let observation = model.$logs.dropFirst().sink { _ in publications += 1 }
+        let observation = model.logState.$entries.dropFirst().sink { _ in publications += 1 }
         _ = try? await model.refresh(); await model.waitForObservations()
         XCTAssertNil(model.observationErrors["logs"])
         XCTAssertEqual(publications, 0)

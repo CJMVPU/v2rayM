@@ -29,7 +29,7 @@ struct ContentView: View {
                 switch page {
                 case .home: homePage
                 case .profiles: profilePage
-                case .logs: LogConsole(entries: model.logs)
+                case .logs: ObservedLogConsole(state: model.logState)
                 case .settings: settingsPage
                 }
             }

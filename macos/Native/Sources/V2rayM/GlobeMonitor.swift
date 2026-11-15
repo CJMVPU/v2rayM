@@ -3,17 +3,27 @@ import V2rayMKit
 
 /// DNS is resolved through the Mac's configured resolver. Coordinates are local
 /// DB-IP estimates, not packet routes or proof of a CDN's serving location.
-private actor GlobeResolver {
+private final class GlobeResolver: @unchecked Sendable {
     private var database: GlobeGeoDatabase?
     private var loaded = false
-    func resolve(_ host: String) -> GlobePlace? {
+    private let lock = NSLock()
+    private let executor = BoundedLookupExecutor()
+    private func loadDatabase() -> GlobeGeoDatabase? {
+        lock.lock(); defer { lock.unlock() }
         if !loaded {
+            database = Bundle.module.url(forResource: "Globe", withExtension: nil)
+                .flatMap { try? GlobeGeoDatabase(directory: $0) }
             loaded = true
-            if let directory = Bundle.module.url(forResource: "Globe", withExtension: nil) {
-                database = try? GlobeGeoDatabase(directory: directory)
-            }
         }
-        guard let database else { return nil }
+        return database
+    }
+    func resolve(_ host: String) async -> GlobePlace? {
+        await executor.run { [self] in
+            guard let database = loadDatabase() else { return nil }
+            return Self.lookup(host, database: database)
+        }
+    }
+    private static func lookup(_ host: String, database: GlobeGeoDatabase) -> GlobePlace? {
         var place: GlobePlace?
         if GlobeGeoDatabase.addressBytes(host) != nil { place = database.lookup(host) }
         else if !host.hasSuffix(".local") && !host.hasSuffix(".lan") && host.contains(".") {
@@ -54,6 +64,7 @@ private actor GlobeResolver {
         let nextSession = (state.runningProfileId ?? "") + "|" + (state.coreStartedAt ?? "")
         if session != nextSession {
             session = nextSession; connections = []
+            lookups.values.forEach { $0.cancel() }; lookups.removeAll()
         }
         let address = node?.address ?? ""
         if address != nodeAddress {
@@ -76,7 +87,7 @@ private actor GlobeResolver {
             let host = item.host
             lookups[host] = Task { [weak self, resolver] in
                 let place = await resolver.resolve(host)
-                guard !Task.isCancelled, let self else { return }
+                guard !Task.isCancelled, let self, self.session == nextSession else { return }
                 let updated = self.connections.map { item in
                     var copy = item; if copy.host == host { copy.place = place }; return copy
                 }

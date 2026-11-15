@@ -21,6 +21,19 @@ final class TrustedCoreStoreTests: XCTestCase {
         try JSONSerialization.data(withJSONObject: manifest).write(to: stage.appendingPathComponent("manifest.json"))
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: stage.appendingPathComponent("manifest.json").path)
     }
+    func testFileDigestStreamsAcrossChunksAndRejectsUnsafeInputs() throws {
+        let directory = try root(), file = directory.appendingPathComponent("core")
+        let bytes = Data((0..<(64 * 1024 * 3 + 17)).map { UInt8($0 % 251) })
+        try bytes.write(to: file)
+        XCTAssertEqual(try OfficialCorePolicy.hashFile(file, maxSize: bytes.count), OfficialCorePolicy.hash(bytes))
+        XCTAssertThrowsError(try OfficialCorePolicy.hashFile(file, maxSize: bytes.count - 1))
+        let link = directory.appendingPathComponent("link")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: file)
+        XCTAssertThrowsError(try OfficialCorePolicy.hashFile(link))
+        XCTAssertThrowsError(try OfficialCorePolicy.hashFile(directory))
+        try Data().write(to: file)
+        XCTAssertThrowsError(try OfficialCorePolicy.hashFile(file))
+    }
     func testOnlyFixedOfficialRepositoriesAndHostArchitectureAreAccepted() throws {
         let good = "https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-macos-arm64-v8a.zip"
         #if arch(arm64)

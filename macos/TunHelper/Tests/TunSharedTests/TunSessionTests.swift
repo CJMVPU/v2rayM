@@ -33,6 +33,35 @@ final class TunSessionTests: XCTestCase {
     func prepared() -> PreparedLaunch {
         PreparedLaunch(directory: temporary, executable: URL(fileURLWithPath: "/bin/sleep"), arguments: ["30"], environment: [:])
     }
+    func testDecodedRequestPreservesPayloadAndSessionBehavior() throws {
+        var request = HelperRequest(action: "start")
+        request.config = Data("fixture".utf8)
+        request.resources = ["geo.dat": Data(repeating: 7, count: 128 * 1024)]
+        let decoded = try DecodedHelperRequest(data: JSONEncoder().encode(request))
+        let core = FakeCore()
+        let session = TunSession(limiter: SlotLimiter(), prepare: { received in
+            XCTAssertEqual(received.config, request.config)
+            XCTAssertEqual(received.resources, request.resources)
+            return self.prepared()
+        }, launch: { _, _ in core })
+        XCTAssertTrue(session.handle(decoded).success)
+        XCTAssertEqual(session.handle(try DecodedHelperRequest(data: data("unknown"))).code, "action_not_allowed")
+        let invalid = session.handle(Data("not json".utf8))
+        XCTAssertEqual(invalid.code, "helper_operation_failed")
+        XCTAssertEqual(invalid.state, "running")
+        XCTAssertTrue(session.handle(try DecodedHelperRequest(data: data("stop"))).success)
+    }
+    func testWireLimitIsEnforcedBeforeDecoding() throws {
+        let session = TunSession(limiter: SlotLimiter(), prepare: { _ in XCTFail("must not launch"); return self.prepared() })
+        let oversized = Data(repeating: 32, count: HelperContract.wireBytes + 1)
+        XCTAssertThrowsError(try DecodedHelperRequest(data: oversized)) { error in
+            XCTAssertEqual((error as? HelperFailure)?.description, "request_too_large")
+        }
+        let response = session.handle(oversized)
+        XCTAssertEqual(response.code, "request_too_large")
+        XCTAssertEqual(response.state, "idle")
+        XCTAssertFalse(response.success)
+    }
     func testDisconnectStopsOnlyTheOwnedCoreAndRemovesPrivateConfiguration() throws {
         let core = FakeCore()
         let session = TunSession(limiter: SlotLimiter(), prepare: { _ in self.prepared() }, launch: { _, _ in core })

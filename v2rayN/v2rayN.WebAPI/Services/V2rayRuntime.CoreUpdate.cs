@@ -1015,22 +1015,10 @@ public sealed partial class V2rayRuntime
     }
 
     private static string? FindCoreExecutable(CoreInfo coreInfo, string directory) =>
-        (coreInfo.CoreExes ?? [])
-            .Select(name => Path.Combine(directory, Utils.GetExeName(name)))
-            .FirstOrDefault(File.Exists);
+        CoreUpdateFiles.FindCoreExecutable(coreInfo, directory);
 
-    internal static void RemoveSupersededCoreExecutables(CoreInfo info, string candidate, string package)
-    {
-        var replacement = FindCoreExecutable(info, package)
-            ?? throw new InvalidDataException("The replacement package has no core executable.");
-        foreach (var name in info.CoreExes ?? [])
-        {
-            var fileName = Utils.GetExeName(name);
-            if (fileName == Path.GetFileName(replacement)) continue;
-            var oldAlias = Path.Combine(candidate, fileName);
-            if (File.Exists(oldAlias)) File.Delete(oldAlias);
-        }
-    }
+    internal static void RemoveSupersededCoreExecutables(CoreInfo info, string candidate, string package) =>
+        CoreUpdateFiles.RemoveSupersededCoreExecutables(info, candidate, package);
 
     private static bool IsCurrentPlatformDownloadSupported(CoreInfo coreInfo)
     {
@@ -1108,18 +1096,8 @@ public sealed partial class V2rayRuntime
             : Path.GetExtension(path);
     }
 
-    private static void CopyCoreDirectory(string sourceDirectory, string destinationDirectory)
-    {
-        Directory.CreateDirectory(destinationDirectory);
-        foreach (var sourceFile in Directory.EnumerateFiles(sourceDirectory, "*", SearchOption.TopDirectoryOnly))
-        {
-            File.Copy(sourceFile, Path.Combine(destinationDirectory, Path.GetFileName(sourceFile)), overwrite: true);
-        }
-        foreach (var sourceSubdirectory in Directory.EnumerateDirectories(sourceDirectory, "*", SearchOption.TopDirectoryOnly))
-        {
-            CopyCoreDirectory(sourceSubdirectory, Path.Combine(destinationDirectory, Path.GetFileName(sourceSubdirectory)));
-        }
-    }
+    private static void CopyCoreDirectory(string sourceDirectory, string destinationDirectory) =>
+        CoreUpdateFiles.CopyCoreDirectory(sourceDirectory, destinationDirectory);
 
     private void CleanupCoreUpdateStage(CoreUpdateStage? stage)
     {
@@ -1338,17 +1316,8 @@ public sealed partial class V2rayRuntime
         _ => "maintenance.coreNames.other",
     };
 
-    internal static void CopyLatestGeoFilesForApply(string installPath, string stagingPath)
-    {
-        if (!Directory.Exists(installPath))
-        {
-            return;
-        }
-        foreach (var source in Directory.EnumerateFiles(installPath, "geo*", SearchOption.TopDirectoryOnly))
-        {
-            File.Copy(source, Path.Combine(stagingPath, Path.GetFileName(source)), overwrite: true);
-        }
-    }
+    internal static void CopyLatestGeoFilesForApply(string installPath, string stagingPath) =>
+        CoreUpdateFiles.CopyLatestGeoFilesForApply(installPath, stagingPath);
 
     internal sealed record CoreUpdateStage(ECoreType CoreType, string InstallPath, string ArchivePath, string PackagePath, string VersionOutput, string? PrivilegedToken = null);
     private sealed record CoreUpdateBatchCheck(ECoreType CoreType, CoreUpdateCheckResult Result)
@@ -1360,86 +1329,4 @@ public sealed partial class V2rayRuntime
     }
     private sealed record CoreUpdatePrepareResult(CoreUpdateStage? Stage, UpdateResult Check);
     private sealed record CoreUpdateApplyResult(bool Success, bool RolledBack, bool CoreWasRunning, string Detail, string? Version = null, bool AwaitingValidation = false);
-}
-
-internal static class CoreUpdateRuntimePolicy
-{
-    public static bool IsTargetRunning(ECoreType target, ECoreType runningCore, DateTimeOffset? startedAt) =>
-        startedAt is not null && target == runningCore;
-}
-
-internal static class CoreUpdateWorkflow
-{
-    internal const string CommittedUpdateUnconfirmedDetail =
-        "The new Core was already committed and has been retained in both update stores. " +
-        "Final acknowledgement was interrupted; runtime health still requires confirmation. No rollback was performed.";
-    public static void RestorePreviousDirectory(
-        string installPath,
-        string backupPath,
-        bool candidateInstalled,
-        bool hadInstalledCore)
-    {
-        if (candidateInstalled && Directory.Exists(installPath))
-        {
-            Directory.Delete(installPath, recursive: true);
-        }
-        if (hadInstalledCore && Directory.Exists(backupPath) && !Directory.Exists(installPath))
-        {
-            Directory.Move(backupPath, installPath);
-        }
-    }
-
-    public static async Task<CoreUpdateRollbackResult> RollBackAndRestoreAsync(
-        Func<Task> restoreFilesAsync,
-        Func<Task> initializePreviousCoreAsync,
-        bool wasRunning,
-        Func<Task<bool>> restartPreviousCoreAsync,
-        Func<Task>? rollbackTrustedCoreAsync = null)
-    {
-        if (rollbackTrustedCoreAsync is not null)
-        {
-            try { await rollbackTrustedCoreAsync(); }
-            catch (MacHelperUpdateException exception) when (exception.Code == "update_already_committed")
-            {
-                // The helper's durable commit cannot be undone. Leave the matching
-                // local candidate and runtime untouched; commit alone is not health.
-                return new CoreUpdateRollbackResult(false, false, UpdateCommitted: true);
-            }
-        }
-        await restoreFilesAsync();
-        await initializePreviousCoreAsync();
-        var restarted = !wasRunning || await restartPreviousCoreAsync();
-        return new CoreUpdateRollbackResult(FilesRestored: true, CoreRestarted: restarted);
-    }
-
-    public static async Task<TResult> StageThenApplyAsync<TStage, TResult>(
-        Func<Task<TStage>> stageAsync,
-        Func<TStage, Task<TResult>> applyAsync)
-    {
-        var staged = await stageAsync();
-        return await applyAsync(staged);
-    }
-
-    public static async Task<TResult> StageAllThenApplyAsync<TTarget, TStage, TResult>(
-        IReadOnlyList<TTarget> targets,
-        Func<TTarget, Task<TStage>> stageAsync,
-        Func<IReadOnlyList<TStage>, Task<TResult>> applyAsync,
-        Func<Task>? beforeApplyAsync = null)
-    {
-        var staged = new List<TStage>(targets.Count);
-        foreach (var target in targets)
-        {
-            staged.Add(await stageAsync(target));
-        }
-        if (beforeApplyAsync is not null)
-        {
-            await beforeApplyAsync();
-        }
-        return await applyAsync(staged);
-    }
-}
-
-internal sealed record CoreUpdateRollbackResult(bool FilesRestored, bool CoreRestarted, bool UpdateCommitted = false)
-{
-    public bool Completed => !UpdateCommitted && FilesRestored && CoreRestarted;
 }

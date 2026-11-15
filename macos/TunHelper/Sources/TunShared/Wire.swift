@@ -25,6 +25,16 @@ public struct HelperRequest: Codable {
     public init(action: String) { self.action = action }
 }
 
+/// A decoded request whose original wire representation has passed the size limit.
+/// Keeping construction at the wire boundary lets dispatch reuse large resource snapshots.
+public struct DecodedHelperRequest {
+    public let request: HelperRequest
+    public init(data: Data) throws {
+        guard data.count <= HelperContract.wireBytes else { throw HelperFailure("request_too_large") }
+        request = try JSONDecoder().decode(HelperRequest.self, from: data)
+    }
+}
+
 public struct HelperResponse: Codable {
     public var success: Bool
     public var code: String

@@ -85,6 +85,7 @@ public sealed class LogBuffer
             // A new backend session has its own sequence. Return its available history
             // if a reconnecting client presents a cursor from the previous session.
             var after = afterSequence > _sequence ? 0 : Math.Max(0, afterSequence);
+            if (after == _sequence) return new LogTailView([], _sequence, _generation);
             var items = _items.Where(item => item.Sequence > after).TakeLast(Math.Clamp(limit, 1, Capacity)).ToArray();
             return new LogTailView(items, _sequence, _generation);
         }

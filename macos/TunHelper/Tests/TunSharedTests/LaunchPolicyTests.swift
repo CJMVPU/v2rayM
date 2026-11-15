@@ -32,6 +32,22 @@ final class LaunchPolicyTests: XCTestCase {
         XCTAssertNil((output["log"] as? [String: Any])?["output"])
         XCTAssertFalse(result.environment.keys.contains(where: { $0.hasPrefix("DYLD_") }))
     }
+    func testVerifiedSourceIsCheckedAgainAfterCopying() throws {
+        let file = temporary.appendingPathComponent("verified-core")
+        let approvedBytes = Data(repeating: 3, count: 128 * 1024 + 1)
+        try approvedBytes.write(to: file)
+        let digest = OfficialCorePolicy.hash(approvedBytes)
+        let policy = LaunchPolicy(bundle: bundle, stateRoot: temporary.appendingPathComponent("state"),
+            validate: { _, _ in XCTFail("verified core uses digest") },
+            verifiedCore: { _ in VerifiedCoreSource(url: file, sha256: digest) })
+        let prepared = try policy.prepare(request())
+        XCTAssertEqual(try Data(contentsOf: prepared.executable), approvedBytes)
+        try Data("replaced after source approval".utf8).write(to: file)
+        XCTAssertThrowsError(try policy.prepare(request())) { error in
+            XCTAssertEqual((error as? HelperFailure)?.description, "installed_core_digest_mismatch")
+        }
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: temporary.appendingPathComponent("state").path).count, 1)
+    }
     func testUnknownCoreCannotSupplyAnExecutablePath() throws {
         var input = try request(); input.core = "/bin/sh"
         XCTAssertThrowsError(try policy().prepare(input))

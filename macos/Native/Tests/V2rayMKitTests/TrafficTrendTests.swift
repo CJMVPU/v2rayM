@@ -110,4 +110,28 @@ final class TrafficTrendTests: XCTestCase {
         XCTAssertEqual(trend.samples.count, 1)
     }
 
+    func testResumeRetirementKeepsFrozenGeometryButNotLiveStatistics() throws {
+        var trend = TrafficTrend()
+        trend.record(try state(at: 1000), now: Date(timeIntervalSince1970: 1000))
+        trend.record(try state(at: 1005, running: false), now: Date(timeIntervalSince1970: 1005))
+        let resume = Date(timeIntervalSince1970: 2000)
+        let retirement = try XCTUnwrap(TrafficTrendRetirement(previous: trend, resumedAt: resume))
+        trend.record(try state(at: 2000, started: 1999, upload: 0, download: 0), now: resume)
+        XCTAssertEqual(retirement.samples.count, 1)
+        XCTAssertEqual(retirement.displayDate, Date(timeIntervalSince1970: 1005))
+        XCTAssertEqual(retirement.progress(at: resume.addingTimeInterval(-1)), 0)
+        XCTAssertEqual(retirement.progress(at: resume.addingTimeInterval(0.6)), 0.5, accuracy: 0.00001)
+        XCTAssertEqual(retirement.progress(at: resume.addingTimeInterval(2)), 1)
+        XCTAssertEqual(trend.samples.count, 1)
+        XCTAssertEqual(trend.peaks(at: resume), [0, 0])
+        XCTAssertNil(TrafficTrendRetirement(previous: trend, resumedAt: resume))
+    }
+
+    func testShortPauseDoesNotFadeUnexpiredHistory() throws {
+        var trend = TrafficTrend()
+        trend.record(try state(at: 1000), now: Date(timeIntervalSince1970: 1000))
+        trend.record(try state(at: 1005, running: false), now: Date(timeIntervalSince1970: 1005))
+        XCTAssertNil(TrafficTrendRetirement(previous: trend, resumedAt: Date(timeIntervalSince1970: 1010)))
+    }
+
 }

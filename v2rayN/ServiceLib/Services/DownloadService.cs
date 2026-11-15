@@ -25,16 +25,10 @@ public class DownloadService
     {
         try
         {
-            await DownloaderHelper.Instance.DownloadDataAsync4Speed(webProxy,
-                  url,
-                  OnProgress,
-                  cancellationToken);
-
-            void OnProgress(string message)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                updateFunc.Invoke(false, $"{message}");
-            }
+            await DownloadProgressPump.RunAsync(
+                (report, token) => DownloaderHelper.Instance.DownloadDataAsync4Speed(webProxy, url, report, token),
+                message => updateFunc(false, message),
+                cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

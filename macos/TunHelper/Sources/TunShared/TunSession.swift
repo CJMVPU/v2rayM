@@ -138,10 +138,18 @@ public final class TunSession {
     }
 
     public func handle(_ data: Data) -> HelperResponse {
+        do { return handle(try DecodedHelperRequest(data: data)) }
+        catch {
+            lock.lock(); defer { lock.unlock() }
+            return HelperResponse(success: false,
+                code: (error as? HelperFailure)?.description ?? "helper_operation_failed", state: state)
+        }
+    }
+
+    public func handle(_ decoded: DecodedHelperRequest) -> HelperResponse {
         lock.lock(); defer { lock.unlock() }
         do {
-            guard data.count <= HelperContract.wireBytes else { throw HelperFailure("request_too_large") }
-            let request = try JSONDecoder().decode(HelperRequest.self, from: data)
+            let request = decoded.request
             refreshExited()
             switch request.action {
             case "status": break

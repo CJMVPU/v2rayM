@@ -6,14 +6,28 @@ import V2rayMKit
 @MainActor final class AppModel: ObservableObject {
     let dashboard = GlobeMonitor()
     @Published var homeRequest = 0
-    @Published var lastStatusRefresh: Date?
-    @Published var status: RuntimeStatus?
-    @Published private(set) var trafficTrend = TrafficTrend()
+    var lastStatusRefresh: Date?
+    let telemetry = RuntimeTelemetry()
+    var status: RuntimeStatus? {
+        get { telemetry.status }
+        set {
+            var before = telemetry.status; before?.traffic = nil
+            var after = newValue; after?.traffic = nil
+            if before != after { objectWillChange.send() }
+            if telemetry.status != newValue { telemetry.status = newValue }
+        }
+    }
+    var trafficTrend: TrafficTrend { telemetry.trend }
     @Published var profiles: [Profile] = []
-    @Published var logs: [LogEntry] = []
+    let logState = LogObservation()
+    var logs: [LogEntry] { get { logState.entries } set { logState.entries = newValue } }
     @Published var routes: [RoutingProfile] = []
     @Published var operations: [String] = []
-    @Published var moduleProgress: [ModuleUpdateProgress] = []
+    let moduleObservation = ModuleObservation()
+    var moduleProgress: [ModuleUpdateProgress] {
+        get { moduleObservation.progress }
+        set { if moduleObservation.progress != newValue { moduleObservation.progress = newValue } }
+    }
     @Published var moduleScope: ModuleUpdateScope?
     @Published var moduleUpdateActive = false
     @Published var moduleUpdateError: String?
@@ -271,7 +285,9 @@ import V2rayMKit
             async let tasks: [String] = api.value("/api/operations")
             let snapshot = try await (updates, tasks)
             guard connection.isCurrent(revision: revision, recoveryGeneration: generation) else { return false }
-            moduleProgress = snapshot.0; operations = snapshot.1; moduleUpdateError = nil
+            moduleProgress = snapshot.0
+            if operations != snapshot.1 { operations = snapshot.1 }
+            if moduleUpdateError != nil { moduleUpdateError = nil }
             finishModuleObservation()
             scheduleObservations(api: api, force: forceMetadata)
             return false
@@ -282,7 +298,7 @@ import V2rayMKit
         guard connection.isCurrent(revision: revision, recoveryGeneration: generation) else { return false }
         let now = clock.now()
         status = state; lastStatusRefresh = now; clearObservationError("runtime")
-        trafficTrend.record(state, now: now)
+        telemetry.record(state, now: now)
         scheduleObservations(api: api, force: forceMetadata)
         return true
     }

@@ -30,3 +30,22 @@
 两个 .NET 测试项目共享 ServiceLib 构建产物，首次并发执行发生资源文件争用；后续按顺序执行。当前 SDK 位于 `artifacts/releases/verification-0.4.1/dotnet/dotnet`；跨进程 WebAPI 测试还需将该目录加入 PATH，否则子进程找不到 dotnet，修正环境后重跑。
 
 本次不安装到 Applications、不切换系统代理或真实 TUN、不修改 v2rayN 数据。版本保持 VERSION 的 0.4.4；修复通过 Git 提交交付，构建为本机验证产物，不是新版本公开发布或公证发行。
+
+
+## 同日后续：用户授权一次性落实改进
+
+上表候选现已全部实施（分阶段职责抽取，不重写整个应用）：
+
+- DNS 使用 `BoundedLookupExecutor`：最多两项后台阻塞解析、三秒调用方超时，系统解析真正结束前继续占用槽位；数据库也在后台加载。保留 TTL，取消旧会话位置任务并阻止旧结果发布。
+- `RuntimeTelemetry`、`LogObservation`、`ModuleObservation` 将流量、日志、更新进度发布限定在对应消费者；非流量运行状态仍通知根模型，新鲜度仍由主页时间线判断。
+- 设置编辑拆成三种完整文档 draft、参数/DNS/路由字段子视图及共用绑定，保留未展示字段和原 API 保存流程。
+- `CoreFileDigest` 用 64 KiB 分块 SHA256，限制打开文件类型/大小，拒绝符号链接；可信源和私有执行副本的双重校验仍保留。
+- `DecodedHelperRequest` 只能从受 wire 大小限制的 Data 构造；正常 XPC 请求只解码一次，非法请求保留错误语义。
+- 日志 Tail 对最新游标直接返回空结果及当前 generation。
+- `DownloadProgressPump` 顺序等待异步进度回调，用有界 16 条队列保留最新快照，结束/取消等待在途回调，回调失败取消生产者。
+- 后端抽出 `EditorOptionsCatalog`、`CoreUpdateFiles`、`CoreUpdateWorkflow`、`V2rayRuntime.Subscriptions` 和 `ProfileMatcher`，保留原 façade、锁域及更新回滚时序。
+- 恢复时已过期的趋势画面使用独立快照与实时曲线交叉淡化 1.2 秒；过期点不再参与统计。短暂停未过期不触发退场，减少动态效果/隐藏窗口跳过动画。动画依据 coreRunning，避免 busy 状态使恢复边沿漏触发。
+
+验证证据在 `artifacts/reviews/2026-11-15-improvements/`：ServiceLib 156 项、WebAPI 484 项、helper 63 项通过；原生套件和离线截图回归另有日志。整包构建/签名/隔离回环以 `product/verification.json` 为准。第一次原生编译发现旧测试仍订阅已迁移的 `$logs`，将其迁至实际新观察对象后重跑通过。没有关闭测试或放宽产品边界。
+
+本轮仍保持 0.4.4；本机验证包不等于安装、公开发行、公证或真实 TUN 联网验收。DNS 无法强制中断系统 getaddrinfo；超时释放的是调用方等待，执行槽仍受限。性能收益未做长期量化基准，不声明具体 CPU/内存下降比例。

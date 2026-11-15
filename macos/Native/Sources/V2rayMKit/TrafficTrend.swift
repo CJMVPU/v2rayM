@@ -64,3 +64,27 @@ public struct TrafficTrend: Equatable, Sendable {
         return samples.filter { now.timeIntervalSince($0.date) <= Self.duration && $0.date <= now }
     }
 }
+
+/// A presentation-only snapshot: expired points never return to live statistics.
+public struct TrafficTrendRetirement: Sendable {
+    public static let duration: TimeInterval = 1.2
+    public let samples: [TrafficTrendSample]
+    public let displayDate: Date
+    public let startedAt: Date
+    public let ceiling: Double
+
+    public init?(previous: TrafficTrend, resumedAt: Date) {
+        guard let paused = previous.pausedAt else { return nil }
+        let points = previous.visible(at: paused)
+        guard points.contains(where: { resumedAt.timeIntervalSince($0.date) > TrafficTrend.duration }) else { return nil }
+        samples = points
+        displayDate = paused
+        startedAt = resumedAt
+        ceiling = max(1, (points.map { max($0.upload, $0.download) }.max() ?? 0) * 1.12)
+    }
+
+    public func progress(at date: Date) -> Double {
+        let t = min(1, max(0, date.timeIntervalSince(startedAt) / Self.duration))
+        return t * t * (3 - 2 * t)
+    }
+}

@@ -8,7 +8,7 @@ public struct APIEnvelope<Value: Decodable>: Decodable {
 }
 public struct SessionToken: Decodable { public var token: String }
 public struct Health: Decodable { public var status: String }
-public struct RuntimeStatus: Decodable {
+public struct RuntimeStatus: Decodable, Equatable {
     public var coreRunning: Bool
     public var currentProfileId: String?
     public var currentProfileName: String?

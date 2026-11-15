@@ -73,7 +73,7 @@ public struct LaunchPolicy {
             }
             // Verify the private copy actually executed, closing the user-writable bundle race.
             if let approved {
-                guard OfficialCorePolicy.hash(try Data(contentsOf: executable)) == approved.sha256 else {
+                guard try OfficialCorePolicy.hashFile(executable) == approved.sha256 else {
                     throw HelperFailure("installed_core_digest_mismatch")
                 }
             } else { try validate(executable, kind) }

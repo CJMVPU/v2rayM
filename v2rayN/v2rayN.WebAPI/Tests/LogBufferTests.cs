@@ -5,6 +5,20 @@ namespace v2rayN.WebAPI.Tests;
 public class LogBufferTests
 {
     [Test]
+    public async Task EmptyIncrementalPollStillReportsClearGeneration()
+    {
+        var logs = new LogBuffer();
+        var item = logs.Add("core", "old");
+        var generation = logs.Clear();
+        var tail = logs.Tail(item.Sequence, 100);
+        await tail.Items.Count.Should().BeEqualTo(0);
+        await tail.LatestSequence.Should().BeEqualTo(item.Sequence);
+        await tail.Generation.Should().BeEqualTo(generation);
+        var next = logs.Add("core", "new");
+        await logs.Tail(item.Sequence, 100).Items.Single().Sequence.Should().BeEqualTo(next.Sequence);
+    }
+
+    [Test]
     public async Task PathologicalFilterUsesOneBudgetAndDoesNotHoldTheWriteLock()
     {
         var logs = new LogBuffer();

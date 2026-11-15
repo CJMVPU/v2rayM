@@ -20,20 +20,20 @@ final class SessionEndpoint: NSObject, TunHelperProtocol {
                 return
             }
             let response: HelperResponse
-            if data.count <= HelperContract.wireBytes,
-               let request = try? JSONDecoder().decode(HelperRequest.self, from: data) {
+            if let decoded = try? DecodedHelperRequest(data: data) {
+                let request = decoded.request
                 if request.action == "cleanup-status" {
                     response = self.recovery.status(request.sessionToken)
                 } else if request.action == "start" {
                     if self.sessionToken == nil && self.recovery.begin(request.sessionToken) {
                         self.sessionToken = request.sessionToken
-                        response = self.session.handle(data)
+                        response = self.session.handle(decoded)
                     } else {
                         response = HelperResponse(success: false, code: "session_token_invalid", state: "unavailable")
                     }
                 } else if request.action.hasPrefix("update-") {
                     response = self.updates.handle(request, cancellation: self.cancellation)
-                } else { response = self.session.handle(data) }
+                } else { response = self.session.handle(decoded) }
             } else { response = self.session.handle(data) }
             reply((try? JSONEncoder().encode(response)) ?? Data())
         }

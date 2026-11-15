@@ -124,7 +124,7 @@ public final class TrustedCoreStore {
                 // that cleanup after a crash, only after verifying the new core.
                 let binary = current.appendingPathComponent("core")
                 try regularFile(binary, maxSize: 256 * 1024 * 1024)
-                guard OfficialCorePolicy.hash(try Data(contentsOf: binary)) == manifest.executableSHA256 else {
+                guard try OfficialCorePolicy.hashFile(binary) == manifest.executableSHA256 else {
                     throw HelperFailure("installed_core_digest_mismatch")
                 }
                 try directory(previous); try FileManager.default.removeItem(at: previous)
@@ -332,7 +332,7 @@ public final class TrustedCoreStore {
         guard FileManager.default.fileExists(atPath: current.path) else { return nil }
         let manifest = try read(current), executable = current.appendingPathComponent("core")
         try regularFile(executable, maxSize: 256 * 1024 * 1024)
-        guard manifest.kind == kind, OfficialCorePolicy.hash(try Data(contentsOf: executable)) == manifest.executableSHA256 else { throw HelperFailure("installed_core_digest_mismatch") }
+        guard manifest.kind == kind, try OfficialCorePolicy.hashFile(executable) == manifest.executableSHA256 else { throw HelperFailure("installed_core_digest_mismatch") }
         // An authenticated but affected old cache must not override the app's signed fix.
         // Validate the cache first, then let LaunchPolicy verify the bundled private copy.
         if OfficialCorePolicy.hasKnownDarwinBindingBug(manifest.version) { return nil }
@@ -349,7 +349,7 @@ public final class TrustedCoreStore {
                 if FileManager.default.fileExists(atPath: current.path) {
                     let manifest = try read(current), binary = current.appendingPathComponent("core")
                     try regularFile(binary, maxSize: 256 * 1024 * 1024)
-                    guard OfficialCorePolicy.hash(try Data(contentsOf: binary)) == manifest.executableSHA256 else { throw HelperFailure("installed_core_digest_mismatch") }
+                    guard try OfficialCorePolicy.hashFile(binary) == manifest.executableSHA256 else { throw HelperFailure("installed_core_digest_mismatch") }
                     response.coreVersion = manifest.version; response.verifiedSHA256 = manifest.executableSHA256
                 }
                 return response

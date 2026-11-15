@@ -12,12 +12,13 @@ enum DashboardTheme {
 
 struct HomeDashboard: View {
     @EnvironmentObject var model: AppModel
-    var body: some View { DashboardContent(monitor: model.dashboard).environmentObject(model) }
+    var body: some View { DashboardContent(monitor: model.dashboard, telemetry: model.telemetry).environmentObject(model) }
 }
 
 private struct DashboardContent: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject var monitor: GlobeMonitor
+    @ObservedObject var telemetry: RuntimeTelemetry
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var alpn = ""
     private var node: Profile? {

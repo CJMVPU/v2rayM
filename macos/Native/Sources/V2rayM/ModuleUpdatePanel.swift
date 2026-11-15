@@ -4,6 +4,16 @@ import V2rayMKit
 struct ModuleUpdatePanel: View {
     @EnvironmentObject var model: AppModel
 
+    var body: some View { ModuleUpdateContent(observation: model.moduleObservation) }
+}
+
+@MainActor final class ModuleObservation: ObservableObject {
+    @Published var progress: [ModuleUpdateProgress] = []
+}
+
+private struct ModuleUpdateContent: View {
+    @EnvironmentObject var model: AppModel
+    @ObservedObject var observation: ModuleObservation
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
@@ -15,7 +25,7 @@ struct ModuleUpdatePanel: View {
                 }
             }
             ForEach(model.moduleTargets, id: \.self) { id in
-                let progress = model.moduleProgress.first(where: { $0.coreType == id })
+                let progress = observation.progress.first(where: { $0.coreType == id })
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
                         Text(ModuleUpdateNames.label(id))

@@ -44,7 +44,10 @@ gaps of 12 seconds or more break the line. A different running profile or core
 start timestamp starts a new line segment while preserving recent history;
 switching UI pages also preserves history. Stopping or disabling statistics
 freezes the chart clock. When sampling resumes, the real five-minute window
-applies again, so points older than five minutes expire naturally. Both lines share one hidden axis; scale is determined from the five-minute
+applies again, so points older than five minutes expire naturally. On resume,
+a presentation-only snapshot of expired history crossfades into the live chart
+over 1.2 seconds; expired data never contributes to live peaks. Reduce Motion
+and hidden windows skip this transition. Both lines share one hidden axis; scale is determined from the five-minute
 observed samples with headroom. The header displays the actual combined
 upload/download peak over the last minute, without axis headroom. The chart
 uses its full width, seven horizontal grid lines and no endpoint captions.
