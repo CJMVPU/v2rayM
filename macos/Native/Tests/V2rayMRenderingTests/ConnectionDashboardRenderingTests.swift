@@ -5,6 +5,49 @@ import AppKit
 @testable import V2rayM
 
 final class ConnectionDashboardRenderingTests: XCTestCase {
+    @MainActor func testTrendLeftEdgeKeepsVisibleStrokeWhenOldestSampleExpires() throws {
+        AppFont.register()
+        var trend = TrafficTrend()
+        for (timestamp, upload, download) in [("1970-01-01T00:16:40Z", 6000, 12000),
+                                               ("1970-01-01T00:16:45Z", 12000, 6000)] {
+            let object: [String: Any] = ["coreRunning": true, "xrayAvailable": true, "runtimeState": "running",
+                "runningProfileId": "fixture", "coreStartedAt": "1970-01-01T00:15:00Z", "trafficEnabled": true,
+                "traffic": ["proxyUp": upload, "proxyDown": download, "directUp": 0, "directDown": 0,
+                            "sampleSeconds": 60, "sampledAt": timestamp]]
+            trend.record(try JSONDecoder().decode(RuntimeStatus.self, from: JSONSerialization.data(withJSONObject: object)),
+                         now: try XCTUnwrap(DashboardStatus.date(timestamp)))
+        }
+        func render(_ time: Double, name: String) throws -> Int {
+            let host = NSHostingView(rootView: TrafficTrendView(trend: trend, now: Date(timeIntervalSince1970: time),
+                animate: false, emptyTitle: "").frame(width: 550, height: 130).background(Color.black)
+                .environment(\.colorScheme, .dark))
+            host.frame = CGRect(x: 0, y: 0, width: 550, height: 130)
+            host.appearance = NSAppearance(named: .darkAqua)
+            host.layoutSubtreeIfNeeded()
+            let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: bitmap)
+            if let output = ProcessInfo.processInfo.environment["V2RAYM_TREND_RENDER_DIRECTORY"] {
+                try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+                    .write(to: URL(fileURLWithPath: output).appendingPathComponent(name + ".png"))
+            }
+            var strokePixels = 0
+            for x in 0..<(bitmap.pixelsWide / 16) {
+                for y in 0..<bitmap.pixelsHigh {
+                    guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { continue }
+                    if color.blueComponent > 0.25 && color.blueComponent > color.redComponent * 1.2 {
+                        strokePixels += 1
+                    }
+                }
+            }
+            return strokePixels
+        }
+        let before = try render(1299.9, name: "before-left-edge")
+        let after = try render(1300.1, name: "after-left-edge")
+        XCTAssertGreaterThan(before, 20)
+        XCTAssertGreaterThanOrEqual(Double(after), Double(before) * 0.85,
+            "Crossing the time-window edge must clip the curve gradually, not remove its visible span")
+    }
+
     @MainActor func testRecentConnectionsSnapshot() throws {
         guard let output = ProcessInfo.processInfo.environment["V2RAYM_RECENT_RENDER_DIRECTORY"] else {
             throw XCTSkip("Set V2RAYM_RECENT_RENDER_DIRECTORY for recent-connection layout snapshots")

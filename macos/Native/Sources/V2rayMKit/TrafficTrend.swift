@@ -11,6 +11,9 @@ public struct TrafficTrendSample: Equatable, Identifiable, Sendable {
 /// Stores the backend's rolling-average samples, not invented instantaneous rates.
 public struct TrafficTrend: Equatable, Sendable {
     public static let duration: TimeInterval = 300
+    // Normal sampling is every five seconds, but restarts/shorter intervals must
+    // not truncate a five-minute chart to a fixed 61 observations.
+    private static let maximumSamples = 1024
     public private(set) var samples: [TrafficTrendSample] = []
     public private(set) var pausedAt: Date?
     public func displayDate(at now: Date) -> Date { pausedAt ?? now }
@@ -28,7 +31,11 @@ public struct TrafficTrend: Equatable, Sendable {
             return
         }
         pausedAt = nil
-        samples.removeAll { now.timeIntervalSince($0.date) > Self.duration }
+        let cutoff = now.addingTimeInterval(-Self.duration)
+        if let first = samples.firstIndex(where: { $0.date >= cutoff }) {
+            // Keep one predecessor for the curve crossing the left clip edge.
+            samples.removeFirst(max(0, first - 1))
+        } else { samples.removeAll(keepingCapacity: true) }
         let identity = profile + "|" + start
         if session != identity {
             // The chart belongs to the app, not an individual core session.
@@ -49,7 +56,7 @@ public struct TrafficTrend: Equatable, Sendable {
         }
         interrupted = false
         samples.append(TrafficTrendSample(date: date, upload: rates[0], download: rates[1], segment: segment))
-        if samples.count > 61 { samples.removeFirst(samples.count - 61) }
+        if samples.count > Self.maximumSamples { samples.removeFirst(samples.count - Self.maximumSamples) }
     }
 
     /// Directional maxima of the existing five-second samples in (now - 60s, now].
@@ -63,6 +70,17 @@ public struct TrafficTrend: Equatable, Sendable {
         let now = displayDate(at: now)
         return samples.filter { now.timeIntervalSince($0.date) <= Self.duration && $0.date <= now }
     }
+
+    /// Geometry may start outside the clip rectangle. Statistics continue to use
+    /// only in-window samples; never bridge a missing interval or another session.
+    public func plotSamples(at now: Date) -> [TrafficTrendSample] {
+        let points = visible(at: now)
+        guard let first = points.first, let index = samples.firstIndex(where: { $0.id == first.id }), index > 0 else { return points }
+        let predecessor = samples[index - 1]
+        guard predecessor.segment == first.segment,
+              first.date.timeIntervalSince(predecessor.date) < 12 else { return points }
+        return [predecessor] + points
+    }
 }
 
 /// A presentation-only snapshot: expired points never return to live statistics.
@@ -75,7 +93,7 @@ public struct TrafficTrendRetirement: Sendable {
 
     public init?(previous: TrafficTrend, resumedAt: Date) {
         guard let paused = previous.pausedAt else { return nil }
-        let points = previous.visible(at: paused)
+        let points = previous.plotSamples(at: paused)
         guard points.contains(where: { resumedAt.timeIntervalSince($0.date) > TrafficTrend.duration }) else { return nil }
         samples = points
         displayDate = paused

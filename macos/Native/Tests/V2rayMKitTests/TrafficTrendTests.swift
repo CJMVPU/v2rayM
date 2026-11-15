@@ -70,10 +70,11 @@ final class TrafficTrendTests: XCTestCase {
     func testCapacityAndTimeWindowRemainBoundedEvenWithoutNewSamples() throws {
         var trend = TrafficTrend()
         for time in 1000...1500 { trend.record(try state(at: Double(time)), now: Date(timeIntervalSince1970: Double(time))) }
-        XCTAssertEqual(trend.samples.count, 61)
+        XCTAssertEqual(trend.samples.count, 302) // Five minutes at 1 Hz, plus the clip-edge predecessor.
+        XCTAssertEqual(trend.visible(at: Date(timeIntervalSince1970: 1500)).count, 301)
         XCTAssertTrue(trend.visible(at: Date(timeIntervalSince1970: 1801)).isEmpty)
         trend.record(try state(at: 1801, running: false), now: Date(timeIntervalSince1970: 1801))
-        XCTAssertEqual(trend.samples.count, 61) // Stopping preserves bounded history.
+        XCTAssertEqual(trend.samples.count, 302) // Stopping preserves bounded history.
         trend.record(try state(at: 1802), now: Date(timeIntervalSince1970: 1802))
         XCTAssertEqual(trend.samples.count, 1)
     }
@@ -85,6 +86,45 @@ final class TrafficTrendTests: XCTestCase {
         XCTAssertEqual(trend.peaks(at: Date(timeIntervalSince1970: 1060)), [1, 50])
         XCTAssertEqual(trend.peaks(at: Date(timeIntervalSince1970: 1065)), [0, 0])
         XCTAssertEqual(trend.visible(at: Date(timeIntervalSince1970: 1065)).count, 2)
+    }
+
+    func testLeftEdgeRetainsCurvePredecessorWithoutKeepingExpiredStatistics() throws {
+        var trend = TrafficTrend()
+        for time in [1000.0, 1005, 1010] {
+            trend.record(try state(at: time), now: Date(timeIntervalSince1970: time))
+        }
+        let before = Date(timeIntervalSince1970: 1299.9)
+        let after = Date(timeIntervalSince1970: 1300.1)
+        XCTAssertEqual(trend.plotSamples(at: before), trend.plotSamples(at: after))
+        XCTAssertEqual(trend.visible(at: after).map(\.date), [1005.0, 1010].map(Date.init(timeIntervalSince1970:)))
+        XCTAssertEqual(trend.peaks(at: after), [0, 0])
+
+        // The periodic status update must not delete that rendering predecessor.
+        trend.record(try state(at: 1300), now: after)
+        XCTAssertEqual(trend.plotSamples(at: after).first?.date, Date(timeIntervalSince1970: 1000))
+        XCTAssertEqual(trend.plotSamples(at: Date(timeIntervalSince1970: 1305.1)).first?.date, Date(timeIntervalSince1970: 1005))
+    }
+
+    func testLeftEdgeNeverConnectsAcrossSessionOrMissingSamples() throws {
+        for differentSession in [false, true] {
+            var trend = TrafficTrend()
+            trend.record(try state(at: 1000), now: Date(timeIntervalSince1970: 1000))
+            let second = differentSession ? 1005.0 : 1020.0
+            trend.record(try state(at: second, profile: differentSession ? "b" : "a"), now: Date(timeIntervalSince1970: second))
+            let now = Date(timeIntervalSince1970: 1300.1)
+            XCTAssertEqual(trend.plotSamples(at: now), trend.visible(at: now))
+        }
+    }
+
+    func testStoppedHistoryRetainsLeftEdgeGeometry() throws {
+        var trend = TrafficTrend()
+        for time in stride(from: 1000.0, through: 1300.0, by: 5) {
+            trend.record(try state(at: time), now: Date(timeIntervalSince1970: time))
+        }
+        trend.record(try state(at: 1301, running: false), now: Date(timeIntervalSince1970: 1301))
+        let frozen = trend.plotSamples(at: Date(timeIntervalSince1970: 1301))
+        XCTAssertEqual(frozen.first?.date, Date(timeIntervalSince1970: 1000))
+        XCTAssertEqual(trend.plotSamples(at: Date(timeIntervalSince1970: 2000)), frozen)
     }
     func testPeaksExcludeFutureButRetainPreviousSessions() throws {
         var trend = TrafficTrend()

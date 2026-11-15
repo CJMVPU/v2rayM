@@ -148,7 +148,7 @@ struct TrafficTrendView: View {
         scaleFrom + (scaleTo - scaleFrom) * eased(date.timeIntervalSince(scaleChanged))
     }
     var body: some View {
-        let points = trend.visible(at: now)
+        let points = trend.plotSamples(at: now)
         let maximum = max(1, (points.map { max($0.upload, $0.download) }.max() ?? 0) * 1.12)
         let peak = trend.peaks(at: now).max() ?? 0
         let peakLabel = points.contains { now.timeIntervalSince($0.date) < 60 } ? DashboardStatus.rate(peak) : "—"
@@ -207,7 +207,7 @@ struct TrafficTrendView: View {
             }
             .onChange(of: points.last?.id) { _, _ in sampleArrived = Date() }
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("近五分钟代理流量趋势，每五秒采样，显示一分钟均速。最近一分钟峰值 " + peakLabel + "。\(points.count) 个有效采样点。" + (points.isEmpty ? emptyTitle : ""))
+            .accessibilityLabel("近五分钟代理流量趋势，每五秒采样，显示一分钟均速。最近一分钟峰值 " + peakLabel + "。\(trend.visible(at: now).count) 个有效采样点。" + (points.isEmpty ? emptyTitle : ""))
     }
     private func draw(_ points: [TrafficTrendSample], date: Date, ceiling: Double, reveal: Double,
                       context: GraphicsContext, size: CGSize) {
