@@ -35,7 +35,7 @@ struct ConnectionDashboard: View {
     }
     var body: some View {
         GeometryReader { geometry in
-            let trendHeight: CGFloat = 108
+            let trendHeight: CGFloat = 92
             let gap: CGFloat = 12
             let gaugeHeight = max(0, geometry.size.height - trendHeight - gap)
             let diameter = max(0, min(384, gaugeHeight - 80, geometry.size.width - 24))
@@ -172,14 +172,11 @@ struct TrafficTrendView: View {
         let peak = trend.peaks(at: now).max() ?? 0
         let peakLabel = points.contains { now.timeIntervalSince($0.date) < 60 } ? DashboardStatus.rate(peak) : "—"
         VStack(spacing: 5) {
-            HStack(spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text("流量趋势").font(AppFont.size(12))
                 Text("近5分钟 · 1分钟均速").font(AppFont.size(10)).foregroundStyle(DashboardTheme.muted)
                 Text("峰值 " + peakLabel)
                     .font(AppFont.size(10)).monospacedDigit().foregroundStyle(DashboardTheme.muted)
-                Spacer(minLength: 0)
-            }
-            HStack(spacing: 12) {
                 Spacer(minLength: 0)
                 legend("代理 ↑", color: DashboardTheme.cyan)
                 legend("代理 ↓", color: DashboardTheme.purple)
@@ -267,10 +264,11 @@ struct TrafficTrendView: View {
         }
     }
     private func legend(_ title: String, color: Color) -> some View {
-        HStack(spacing: 4) {
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
             Circle().fill(color).frame(width: 4, height: 4)
+                .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 3 }
             Text(title).font(AppFont.size(10)).foregroundStyle(DashboardTheme.muted)
-        }
+        }.fixedSize()
     }
 }
 

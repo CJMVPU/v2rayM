@@ -1,7 +1,7 @@
 # Native connection dashboard
 
 The fixed 860 × 600 homepage uses a native circular connection display and a
-108-point traffic trend below it. The right-hand status, traffic and recent
+92-point traffic trend below it. The right-hand status, traffic and recent
 connection cards retain their existing data sources. No new connect button is
 introduced; system proxy and TUN controls remain mutually exclusive in the title
 bar. The background uses the same `NSColor.controlBackgroundColor` as Settings.
@@ -49,7 +49,8 @@ applies again, so points older than five minutes expire naturally. On resume,
 a presentation-only snapshot of expired history crossfades into the live chart
 over 1.2 seconds; expired data never contributes to live peaks. Reduce Motion
 and hidden windows skip this transition. All four lines share one hidden axis; scale is determined from the five-minute
-observed samples with headroom. The header displays the largest individual
+observed samples with headroom. The title, sampling description, peak and four direction legends share one baseline.
+The header displays the largest individual
 proxy/direct upload/download sample over the last minute, without axis headroom. The chart
 uses its full width, seven horizontal grid lines and no endpoint captions.
 A visible 60 fps timeline scrolls the chart continuously; new endpoints and
