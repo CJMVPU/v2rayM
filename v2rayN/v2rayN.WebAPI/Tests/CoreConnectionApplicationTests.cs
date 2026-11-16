@@ -33,7 +33,17 @@ public class CoreConnectionApplicationTests
         await string.Join(",", runtime.Calls).Should().BeEqualTo("resolve");
         runtime.Calls.Clear();
         await (await service.StartAsync("profile-1", default, selectProfile: true)).Status.Should().BeEqualTo(CoreConnectionStatus.Started);
-        await string.Join(",", runtime.Calls).Should().BeEqualTo("resolve,prepare,select,stop-monitor,stop,launch,listen,start-monitor,publish");
+        await string.Join(",", runtime.Calls).Should().BeEqualTo("resolve,reset-cache,prepare,select,stop-monitor,stop,launch,listen,start-monitor,publish");
+    }
+
+    [Test]
+    public async Task FirstStartRecomputesConfigurationCacheBeforePreparingPorts()
+    {
+        var runtime = new CoreConnectionTestRuntime { Current = new(CoreRuntimeState.Stopped, null, []) };
+        var result = await new CoreConnectionService(runtime).StartAsync("profile-1", default);
+        await result.Status.Should().BeEqualTo(CoreConnectionStatus.Started);
+        await (runtime.Calls.IndexOf("reset-cache") < runtime.Calls.IndexOf("prepare")).Should().BeTrue();
+        await runtime.Calls.Count(value => value == "reset-cache").Should().BeEqualTo(1);
     }
 
     [Test]
@@ -44,7 +54,7 @@ public class CoreConnectionApplicationTests
         var result = await new CoreConnectionService(runtime).StartAsync("new-profile", default, selectProfile: true);
         await result.Status.Should().BeEqualTo(CoreConnectionStatus.PreflightRejected);
         await runtime.Current.Should().BeEqualTo(previous);
-        await string.Join(",", runtime.Calls).Should().BeEqualTo("resolve,prepare");
+        await string.Join(",", runtime.Calls).Should().BeEqualTo("resolve,reset-cache,prepare");
     }
 
     [Test]

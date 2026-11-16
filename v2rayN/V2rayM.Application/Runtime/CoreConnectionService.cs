@@ -59,6 +59,9 @@ public sealed class CoreConnectionService(ICoreConnectionRuntime runtime)
         if (profile is null) return new(id is null ? CoreConnectionStatus.NoSelection : CoreConnectionStatus.ProfileMissing, id);
         if (!selectProfile && runtime.Current.IsAlreadyRunning(profile.Id))
             return new(CoreConnectionStatus.AlreadyRunning, profile.Id);
+        // Settings can change while stopped. Startup's cached metrics port may
+        // belong to the old inbound configuration or be occupied by now.
+        runtime.ResetConfigurationCache();
         var plan = await runtime.PrepareAsync(profile);
         if (plan is null) return new(CoreConnectionStatus.PreflightRejected, profile.Id);
         if (selectProfile) await runtime.SelectProfileAsync(profile.Id);
