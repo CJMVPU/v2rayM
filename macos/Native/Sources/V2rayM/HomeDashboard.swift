@@ -2,8 +2,8 @@ import SwiftUI
 import V2rayMKit
 
 enum DashboardTheme {
-    static let background = Color(nsColor: .controlBackgroundColor)
-    static let panel = Color(nsColor: .windowBackgroundColor)
+    static let background = Color(white: 0.12)
+    static let panel = Color(white: 0.19)
     static let line = Color(red: 0.16, green: 0.26, blue: 0.36)
     static let muted = Color(red: 0.57, green: 0.65, blue: 0.77)
     static let cyan = Color(red: 0.02, green: 0.83, blue: 0.96)
@@ -14,14 +14,13 @@ enum DashboardTheme {
 
 struct HomeDashboard: View {
     @EnvironmentObject var model: AppModel
-    var body: some View { DashboardContent(monitor: model.dashboard, telemetry: model.telemetry).environmentObject(model) }
+    var body: some View { DashboardContent(monitor: model.dashboard, telemetry: model.telemetry).environmentObject(model).environment(\.colorScheme, .dark) }
 }
 
 private struct DashboardContent: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject var monitor: GlobeMonitor
     @ObservedObject var telemetry: RuntimeTelemetry
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var alpn = ""
     private var node: Profile? {
         let id = model.status?.coreRunning == true ? model.status?.runningProfileId : model.status?.currentProfileId
@@ -124,82 +123,95 @@ private struct DashboardContent: View {
             Text("实时流量").font(AppFont.size(13))
             HStack(spacing: 10) {
                 VStack(spacing: 8) {
-                    trafficMetric("代理上传", icon: "arrow.up.right", value: DashboardStatus.rate(rates?[0]), color: DashboardTheme.cyan)
-                    trafficMetric("直连上传", icon: "arrow.up.right", value: DashboardStatus.rate(rates?[2]), color: DashboardTheme.directUpload)
+                    trafficMetric("代理上传", icon: "arrow.up.right", value: DashboardStatus.rateParts(rates?[0]), color: DashboardTheme.cyan)
+                    trafficMetric("直连上传", icon: "arrow.up.right", value: DashboardStatus.rateParts(rates?[2]), color: DashboardTheme.directUpload)
                 }
                 Rectangle().fill(DashboardTheme.line).frame(width: 0.5, height: 42)
                 VStack(spacing: 8) {
-                    trafficMetric("代理下载", icon: "arrow.down.left", value: DashboardStatus.rate(rates?[1]), color: DashboardTheme.purple)
-                    trafficMetric("直连下载", icon: "arrow.down.left", value: DashboardStatus.rate(rates?[3]), color: DashboardTheme.directDownload)
+                    trafficMetric("代理下载", icon: "arrow.down.left", value: DashboardStatus.rateParts(rates?[1]), color: DashboardTheme.purple)
+                    trafficMetric("直连下载", icon: "arrow.down.left", value: DashboardStatus.rateParts(rates?[3]), color: DashboardTheme.directDownload)
                 }
             }
             rule
             Text("节点累计").font(AppFont.size(13))
             HStack(spacing: 10) {
-                trafficMetric("代理累计上传", icon: "arrow.up.right", value: DashboardStatus.amount(model.status?.statisticsEnabled == true ? node?.totalUp : nil),
+                trafficMetric("代理累计上传", icon: "arrow.up.right", value: DashboardStatus.amountParts(model.status?.statisticsEnabled == true ? node?.totalUp : nil),
                               color: DashboardTheme.cyan)
                 Rectangle().fill(DashboardTheme.line).frame(width: 0.5, height: 22)
-                trafficMetric("代理累计下载", icon: "arrow.down.left", value: DashboardStatus.amount(model.status?.statisticsEnabled == true ? node?.totalDown : nil),
+                trafficMetric("代理累计下载", icon: "arrow.down.left", value: DashboardStatus.amountParts(model.status?.statisticsEnabled == true ? node?.totalDown : nil),
                               color: DashboardTheme.purple)
             }
         }.padding(12).dashboardPanel()
             .help(DashboardStatus.trafficDescription(state: state, enabled: model.status?.trafficEnabled, hasSample: rates != nil)
                 + "；第一行青／紫为代理上传／下载，第二行绿／橙为直连上传／下载。直连仅包含经过 Xray 的流量；节点累计仅统计当前节点的代理流量。")
     }
-    private func trafficMetric(_ title: String, icon: String, value: String, color: Color) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: icon).font(.system(size: 13))
-            Text(value).font(AppFont.size(18))
-                .monospacedDigit().lineLimit(1).minimumScaleFactor(0.65)
-                .contentTransition(.numericText())
-                .animation(reduceMotion ? nil : .easeInOut(duration: 0.5), value: value)
-        }.foregroundStyle(color).frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityElement(children: .ignore).accessibilityLabel(title + " " + value)
-            .help(title + "：" + value)
+    private func trafficMetric(_ title: String, icon: String, value: DashboardMetricValue, color: Color) -> some View {
+        DashboardTrafficMetric(title: title, icon: icon, value: value, color: color)
     }
     private var recentCard: some View {
         RecentConnectionsCard(connections: monitor.connections, coreRunning: model.status?.coreRunning == true)
     }
 }
 
+struct DashboardTrafficMetric: View {
+    let title: String
+    let icon: String
+    let value: DashboardMetricValue
+    let color: Color
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon).font(.system(size: 14, weight: .regular))
+                .frame(width: 14, height: 20)
+            Text(value.number).frame(maxWidth: .infinity, alignment: .trailing)
+                .contentTransition(.numericText())
+            Text(value.unit).frame(width: 43, alignment: .trailing)
+        }.font(AppFont.size(14)).monospacedDigit().lineLimit(1)
+            .foregroundStyle(color).frame(maxWidth: .infinity).frame(height: 22)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.45), value: value)
+            .accessibilityElement(children: .ignore).accessibilityLabel(title + " " + value.text)
+            .help(title + "：" + value.text)
+    }
+}
+
 struct RecentConnectionsCard: View {
     let connections: [GlobeConnection]
     let coreRunning: Bool
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.colorScheme) private var colorScheme
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            GeometryReader { geometry in
-                if connections.isEmpty {
-                    Text(coreRunning ? "等待新的连接记录" : "开启代理后显示连接")
-                        .font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    VStack(spacing: 4) {
-                        ForEach(Array(connections.prefix(6))) { connection in
-                            recentConnectionRow(connection, height: max(0, (geometry.size.height - 20) / 6))
-                        }
-                    }.animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: Array(connections.prefix(6).map(\.id)))
-                }
-            }.clipped()
-        }.padding(.horizontal, 12).padding(.top, 12).padding(.bottom, 8)
-            .frame(maxHeight: .infinity).dashboardPanel()
+        GeometryReader { geometry in
+            if connections.isEmpty {
+                Text(coreRunning ? "等待新的连接记录" : "开启代理后显示连接")
+                    .font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                let rows = Array(connections.prefix(6))
+                let rowHeight = max(0, (geometry.size.height - 20) / 6)
+                VStack(spacing: 4) {
+                    // Stable slots flip in place instead of moving identified records between rows.
+                    ForEach(rows.indices, id: \.self) { index in
+                        DashboardFlipValue(value: rows[index], identity: rows[index].id) { connection in
+                            RecentConnectionRow(connection: connection)
+                        }.frame(height: rowHeight)
+                    }
+                }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            }
+        }.padding(12).frame(maxHeight: .infinity).dashboardPanel()
+            .modifier(DashboardActivationFlip(active: coreRunning))
     }
+}
 
-    private func recentConnectionRow(_ connection: GlobeConnection, height: CGFloat) -> some View {
+struct RecentConnectionRow: View {
+    let connection: GlobeConnection
+    var body: some View {
         let color: Color = connection.isProxy ? DashboardTheme.cyan : connection.route == "direct" ? .green : .orange
         let location: String = connection.place.map { " · " + $0.displayCity + "（IP/DNS 估计）" } ?? " · 位置未知"
-        let tooltip: String = connection.host + ":\(connection.port) · " + connection.routeTitle + location
         return HStack(spacing: 8) {
             Text(connection.host).font(AppFont.caption).lineLimit(1).truncationMode(.middle)
             Spacer(minLength: 4)
             Text(connection.routeTitle).font(AppFont.caption).foregroundStyle(DashboardTheme.muted).fixedSize()
-        }.padding(.horizontal, 8).frame(maxWidth: .infinity).frame(height: height)
-            .background(color.opacity(colorScheme == .dark ? 0.13 : 0.10), in: RoundedRectangle(cornerRadius: 5))
-            .help(tooltip)
-            .transition(.asymmetric(insertion: .move(edge: .top).combined(with: .opacity),
-                                   removal: .opacity))
+        }.padding(.horizontal, 8).frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(color.opacity(0.13), in: RoundedRectangle(cornerRadius: 5))
+            .help(connection.host + ":\(connection.port) · " + connection.routeTitle + location)
     }
 }
 

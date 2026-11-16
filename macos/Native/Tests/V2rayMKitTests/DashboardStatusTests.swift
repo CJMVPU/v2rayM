@@ -51,9 +51,21 @@ final class DashboardStatusTests: XCTestCase {
         XCTAssertEqual(DashboardStatus.trafficDescription(state: .tun, enabled: false, hasSample: false), "流量采集未开启")
         XCTAssertEqual(DashboardStatus.trafficDescription(state: .tun, enabled: true, hasSample: false), "等待有效采样")
         XCTAssertEqual(DashboardStatus.trafficDescription(state: .system, enabled: true, hasSample: true), "5 秒采样 · 1 分钟均速")
-        XCTAssertEqual(DashboardStatus.amount(1048576), "1.00 GiB")
+        XCTAssertEqual(DashboardStatus.amount(1048576), "1.0 GiB")
         XCTAssertEqual(DashboardStatus.amount(0), "0.0 KiB")
         XCTAssertEqual(DashboardStatus.amount(nil), "—")
+    }
+
+    func testMetricPartsKeepOneDecimalAndSeparateUnits() {
+        XCTAssertEqual(DashboardStatus.rateParts(162.25).number, "162.2")
+        XCTAssertEqual(DashboardStatus.rateParts(162.25).unit, "KiB/s")
+        XCTAssertEqual(DashboardStatus.amountParts(27.78 * 1048576).number, "27.8")
+        XCTAssertEqual(DashboardStatus.amountParts(27.78 * 1048576).unit, "GiB")
+        XCTAssertEqual(DashboardStatus.rateParts(1024).text, "1.0 MiB/s")
+        for invalid: Double? in [nil, -1, .infinity, .nan] {
+            XCTAssertEqual(DashboardStatus.amountParts(invalid), .unavailable)
+            XCTAssertEqual(DashboardStatus.rateParts(invalid), .unavailable)
+        }
     }
 
     func testMenuBarModeNeverUsesActiveColorForPendingOrBrokenState() {

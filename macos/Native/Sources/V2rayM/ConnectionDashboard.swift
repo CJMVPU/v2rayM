@@ -56,7 +56,8 @@ struct ConnectionDashboard: View {
                 }.frame(height: gaugeHeight)
                 TrafficTrendView(trend: trend, now: trend.displayDate(at: now),
                     animate: coreRunning && trafficEnabled == true && windowVisible && !reduceMotion,
-                    emptyTitle: DashboardStatus.trafficDescription(state: state, enabled: trafficEnabled, hasSample: false))
+                    emptyTitle: DashboardStatus.trafficDescription(state: state, enabled: trafficEnabled, hasSample: false),
+                    awaitingSample: running && coreRunning && trafficEnabled == true)
                     .frame(height: trendHeight)
             }
         }
@@ -77,6 +78,7 @@ struct ConnectionDashboard: View {
             return min(1, max(0, rates[index] / peaks[index]))
         }
         let animate = windowVisible && !reduceMotion
+        let duration = coreRunning ? DashboardStatus.duration(since: startedAt, now: now) : "—"
         return ZStack {
             ZStack {
                 ring(diameter: diameter, color: DashboardTheme.directUpload, fraction: fractions[2])
@@ -86,22 +88,26 @@ struct ConnectionDashboard: View {
             }
             .animation(animate ? .easeInOut(duration: 1.2) : nil, value: fractions)
             .accessibilityHidden(true)
-            DashboardDiscSurface(hovered: discHovered).padding(Self.discInset)
-            VStack(spacing: 9) {
-                Image(systemName: running ? "shield.lefthalf.filled" : state == .recovering ? "arrow.triangle.2.circlepath" : "shield")
-                    .font(.system(size: 22)).foregroundStyle(statusColor)
-                Text(city).font(AppFont.size(25)).lineLimit(1).minimumScaleFactor(0.7)
-                Text(nodeName).font(AppFont.size(12)).foregroundStyle(DashboardTheme.muted)
-                    .lineLimit(1).truncationMode(.middle)
-                Text(coreRunning ? DashboardStatus.duration(since: startedAt, now: now) : "—")
-                    .font(AppFont.size(24)).monospacedDigit().padding(.top, 4)
-                Text(connecting && state == .offline ? "正在连接本地服务" : state.title)
-                    .font(AppFont.size(12)).foregroundStyle(statusColor).lineLimit(1)
-                Button("重新连接服务", action: reconnect).font(AppFont.caption)
-                    .disabled(state != .offline || connecting)
-                    .opacity(state == .offline && !connecting ? 1 : 0)
-                    .accessibilityHidden(state != .offline || connecting)
-            }.padding(.horizontal, Self.discInset + 18)
+            ZStack {
+                DashboardDiscSurface(hovered: discHovered).padding(Self.discInset)
+                VStack(spacing: 9) {
+                    Image(systemName: running ? "shield.lefthalf.filled" : state == .recovering ? "arrow.triangle.2.circlepath" : "shield")
+                        .font(.system(size: 22)).foregroundStyle(statusColor)
+                    Text(city).font(AppFont.size(25)).lineLimit(1).minimumScaleFactor(0.7)
+                    Text(nodeName).font(AppFont.size(12)).foregroundStyle(DashboardTheme.muted)
+                        .lineLimit(1).truncationMode(.middle)
+                    Text(duration)
+                        .font(AppFont.size(24)).monospacedDigit().padding(.top, 4)
+                        .contentTransition(.numericText(countsDown: false))
+                        .animation(reduceMotion ? nil : .easeInOut(duration: 0.45), value: duration)
+                    Text(connecting && state == .offline ? "正在连接本地服务" : state.title)
+                        .font(AppFont.size(12)).foregroundStyle(statusColor).lineLimit(1)
+                    Button("重新连接服务", action: reconnect).font(AppFont.caption)
+                        .disabled(state != .offline || connecting)
+                        .opacity(state == .offline && !connecting ? 1 : 0)
+                        .accessibilityHidden(state != .offline || connecting)
+                }.padding(.horizontal, Self.discInset + 18)
+            }.modifier(DashboardActivationFlip(active: coreRunning))
         }.frame(width: diameter, height: diameter)
             .contentShape(Circle())
             .onContinuousHover { phase in
@@ -154,6 +160,8 @@ struct TrafficTrendView: View {
     let now: Date
     let animate: Bool
     let emptyTitle: String
+    var awaitingSample = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var scaleFrom = 1.0
     @State private var scaleTo = 1.0
     @State private var scaleChanged = Date.distantPast
@@ -205,8 +213,28 @@ struct TrafficTrendView: View {
                     draw(points, date: date, ceiling: ceiling, reveal: reveal, context: current, size: size)
                 }.clipped()
             }.overlay {
-                if points.isEmpty && retirement == nil { Text(emptyTitle).font(AppFont.caption).foregroundStyle(DashboardTheme.muted) }
+                if points.isEmpty && retirement == nil {
+                    if awaitingSample {
+                        VStack {
+                            Spacer(minLength: 0)
+                            HStack(spacing: 4) {
+                                Spacer(minLength: 0)
+                                ForEach(0..<4) { index in
+                                    Circle().fill([DashboardTheme.cyan, DashboardTheme.purple,
+                                                   DashboardTheme.directUpload, DashboardTheme.directDownload][index])
+                                        .frame(width: 4, height: 4)
+                                }
+                            }
+                        }.padding(.trailing, 2).padding(.bottom, 1)
+                            .transition(.opacity.combined(with: .scale(scale: 0.8, anchor: .bottomTrailing)))
+                    } else {
+                        Text(emptyTitle).font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
+                            .transition(.opacity)
+                    }
+                }
             }
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: awaitingSample)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: points.isEmpty)
         }.padding(.top, 7)
             .overlay(alignment: .top) { Rectangle().fill(Color.primary.opacity(0.1)).frame(height: 0.5) }
             .onAppear { scaleFrom = maximum; scaleTo = maximum }

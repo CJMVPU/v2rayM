@@ -7,6 +7,7 @@ import AppKit
     private var statusBar: StatusBarController?
     private var terminating = false
     func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.appearance = NSAppearance(named: .darkAqua)
         statusBar = StatusBarController(model: { [weak self] in self?.model }, show: { [weak self] in
             self?.model?.homeRequest += 1
             self?.mainWindow?.deminiaturize(nil)

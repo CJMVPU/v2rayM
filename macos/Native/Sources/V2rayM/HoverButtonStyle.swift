@@ -10,7 +10,6 @@ struct HoverButtonStyle: ButtonStyle {
         let configuration: ButtonStyleConfiguration
         let plain: Bool
         @Environment(\.isEnabled) private var enabled
-        @Environment(\.colorScheme) private var scheme
         @State private var hovering = false
         var body: some View {
             configuration.label
@@ -22,7 +21,7 @@ struct HoverButtonStyle: ButtonStyle {
                             .fill(Color.primary.opacity(enabled && hovering ? 0.22 : 0.13))
                     }
                 }
-                .brightness(enabled && hovering ? (scheme == .dark ? 0.13 : -0.12) : 0)
+                .brightness(enabled && hovering ? 0.13 : 0)
                 .opacity(!enabled ? 0.4 : configuration.isPressed ? 0.65 : 1)
                 .contentShape(Rectangle())
                 .onHover { hovering = $0 }

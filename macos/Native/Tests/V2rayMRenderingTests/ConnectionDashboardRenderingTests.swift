@@ -69,7 +69,7 @@ final class ConnectionDashboardRenderingTests: XCTestCase {
             try XCTUnwrap(GlobeConnection.parse(LogEntry(timestamp: "2026-10-24T12:00:00Z", source: "core",
                 message: "from tcp:127.0.0.1:1234 accepted tcp:\(host):443 [socks >> \(route)]", sequence: 1)))
         }
-        for dark in [true, false] {
+        for dark in [true] {
             let view = HStack(spacing: 12) {
                 RecentConnectionsCard(connections: connections, coreRunning: true).frame(width: 280)
                 RecentConnectionsCard(connections: [], coreRunning: true).frame(width: 280)

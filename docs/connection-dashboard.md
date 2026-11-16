@@ -4,7 +4,8 @@ The fixed 860 × 600 homepage uses a native circular connection display and a
 92-point traffic trend below it. The right-hand status, traffic and recent
 connection cards retain their existing data sources. No new connect button is
 introduced; system proxy and TUN controls remain mutually exclusive in the title
-bar. The background uses the same `NSColor.controlBackgroundColor` as Settings.
+bar. The app and native window enforce dark Aqua appearance. The dashboard uses fixed
+dark background/panel colors; system light appearance does not select a light theme.
 
 ## Ring and geometry
 
@@ -64,15 +65,18 @@ The speed card uses inline arrow/value pairs: proxy upload/download on the first
 row and direct upload/download on the second, using the same four colors as the
 rings and chart. Tooltips and accessibility labels name each route and direction.
 Direct counts cover Xray's direct outbound only, excluding traffic bypassing Xray.
-Node cumulative upload/download remain proxy-only and use inline arrow/value pairs.
+Node cumulative upload/download remain proxy-only. Every metric uses fixed icon,
+right-aligned number and right-aligned unit columns, a shared 14-point font and
+one decimal place. Numeric values and duration digits animate smoothly without
+changing column widths.
 Import is available on the Nodes page; the redundant title-bar import icon is removed.
 
 ## Recent connections
 
 The card shows up to six records without a heading in evenly spaced rows, with a continuous
 route-colored background from the host to its route label: cyan for proxy,
-green for direct and orange for blocked connections. The lower inset is eight
-points. Long hosts truncate in the middle while the route label remains visible;
+green for direct and orange for blocked connections. All card insets are twelve
+points, centering the six-row group. Long hosts truncate in the middle while the route label remains visible;
 hover retains the complete destination and estimated location. Empty-state
 messages, record ordering and Reduce Motion behavior are unchanged.
 
@@ -93,3 +97,21 @@ profile/restart transitions, capacity and expiry. Inspect full-window and
 active-state offline renders for typography, equal circle margins and empty
 trend behavior. Run the packaged loopback smoke check before installation.
 Signing, installation and any real-network acceptance are recorded separately.
+
+## Motion
+
+On a stopped-to-running core transition, the central disc and recent-connections
+card turn out to an edge and back in, without mirrored text. The outer rings stay
+in place. The disc clock uses numeric text transitions. A running core awaiting
+its first valid sample shows four small colored starting dots at the plot edge;
+these are presentation placeholders, never inserted into traffic history.
+
+Recent records use six stable row slots. Changed host/route identities flip
+vertically, swapping text at the edge; location-only updates do not trigger a
+flip. A newer identity cancels an in-flight swap. Empty and partial groups remain
+centered. Reduce Motion suppresses these turns and numeric transitions.
+
+Live motion captures use the window compositor because NSHostingView bitmap
+caching does not correctly composite intermediate 3D transforms. The motion
+regression also compares settled rows after rapid replacement with a fresh
+rendering of the latest records.

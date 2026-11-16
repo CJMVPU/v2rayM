@@ -23,6 +23,7 @@ struct WindowTracker: NSViewRepresentable {
         }
         private func lockWindowSize() {
             guard let window else { return }
+            window.appearance = NSAppearance(named: .darkAqua)
             window.isOpaque = false
             window.backgroundColor = .clear
             window.titlebarAppearsTransparent = true

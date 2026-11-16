@@ -64,14 +64,28 @@ public enum DashboardStatus: Equatable {
         if [.recovering, .stale, .faulted, .changing, .updating].contains(state) { return "等待状态恢复" }
         return hasSample ? "5 秒采样 · 1 分钟均速" : "等待有效采样"
     }
-    public static func amount(_ kib: Double?) -> String {
-        guard let kib, kib.isFinite, kib >= 0 else { return "—" }
-        if kib >= 1048576 { return String(format: "%.2f GiB", kib / 1048576) }
-        if kib >= 1024 { return String(format: "%.1f MiB", kib / 1024) }
-        return String(format: "%.1f KiB", kib)
+    public static func amountParts(_ kib: Double?) -> DashboardMetricValue {
+        guard let kib, kib.isFinite, kib >= 0 else { return .unavailable }
+        if kib >= 1048576 { return DashboardMetricValue(kib / 1048576, unit: "GiB") }
+        if kib >= 1024 { return DashboardMetricValue(kib / 1024, unit: "MiB") }
+        return DashboardMetricValue(kib, unit: "KiB")
     }
-    public static func rate(_ kib: Double?) -> String {
-        guard let kib, kib.isFinite, kib >= 0 else { return "—" }
-        return kib >= 1024 ? String(format: "%.1f MiB/s", kib / 1024) : String(format: "%.1f KiB/s", kib)
+    public static func rateParts(_ kib: Double?) -> DashboardMetricValue {
+        guard let kib, kib.isFinite, kib >= 0 else { return .unavailable }
+        return kib >= 1024 ? DashboardMetricValue(kib / 1024, unit: "MiB/s") : DashboardMetricValue(kib, unit: "KiB/s")
+    }
+    public static func amount(_ kib: Double?) -> String { amountParts(kib).text }
+    public static func rate(_ kib: Double?) -> String { rateParts(kib).text }
+}
+
+public struct DashboardMetricValue: Equatable, Sendable {
+    public let number: String
+    public let unit: String
+    public var text: String { unit.isEmpty ? number : number + " " + unit }
+    public static let unavailable = Self(number: "—", unit: "")
+    private init(number: String, unit: String) { self.number = number; self.unit = unit }
+    public init(_ value: Double, unit: String) {
+        number = String(format: "%.1f", locale: Locale(identifier: "en_US_POSIX"), value)
+        self.unit = unit
     }
 }
