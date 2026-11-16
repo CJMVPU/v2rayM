@@ -19,6 +19,14 @@ struct RoutingSettingsDraft {
     var routeID = ""
     var ruleIndex = 0
 
+    var savePath: String { "/api/settings/routing-profiles" + (routeID.isEmpty ? "" : "/" + routeID) }
+    var saveMethod: String { routeID.isEmpty ? "POST" : "PUT" }
+    mutating func acceptSaved(_ response: SettingsValue) throws {
+        let id = response["routingId"].text
+        guard !id.isEmpty else { throw ClientFailure("response_missing") }
+        routeID = id; route["id"] = .string(id)
+    }
+
     // Commit selection and rules together. A failed read must leave the previous
     // editable document intact, never associate its rules with another profile.
     func selecting(_ selected: SettingsValue, loadRules: (String) async throws -> [SettingsValue]) async throws -> Self {

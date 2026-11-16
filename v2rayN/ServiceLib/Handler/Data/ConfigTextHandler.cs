@@ -23,17 +23,25 @@ public static class ConfigTextHandler
     /// Initialize default values for missing configuration sections
     /// </summary>
     /// <returns>Config object containing application settings or null if there's an error</returns>
-    public static Config? LoadConfig()
+    public static Config? LoadConfig(string? configPath = null)
     {
+        configPath ??= Utils.GetConfigPath(_configRes);
         Config? config = null;
-        var result = EmbedUtils.LoadResource(Utils.GetConfigPath(_configRes));
+        var result = EmbedUtils.LoadResource(configPath);
         if (result.IsNotEmpty())
         {
             config = JsonUtils.Deserialize<Config>(result);
+            if (config is null)
+            {
+                // Existing, invalid data is not a first launch. Never allow the
+                // host's startup save to replace it with generated defaults.
+                Logging.SaveLog("Could not parse the existing configuration; original file retained.");
+                return null;
+            }
         }
         else
         {
-            if (File.Exists(Utils.GetConfigPath(_configRes)))
+            if (File.Exists(configPath))
             {
                 Logging.SaveLog("LoadConfig Exception");
                 return null;

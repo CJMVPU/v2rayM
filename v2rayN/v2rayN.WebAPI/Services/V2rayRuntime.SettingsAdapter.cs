@@ -5,6 +5,16 @@ namespace v2rayN.WebAPI.Services;
 
 public sealed partial class V2rayRuntime
 {
+    private sealed class RoutingSettingsAdapter(V2rayRuntime owner) : v2rayN.WebAPI.Adapters.Routing.IRoutingSettingsRuntime
+    {
+        public Task<CoreSettingsApplyContext> BeginAsync() => owner.BeginCoreSettingsApplyAsync();
+        public Task<T> MutateAsync<T>(CoreSettingsApplyContext context, Func<Task<T>> change, Func<T, bool> succeeded) =>
+            owner._settingsTransaction.MutateAsync(context, change, succeeded);
+        public Task<v2rayN.WebAPI.Contracts.OperationView> CompleteAsync(string section, bool changed,
+            CoreSettingsApplyContext context, string successMessageKey = v2rayN.WebAPI.Contracts.ApiMessageKeys.CommonSaved, object? data = null) =>
+            owner.CompleteCoreAffectingChangeAsync(section, changed, context, successMessageKey, data);
+    }
+
     // This private adapter binds application ports to locked lifecycle operations.
     // It cannot be used independently of the transaction owning the lifecycle gate.
     private sealed class CoreSettingsRuntimeAdapter(V2rayRuntime owner, CoreSettingsApplyContext? context = null)

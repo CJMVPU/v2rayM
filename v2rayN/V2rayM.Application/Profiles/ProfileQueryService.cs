@@ -22,12 +22,14 @@ public sealed record ProfileListEntry(
     bool IsCurrent,
     bool CanTest);
 
+public sealed record ProfileObservation(string IndexId, int Delay, long TotalUp, long TotalDown);
 public sealed record ProfileSubscription(string Id, string Name);
 public sealed record ProfileGroupSnapshot(IReadOnlyList<string> ProfileGroups, IReadOnlyList<ProfileSubscription> Subscriptions, string SelectedGroup);
 public sealed record ProfileGroupEntry(string Id, string? Name, bool All, int Count, bool Selected);
 public interface IProfileQuerySource
 {
-    Task<IReadOnlyList<ProfileListEntry>> CaptureAsync(string? subscriptionId);
+    Task<IReadOnlyList<ProfileListEntry>> CaptureAsync(string? subscriptionId, bool includeStatistics = true);
+    Task<IReadOnlyList<ProfileObservation>> ObserveAsync();
     Task<ProfileGroupSnapshot> CaptureGroupsAsync();
     bool Matches(string value, string query);
 }
@@ -35,14 +37,15 @@ public interface IProfileQuerySource
 /// Read models belong to the application, not the domain aggregate or HTTP contract.
 public sealed class ProfileQueryService(IProfileQuerySource source)
 {
-    public async Task<IReadOnlyList<ProfileListEntry>> ListAsync(string? group, string? filter)
+    public async Task<IReadOnlyList<ProfileListEntry>> ListAsync(string? group, string? filter, bool includeStatistics = true)
     {
-        var snapshot = await source.CaptureAsync(group);
+        var snapshot = await source.CaptureAsync(group, includeStatistics);
         var query = filter?.Trim();
         return snapshot.Where(item => string.IsNullOrEmpty(query)
             || source.Matches(item.Remarks, query) || source.Matches(item.Address, query))
             .OrderBy(item => item.Sort).ToArray();
     }
+    public Task<IReadOnlyList<ProfileObservation>> ObserveAsync() => source.ObserveAsync();
     public async Task<IReadOnlyList<ProfileGroupEntry>> GroupsAsync()
     {
         var snapshot = await source.CaptureGroupsAsync();

@@ -1,4 +1,5 @@
 using ServiceLib.Common;
+using ServiceLib.Helper;
 using ServiceLib.Manager;
 using ServiceLib.Models.Configs;
 using ServiceLib.Models.Entities;
@@ -8,14 +9,21 @@ namespace v2rayN.WebAPI.Adapters.Profiles;
 
 internal sealed class ServiceLibProfileQueries(Func<Config> config) : IProfileQuerySource
 {
-    public async Task<IReadOnlyList<ProfileListEntry>> CaptureAsync(string? subscriptionId)
+    internal static async Task<(int Profiles, int Subscriptions)> CountAsync(SQLiteHelper? database = null)
+    {
+        database ??= SQLiteHelper.Instance;
+        return (await database.TableAsync<ProfileItem>().CountAsync(),
+            await database.TableAsync<SubItem>().CountAsync());
+    }
+
+    public async Task<IReadOnlyList<ProfileListEntry>> CaptureAsync(string? subscriptionId, bool includeStatistics = true)
     {
         var groupId = subscriptionId ?? config().SubIndexId ?? string.Empty;
         var profiles = await ConfigDbQuery.ProfileItems(groupId) ?? [];
         var subscriptions = (await ConfigDbQuery.SubItems() ?? []).ToDictionary(item => item.Id, item => item.Remarks);
         var extensions = await ProfileExManager.Instance.GetProfileExs();
         var extensionMap = extensions.ToDictionary(item => item.IndexId);
-        var statistics = (config().GuiItem.EnableStatistics ? StatisticsManager.Instance.ServerStat : null) ?? [];
+        var statistics = (includeStatistics && config().GuiItem.EnableStatistics ? StatisticsManager.Instance.ServerStat : null) ?? [];
         var statisticsMap = statistics.ToDictionary(item => item.IndexId);
 
         var entries = profiles
@@ -49,6 +57,18 @@ internal sealed class ServiceLibProfileQueries(Func<Config> config) : IProfileQu
             })
             .ToArray();
         return entries;
+    }
+
+    // Fast observations use bounded in-memory snapshots, never reload all node
+    // documents or subscription metadata from SQLite on every UI sample.
+    public async Task<IReadOnlyList<ProfileObservation>> ObserveAsync()
+    {
+        var extensions = (await ProfileExManager.Instance.GetProfileExs()).ToDictionary(item => item.IndexId);
+        var statistics = config().GuiItem.EnableStatistics ? StatisticsManager.Instance.ServerStat : [];
+        var totals = statistics.ToDictionary(item => item.IndexId);
+        return extensions.Keys.Concat(totals.Keys).Distinct(StringComparer.Ordinal)
+            .Select(id => new ProfileObservation(id, extensions.GetValueOrDefault(id)?.Delay ?? 0,
+                totals.GetValueOrDefault(id)?.TotalUp ?? 0, totals.GetValueOrDefault(id)?.TotalDown ?? 0)).ToArray();
     }
 
     public async Task<ProfileGroupSnapshot> CaptureGroupsAsync()

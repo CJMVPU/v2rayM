@@ -71,7 +71,7 @@ public sealed partial class V2rayRuntime
         await using (var operation = await _operations.EnterOperationAsync(cancellationToken))
         {
             subscriptions = (await _subscriptions.ListAsync())
-                .Where(item => item.IsUpdateDue(now))
+                .Where(item => item.Enabled && item.IsUpdateDue(now) && _subscriptionUpdates.CanAutoUpdate(item.Id))
                 .ToArray();
         }
 

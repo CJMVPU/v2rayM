@@ -45,6 +45,24 @@ public struct Profile: Decodable, Identifiable, Equatable {
     public var totalDown: Double?
     public var canTest: Bool
 }
+/// Fast-changing observations are separate from the full node document.
+public struct ProfileObservation: Decodable, Equatable {
+    public var indexId: String
+    public var delay: Int
+    public var totalUp: Double
+    public var totalDown: Double
+    public static func applying(_ observations: [Self], to profiles: [Profile], selectedID: String?) -> [Profile] {
+        let byID = Dictionary(observations.map { ($0.indexId, $0) }, uniquingKeysWith: { _, new in new })
+        return profiles.map { profile in
+            var result = profile
+            result.isCurrent = result.id == selectedID
+            let observation = byID[result.id]
+            result.delay = observation?.delay ?? 0
+            result.totalUp = observation?.totalUp ?? 0; result.totalDown = observation?.totalDown ?? 0
+            return result
+        }
+    }
+}
 public struct Subscription: Codable, Identifiable {
     public var id: String
     public var remarks: String

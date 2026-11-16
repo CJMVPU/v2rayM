@@ -20,7 +20,7 @@ struct ContentView: View {
         VStack(spacing: 0) {
             titleBar
             if importing {
-                ImportPane(close: { importing = false }, save: { model.importNodes($0) })
+                ImportPane(close: { importing = false }, save: { try await model.importNodes($0) })
                     .environmentObject(model)
             } else if let profile = editingProfile {
                 ProfileEditor(profile: profile, close: { editingProfile = nil }).environmentObject(model)
@@ -202,45 +202,6 @@ struct ContentView: View {
     }
 
 }
-private struct ImportPane: View {
-    @EnvironmentObject private var model: AppModel
-    let close: () -> Void
-    let save: (String) -> Void
-    @State private var content = ""
-    @State private var discard = false
-    private func requestClose() {
-        if content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { close() }
-        else { discard = true }
-    }
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Button(action: requestClose) { Label("返回", systemImage: "chevron.left") }
-                Text("导入节点").font(AppFont.title)
-                Spacer()
-            }
-            Text("粘贴分享链接或兼容的配置内容，可一次导入多个节点。").foregroundStyle(.secondary)
-            TextEditor(text: $content).font(AppFont.body).scrollIndicators(.never).scrollContentBackground(.hidden)
-                .padding(10).frame(maxHeight: .infinity)
-                .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 10))
-                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(DashboardTheme.line))
-                .accessibilityLabel("节点分享链接或配置")
-            HStack {
-                Spacer()
-                Button("取消", action: requestClose).keyboardShortcut(.cancelAction)
-                Button("导入") { save(content); close() }.keyboardShortcut(.defaultAction)
-                    .disabled(content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        || !model.ready || model.busy || model.moduleUpdateActive)
-            }
-        }.padding(16).frame(maxWidth: .infinity, maxHeight: .infinity).font(AppFont.body)
-            .background(HiddenScrollbars())
-            .confirmationDialog("放弃尚未导入的内容？", isPresented: $discard) {
-                Button("放弃内容", role: .destructive, action: close)
-                Button("继续编辑", role: .cancel) {}
-            }
-    }
-}
-
 /// The selected tab opens onto the content below; the outline has no bottom edge.
 private struct BottomJoinedTab: Shape {
     func path(in rect: CGRect) -> Path {

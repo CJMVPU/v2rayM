@@ -161,86 +161,17 @@ public sealed partial class V2rayRuntime
 
     internal static bool IsValidCustomDns(ECoreType coreType, string? content) => ServiceLibSettingsCapabilities.ValidCustomDns(content);
 
-    public async Task<IReadOnlyList<RoutingItem>> GetRoutingProfilesAsync() => await ConfigDbQuery.RoutingItems() ?? [];
-
-    public async Task<OperationView> SaveRoutingProfileAsync(RoutingItem input, string? routingId = null)
-    {
-        if (string.IsNullOrWhiteSpace(input.Remarks))
-        {
-            return OperationView.Fail("routing_name_required", ApiMessageKeys.RoutingNameRequired);
-        }
-        if (!AreRoutingProfileStrategiesValid(input.DomainStrategy))
-        {
-            return OperationView.Fail("routing_strategy_invalid", ApiMessageKeys.SettingsInvalidRoutingStrategy);
-        }
-
-        var document = ServiceLibRoutingProfiles.Prepare(input);
-        if (document is null)
-            return OperationView.Fail("routing_rules_json_invalid", ApiMessageKeys.RoutingRulesInvalid);
-        return await ApplyRoutingProfileAsync(() => _routingProfiles.SaveAsync(document, routingId));
-    }
-
-    public Task<OperationView> DeleteRoutingProfileAsync(string id) =>
-        ApplyRoutingProfileAsync(() => _routingProfiles.DeleteAsync(id), ApiMessageKeys.CommonDeleted);
-
-    public Task<OperationView> ActivateRoutingProfileAsync(string id) =>
-        ApplyRoutingProfileAsync(() => _routingProfiles.ActivateAsync(id), ApiMessageKeys.CommonCompleted);
-
-    private async Task<OperationView> ApplyRoutingProfileAsync(Func<Task<RoutingProfileResult>> change, string messageKey = ApiMessageKeys.CommonSaved)
-    {
-        await using var context = await BeginCoreSettingsApplyAsync();
-        if (context.Failure is { } failure) return failure;
-        var result = await change();
-        if (result.Status != RoutingProfileStatus.Saved) return RoutingProfileContractMapper.Failure(result.Status);
-        return await CompleteCoreAffectingChangeAsync("routing-profiles", result.AffectsCore, context,
-            messageKey, result.Id is null ? null : new { routingId = result.Id });
-    }
-
-    public Task<IReadOnlyList<RulesItem>> GetRoutingRulesAsync(string routingId) => ServiceLibRoutingRules.ReadAsync(routingId);
-
-    public Task<OperationView> SaveRoutingRulesAsync(string routingId, IEnumerable<RulesItem> rules) =>
-        ApplyRoutingRulesAsync(routingId, () => _routingRules.SaveAsync(routingId, ServiceLibRoutingRules.FromItems(rules)));
-
-    private async Task<OperationView> ApplyRoutingRulesAsync(string routingId, Func<Task<RoutingRuleResult>> change)
-    {
-        await using var context = await BeginCoreSettingsApplyAsync();
-        if (context.Failure is { } failure) return failure;
-        var result = await change();
-        if (result.Status != RoutingRuleStatus.Saved) return RoutingRuleContractMapper.Failure(result.Status);
-        return await CompleteCoreAffectingChangeAsync("routing-rules", result.AffectsCore, context, data: new { routingId });
-    }
-
-    public Task<OperationView> ImportRoutingRulesAsync(string routingId, RouteRulesImportInput request)
-    {
-        var rules = _routingRules.Parse(request.Content);
-        return rules is null ? Task.FromResult(RoutingRuleContractMapper.Failure(RoutingRuleStatus.InvalidJson))
-            : ApplyRoutingRulesAsync(routingId, () => _routingRules.SaveAsync(routingId, rules, request.Append));
-    }
-
-    public async Task<OperationView> ImportRoutingRulesFromUrlAsync(string routingId, bool append, CancellationToken cancellationToken)
-    {
-        var download = await _routingRules.DownloadAsync(routingId, cancellationToken);
-        if (download.Status != RoutingRuleStatus.Saved) return RoutingRuleContractMapper.Failure(download.Status);
-        return await ApplyRoutingRulesAsync(routingId, () => _routingRules.SaveAsync(routingId, download.Rules!, append));
-    }
-
-    public Task<OperationView> MoveRoutingRuleAsync(string routingId, string ruleId, EMove direction, int position)
-    {
-        var move = direction switch
-        {
-            EMove.Top => RuleMove.Top, EMove.Up => RuleMove.Up, EMove.Down => RuleMove.Down,
-            EMove.Bottom => RuleMove.Bottom, EMove.Position => RuleMove.Position,
-            _ => (RuleMove?)null,
-        };
-        return move is null ? Task.FromResult(RoutingRuleContractMapper.Failure(RoutingRuleStatus.MoveFailed))
-            : ApplyRoutingRulesAsync(routingId, () => _routingRules.MoveAsync(routingId, ruleId, move.Value, position));
-    }
-
-    public Task<OperationView> DeleteRoutingRuleAsync(string routingId, string ruleId) =>
-        ApplyRoutingRulesAsync(routingId, () => _routingRules.DeleteAsync(routingId, ruleId));
-
-    public Task<OperationView> ImportRoutingProfilesAsync() =>
-        ApplyRoutingProfileAsync(_routingProfiles.ImportPresetsAsync, ApiMessageKeys.CommonCompleted);
+    public Task<IReadOnlyList<RoutingItem>> GetRoutingProfilesAsync() => _routingSettings.GetRoutingProfilesAsync();
+    public Task<OperationView> SaveRoutingProfileAsync(RoutingItem input, string? routingId = null) => _routingSettings.SaveRoutingProfileAsync(input, routingId);
+    public Task<OperationView> DeleteRoutingProfileAsync(string id) => _routingSettings.DeleteRoutingProfileAsync(id);
+    public Task<OperationView> ActivateRoutingProfileAsync(string id) => _routingSettings.ActivateRoutingProfileAsync(id);
+    public Task<IReadOnlyList<RulesItem>> GetRoutingRulesAsync(string id) => _routingSettings.GetRoutingRulesAsync(id);
+    public Task<OperationView> SaveRoutingRulesAsync(string id, IEnumerable<RulesItem> rules) => _routingSettings.SaveRoutingRulesAsync(id, rules);
+    public Task<OperationView> ImportRoutingRulesAsync(string id, RouteRulesImportInput input) => _routingSettings.ImportRoutingRulesAsync(id, input);
+    public Task<OperationView> ImportRoutingRulesFromUrlAsync(string id, bool append, CancellationToken token) => _routingSettings.ImportRoutingRulesFromUrlAsync(id, append, token);
+    public Task<OperationView> MoveRoutingRuleAsync(string id, string ruleId, EMove direction, int position) => _routingSettings.MoveRoutingRuleAsync(id, ruleId, direction, position);
+    public Task<OperationView> DeleteRoutingRuleAsync(string id, string ruleId) => _routingSettings.DeleteRoutingRuleAsync(id, ruleId);
+    public Task<OperationView> ImportRoutingProfilesAsync() => _routingSettings.ImportRoutingProfilesAsync();
 
     public Task<IReadOnlyList<CoreConfigTemplateView>> GetFullConfigTemplatesAsync() => ServiceLibConfigurationProfiles.ReadTemplatesAsync();
 

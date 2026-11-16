@@ -9,6 +9,8 @@ namespace v2rayN.WebAPI.Services;
 
 public sealed partial class V2rayRuntime
 {
+    public Task<IReadOnlyList<ProfileObservation>> GetProfileObservationsAsync() => _profileQueries.ObserveAsync();
+
     public async Task<IReadOnlyList<ProfileGroupView>> GetProfileGroupsAsync() =>
         (await _profileQueries.GroupsAsync()).Select(group => new ProfileGroupView(group.Id, group.All ? "all" : "subscription",
             group.Name, group.All ? ApiMessageKeys.ProfilesAllGroup : null, group.Count, group.Selected)).ToArray();

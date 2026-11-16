@@ -1,10 +1,13 @@
 namespace V2rayM.Application.Subscriptions;
 
+public enum SubscriptionUpdateStatus { Succeeded, Failed, Skipped }
+public sealed record SubscriptionUpdateResult(string Id, SubscriptionUpdateStatus Status);
+
 public interface ISubscriptionUpdater
 {
     // Some upstream download operations are not cancellable. The operation lease must
     // remain owned until they finish; cancellation is checked before committing metadata.
-    Task UpdateAsync(string id, bool useProxy, Func<bool, string, Task> progress);
+    Task<IReadOnlyList<SubscriptionUpdateResult>> UpdateAsync(string id, bool useProxy, Func<bool, string, Task> progress);
     Task SaveConfigurationAsync();
     Task StampAsync(string id, long unixTime);
 }
@@ -21,6 +24,18 @@ public sealed class SubscriptionUpdateService(IOperationScope operations, IMutat
 {
     private readonly object _gate = new();
     private readonly Dictionary<string, Task> _tasks = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, DateTimeOffset> _retryAfter = new(StringComparer.Ordinal);
+
+    public bool CanAutoUpdate(string id)
+    {
+        lock (_gate)
+        {
+            if (!_retryAfter.TryGetValue(id, out var due)) return true;
+            if (clock.GetUtcNow() < due) return false;
+            _retryAfter.Remove(id);
+            return true;
+        }
+    }
 
     public IReadOnlyList<string> Running()
     {
@@ -39,17 +54,36 @@ public sealed class SubscriptionUpdateService(IOperationScope operations, IMutat
                 {
                     await operations.RunAsync(async operationToken =>
                     {
-                        await mutations.RunAsync(async () =>
+                        var updated = await mutations.RunAsync(async () =>
                         {
-                            await updater.UpdateAsync(id, useProxy, (success, message) => events.ProgressAsync(id, success, message));
+                            var outcomes = await updater.UpdateAsync(id, useProxy, (success, message) => events.ProgressAsync(id, success, message));
                             ThrowIfStopping(operationToken);
+                            lock (_gate)
+                            {
+                                // Backoff is attempt state, not a successful-update timestamp.
+                                // Explicit user retries remain available immediately.
+                                var now = clock.GetUtcNow();
+                                foreach (var stale in _retryAfter.Where(pair => pair.Value <= now).Select(pair => pair.Key).ToArray())
+                                    _retryAfter.Remove(stale);
+                                foreach (var outcome in outcomes)
+                                {
+                                    if (outcome.Status == SubscriptionUpdateStatus.Succeeded) _retryAfter.Remove(outcome.Id);
+                                    else _retryAfter[outcome.Id] = now.AddMinutes(5);
+                                }
+                            }
+                            var successful = outcomes.Where(value => value.Status == SubscriptionUpdateStatus.Succeeded)
+                                .Select(value => value.Id).Distinct(StringComparer.Ordinal).ToArray();
+                            if (successful.Length == 0) return false;
                             await updater.SaveConfigurationAsync();
-                            ThrowIfStopping(operationToken);
-                            await updater.StampAsync(id, clock.GetUtcNow().ToUnixTimeSeconds());
+                            foreach (var successfulId in successful)
+                            {
+                                ThrowIfStopping(operationToken);
+                                await updater.StampAsync(successfulId, clock.GetUtcNow().ToUnixTimeSeconds());
+                            }
                             return true;
                         }, operationToken);
                         ThrowIfStopping(operationToken);
-                        events.Changed(id);
+                        if (updated) events.Changed(id);
                     }, token);
                 }
                 catch (OperationCanceledException) when (operations.IsStopping || token.IsCancellationRequested) { }

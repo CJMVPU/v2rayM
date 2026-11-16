@@ -8,20 +8,22 @@ namespace v2rayN.WebAPI.Adapters.Subscriptions;
 
 internal sealed class ServiceLibSubscriptionUpdater(Func<Config> config, Func<Task> save) : ISubscriptionUpdater
 {
-    public Task UpdateAsync(string id, bool useProxy, Func<bool, string, Task> progress) =>
-        SubscriptionHandler.UpdateProcess(config(), id, useProxy, progress);
+    public async Task<IReadOnlyList<SubscriptionUpdateResult>> UpdateAsync(string id, bool useProxy, Func<bool, string, Task> progress) =>
+        (await SubscriptionHandler.UpdateProcessWithResults(config(), id, useProxy, progress))
+            .Select(value => new SubscriptionUpdateResult(value.Id, value.Kind switch
+            {
+                ServiceLib.Models.Dto.SubscriptionUpdateOutcomeKind.Succeeded => SubscriptionUpdateStatus.Succeeded,
+                ServiceLib.Models.Dto.SubscriptionUpdateOutcomeKind.Failed => SubscriptionUpdateStatus.Failed,
+                _ => SubscriptionUpdateStatus.Skipped,
+            })).ToArray();
     public Task SaveConfigurationAsync() => save();
     public async Task StampAsync(string id, long unixTime)
     {
-        var items = id.Length == 0
-            ? (await ConfigDbQuery.SubItems() ?? []).Where(item => item.Enabled).ToArray()
-            : await ConfigDbQuery.GetSubItem(id) is { } selected ? [selected] : [];
-        foreach (var item in items)
-        {
-            item.UpdateTime = unixTime;
-            if (await ConfigDbHandler.AddSubItem(config(), item) != 0)
-                throw new IOException("ServiceLib could not save the subscription timestamp.");
-        }
+        var item = await ConfigDbQuery.GetSubItem(id);
+        if (item is null) return;
+        item.UpdateTime = unixTime;
+        if (await ConfigDbHandler.AddSubItem(config(), item) != 0)
+            throw new IOException("ServiceLib could not save the subscription timestamp.");
     }
 }
 

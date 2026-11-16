@@ -135,7 +135,7 @@ struct SettingsEditor: View {
         working = true; result = ""; failed = false
         Task {
             defer { working = false }
-            do { try await work(); result = success; dirty = pane == .dns && (dnsDraft.simpleDNS != dnsDraft.savedSimpleDNS || dnsDraft.dns != dnsDraft.savedCustomDNS) }
+            do { try await work(); if result.isEmpty { result = success }; dirty = pane == .dns && (dnsDraft.simpleDNS != dnsDraft.savedSimpleDNS || dnsDraft.dns != dnsDraft.savedCustomDNS) }
             catch { result = error.localizedDescription; failed = true }
         }
     }
@@ -191,14 +191,14 @@ struct SettingsEditor: View {
             guard !routingDraft.route["remarks"].text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw ClientFailure("routing_name_required") }
             var draft = routingDraft.route
             draft["ruleSet"] = .string(try SettingsValue.array(routingDraft.rules).json())
-            let creating = routingDraft.routeID.isEmpty
-            let knownIDs = Set(routingDraft.routes.map { $0["id"].text })
-            try await model.settingsWrite("/api/settings/routing-profiles" + (creating ? "" : "/\(routingDraft.routeID)"), method: creating ? "POST" : "PUT", body: draft)
-            if creating {
-                routingDraft.routes = try await model.settingsRead("/api/settings/routing-profiles").items
-                if let created = routingDraft.routes.first(where: { !knownIDs.contains($0["id"].text) && $0["remarks"] == draft["remarks"] }) { routingDraft.routeID = created["id"].text }
+            let response = try await model.settingsWrite(routingDraft.savePath, method: routingDraft.saveMethod, body: draft)
+            try routingDraft.acceptSaved(response)
+            dirty = false
+            do { try await reloadRoutes() }
+            catch {
+                result = "已保存，刷新失败；再次保存会更新同一方案。"
+                return
             }
-            try await reloadRoutes()
         }
     }
 }

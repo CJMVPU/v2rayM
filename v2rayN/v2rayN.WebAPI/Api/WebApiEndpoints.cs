@@ -96,8 +96,10 @@ public static class WebApiEndpoints
         app.MapPost("/api/profile-groups/generate/regions", async (string? subscriptionId, V2rayRuntime runtime) =>
             ApiReplies.Operation(await runtime.GenerateProfileGroupsAsync(subscriptionId, true)));
 
-        app.MapGet("/api/profiles", async (string? subscriptionId, string? filter, V2rayRuntime runtime) =>
-            ApiReplies.Ok(await runtime.GetProfilesAsync(subscriptionId, filter), "profiles.loaded"));
+        app.MapGet("/api/profiles", async (string? subscriptionId, string? filter, bool? includeStatistics, V2rayRuntime runtime) =>
+            ApiReplies.Ok(await runtime.GetProfilesAsync(subscriptionId, filter, includeStatistics ?? true), "profiles.loaded"));
+        app.MapGet("/api/profiles/observations", async (V2rayRuntime runtime) =>
+            ApiReplies.Ok(await runtime.GetProfileObservationsAsync(), "profiles.observations"));
         app.MapGet("/api/profiles/{id}", async (string id, V2rayRuntime runtime) =>
         {
             var profile = await runtime.GetProfileDetailsAsync(id);

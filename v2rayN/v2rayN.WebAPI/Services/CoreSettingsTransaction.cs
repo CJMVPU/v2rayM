@@ -17,6 +17,8 @@ internal sealed class CoreSettingsTransaction
         Func<bool> hasActiveChild, CancellationToken token) =>
         new(await _transaction.BeginAsync(runtime, value => value.State, hasActiveChild, token));
     public Task RestoreAsync(CoreSettingsApplyContext context) => _transaction.RestoreAsync(context.Transaction);
+    public Task<T> MutateAsync<T>(CoreSettingsApplyContext context, Func<Task<T>> change, Func<T, bool> succeeded) =>
+        _transaction.MutateAsync(context.Transaction, change, succeeded);
 
     private sealed class SnapshotStore(IRuntimeConfigStore store) : ISettingsSnapshotStore<RuntimeConfigSnapshot>
     {

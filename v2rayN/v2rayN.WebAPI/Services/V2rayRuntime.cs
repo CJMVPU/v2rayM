@@ -51,8 +51,7 @@ public sealed partial class V2rayRuntime
     private readonly ProfileCatalogService _profileCatalog;
     private readonly ProfileEditorService _profileEditor;
     private readonly ProfileQueryService _profileQueries;
-    private readonly RoutingRuleService _routingRules;
-    private readonly RoutingProfileService _routingProfiles;
+    private readonly RoutingSettingsService _routingSettings;
     private readonly ProfileMaintenanceService _profileMaintenance;
     private readonly SpeedTestCoordinator _speedTests;
     private readonly ProfileRemovalService _profileRemoval;
@@ -78,9 +77,10 @@ public sealed partial class V2rayRuntime
         _settingsEditor = new SettingsEditorService(new ServiceLibSettingsEditor(_configStore), _mutations,
             new SettingsEditValidator(SettingsCapabilities), new CoreSettingsRuntimeAdapter(this));
         _moduleUpdates = new ModuleUpdateCoordinator(_execution);
-        _routingRules = new RoutingRuleService(new ServiceLibRoutingRules(), _mutations);
-        _routingProfiles = new RoutingProfileService(new ServiceLibRoutingProfiles(() => Config,
+        var routingRules = new RoutingRuleService(new ServiceLibRoutingRules(), _mutations);
+        var routingProfiles = new RoutingProfileService(new ServiceLibRoutingProfiles(() => Config,
             () => EnsureConfigSaveSucceededAsync(() => _configStore.SaveAsync())), _mutations);
+        _routingSettings = new(routingProfiles, routingRules, new RoutingSettingsAdapter(this));
         _profileQueries = new ProfileQueryService(new ServiceLibProfileQueries(() => Config));
         _profileMaintenance = new ProfileMaintenanceService(new ServiceLibProfileMaintenance(() => Config,
             () => CurrentCoreRuntime.ProfileId), _mutations, new ProfileCatalogEvents(events, message => AddLog("profile", message)));
@@ -164,16 +164,15 @@ public sealed partial class V2rayRuntime
         }
     }
 
-    public async Task<IReadOnlyList<ProfileView>> GetProfilesAsync(string? subscriptionId, string? filter) =>
-        (await _profileQueries.ListAsync(subscriptionId, filter)).Select(ProfileQueryContractMapper.ToView).ToArray();
+    public async Task<IReadOnlyList<ProfileView>> GetProfilesAsync(string? subscriptionId, string? filter, bool includeStatistics = true) =>
+        (await _profileQueries.ListAsync(subscriptionId, filter, includeStatistics)).Select(ProfileQueryContractMapper.ToView).ToArray();
 
     public Task<ProfileItem?> GetProfileDetailsAsync(string profileId) => ServiceLibProfileQueries.ReadDetailsAsync(profileId);
 
     public async Task<StatusView> GetStatusAsync()
     {
         var selectedProfile = await ConfigDbQuery.GetProfileItem(Config.IndexId);
-        var profileItems = await ConfigDbQuery.ProfileItems(string.Empty) ?? [];
-        var subscriptions = await ConfigDbQuery.SubItems() ?? [];
+        var counts = await ServiceLibProfileQueries.CountAsync();
         var snapshot = CurrentCoreRuntime;
         var processIds = GetActiveCoreProcessIds();
         var listenerDefinitions = snapshot.ProxyPort.HasValue && snapshot.State != CoreRuntimeState.Stopped
@@ -223,8 +222,8 @@ public sealed partial class V2rayRuntime
             listeners.ToArray(),
             !string.IsNullOrEmpty(_xrayPath),
             Utils.GetRuntimeInfo(),
-            profileItems.Count,
-            subscriptions.Count,
+            counts.Profiles,
+            counts.Subscriptions,
             DateTimeOffset.UtcNow,
             Config.GuiItem.EnableStatistics,
             coreRunning ? _trafficWindow.Read(DateTimeOffset.UtcNow) : null,

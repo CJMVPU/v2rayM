@@ -5,6 +5,8 @@ import V2rayMKit
 @testable import V2rayM
 
 private actor RuntimeFixtureAPI: NativeAPI {
+    var requestCounts: [String: Int] = [:]
+    func count(_ path: String) -> Int { requestCounts[path] ?? 0 }
     var running = false
     var faulted = false
     var failNextStart = false
@@ -56,6 +58,7 @@ private actor RuntimeFixtureAPI: NativeAPI {
     func releaseStatus() { held?.resume(returning: heldData!); held = nil; heldData = nil }
     func loseNextRestartResponse() { loseRestartResponse = true }
     func encodedResponse(_ path: String, method: String, body: Data?) async throws -> Data {
+        requestCounts[path, default: 0] += 1
         if path == "/api/settings/routing-profiles", holdNextRoutes {
             holdNextRoutes = false
             await withCheckedContinuation { routesHeld = $0 }
@@ -68,7 +71,8 @@ private actor RuntimeFixtureAPI: NativeAPI {
             result = ["coreRunning": running, "xrayAvailable": true, "runtimeState": running ? "running" : faulted ? "faulted" : "stopped",
                       "currentProfileId": "fixture", "runningProfileId": "fixture", "runningProxyPort": proxyPort,
                       "coreStartedAt": startedAt] as [String: Any]
-        case "/api/profiles?subscriptionId=", "/api/settings/routing-profiles", "/api/core-updates/progress": result = []
+        case "/api/profiles?subscriptionId=&includeStatistics=false", "/api/profiles/observations", "/api/core-updates/progress": result = []
+        case "/api/settings/routing-profiles": result = method == "POST" ? ["routingId": "created-id"] : []
         case "/api/operations": result = tasks
         case "/api/macos/tun?fresh=true":
             freshTunReads += 1
@@ -167,6 +171,33 @@ private final class RuntimeFixtureClock: NativeClock, @unchecked Sendable {
 }
 
 @MainActor final class AppModelOrchestrationTests: XCTestCase {
+    func testAcknowledgedCreateReturnsIdentityDespiteFailedStatusRefresh() async throws {
+        let (model, api, _, _, _, _) = await fixture()
+        await api.fail("/api/status")
+        let response = try await model.settingsWrite("/api/settings/routing-profiles", method: "POST", body: .object([:]))
+        XCTAssertEqual(response["routingId"].text, "created-id")
+        XCTAssertNotNil(model.observationErrors["runtime"])
+        _ = await model.shutdown()
+    }
+
+    func testMetadataIsNotReloadedAtTelemetryFrequencyButCommandsForceRefresh() async throws {
+        let (model, api, _, _, clock, _) = await fixture()
+        let path = "/api/profiles?subscriptionId=&includeStatistics=false"
+        let initial = await api.count(path)
+        let readings = await api.count("/api/profiles/observations")
+        clock.advance(6)
+        try await model.refresh(forceMetadata: false)
+        await model.waitForObservations()
+        let metadata = await api.count(path)
+        let observations = await api.count("/api/profiles/observations")
+        XCTAssertEqual(metadata, initial)
+        XCTAssertEqual(observations, readings + 1)
+        try await model.refresh()
+        await model.waitForObservations()
+        let refreshed = await api.count(path)
+        XCTAssertEqual(refreshed, initial + 1)
+        _ = await model.shutdown()
+    }
     private func fixture() async -> (AppModel, RuntimeFixtureAPI, RuntimeFixtureBackend, RuntimeFixtureProxy, RuntimeFixtureClock, RuntimeFixtureNetwork) {
         let api = RuntimeFixtureAPI(), proxy = RuntimeFixtureProxy(), clock = RuntimeFixtureClock(), network = RuntimeFixtureNetwork()
         let backend = RuntimeFixtureBackend(api)

@@ -55,6 +55,12 @@ import CryptoKit
             try await Task.sleep(for: .milliseconds(100))
         }
         try require(completedSingleProbe, "Single-node latency endpoint owns one background lease")
+        let metadata: [Profile] = try await api.value("/api/profiles?subscriptionId=&includeStatistics=false")
+        let observations: [ProfileObservation] = try await api.value("/api/profiles/observations")
+        let complete: [Profile] = try await api.value("/api/profiles?subscriptionId=")
+        try require(metadata.map(\.id) == complete.map(\.id), "Lightweight metadata preserves node identity and ordering")
+        try require(observations.first(where: { $0.indexId == copy.id })?.delay == complete.first(where: { $0.id == copy.id })?.delay,
+            "Fast observation endpoint reports the completed probe without reloading node documents")
         let export = SettingsValue.object(["profileIds": .array([.string(copy.id)]), "includeShareUris": .bool(true),
             "base64ShareUris": .bool(true), "includeInnerUri": .bool(true), "includeClientConfig": .bool(true)])
         let bytes = try await api.encodedResponse("/api/profiles/export", method: "POST", body: JSONEncoder().encode(export))
@@ -181,8 +187,11 @@ import CryptoKit
         try await checkConfigurationProfiles(api, running: running)
         let beforeRoutes: SettingsValue = try await api.value("/api/settings/routing-profiles")
         let draftRoute = RoutingDraft.newProfile()
-        try await api.send("/api/settings/routing-profiles", method: "POST", body: draftRoute)
+        let routeReply = try await api.encodedResponse("/api/settings/routing-profiles", method: "POST", body: JSONEncoder().encode(draftRoute))
+        let acknowledgedRoute = try JSONDecoder().decode(SettingsValue.self, from: routeReply)["data"]["routingId"].text
         let createdRoutes: SettingsValue = try await api.value("/api/settings/routing-profiles")
+        try require(!acknowledgedRoute.isEmpty && createdRoutes.items.contains(where: { $0["id"].text == acknowledgedRoute }),
+            "Route creation acknowledgement carries the durable identity before list refresh")
         try require(createdRoutes.items.count == beforeRoutes.items.count + 1, "New route creates a separate record")
         for old in beforeRoutes.items {
             try require(createdRoutes.items.first(where: { $0["id"] == old["id"] }) == old, "Creating a route preserves every original route")

@@ -5,6 +5,20 @@ namespace v2rayN.WebAPI.Tests;
 public class RuntimeRequestOperationPolicyTests
 {
     [Test]
+    public async Task TunMutationBlocksConcurrentPreferenceWritesButAllowsStatus()
+    {
+        var operations = new RuntimeOperationCoordinator();
+        var kind = RuntimeRequestOperationPolicy.Classify("PUT", "/api/macos/tun");
+        await using var tun = kind == RuntimeRequestOperationKind.ExclusiveReadOnly
+            ? await operations.EnterExclusiveAsync(allowReadOnlyObservations: true)
+            : await operations.EnterOperationAsync();
+        var preference = operations.EnterOperationAsync().AsTask();
+        await preference.IsCompleted.Should().BeFalse();
+        await using (var observation = await operations.EnterObservationAsync()) { }
+        await tun.DisposeAsync();
+        await using var write = await preference.WaitAsync(TimeSpan.FromSeconds(2));
+    }
+    [Test]
     [Arguments("GET", "/api/status")]
     [Arguments("GET", "/api/operations")]
     [Arguments("GET", "/api/logs")]
@@ -48,6 +62,8 @@ public class RuntimeRequestOperationPolicyTests
 
     [Test]
     [Arguments("PUT", "/api/settings/apply")]
+    [Arguments("PUT", "/api/macos/tun")]
+    [Arguments("PUT", "/api/macos/tun/")]
     [Arguments("PUT", "/api/settings/inbound")]
     [Arguments("PUT", "/api/settings/dns/profiles/xray")]
     [Arguments("POST", "/api/settings/routing-profiles/import")]

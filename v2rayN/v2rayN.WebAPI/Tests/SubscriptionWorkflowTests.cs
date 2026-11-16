@@ -6,6 +6,36 @@ namespace v2rayN.WebAPI.Tests;
 public class SubscriptionWorkflowTests
 {
     [Test]
+    public async Task PartialSuccessStampsOnlySuccessfulIdsAndBackoffDoesNotChangeSuccessTime()
+    {
+        var clock = new Clock();
+        var updater = new Updater { Outcomes = [new("ok", SubscriptionUpdateStatus.Succeeded),
+            new("failed", SubscriptionUpdateStatus.Failed), new("disabled", SubscriptionUpdateStatus.Skipped)] };
+        updater.Release.SetResult();
+        var events = new Events();
+        var service = new SubscriptionUpdateService(new RuntimeOperationCoordinator(), new RuntimeMutationGate(), updater, events, clock);
+        await service.TryStart("", false, default)!;
+        await string.Join(",", updater.StampedIds).Should().BeEqualTo("ok");
+        await events.Changes.Should().BeEqualTo(1);
+        await service.CanAutoUpdate("failed").Should().BeFalse();
+        await service.CanAutoUpdate("ok").Should().BeTrue();
+        // A normal Task return with a failed result is not an update success.
+        updater.Outcomes = [new("failed", SubscriptionUpdateStatus.Failed)];
+        await service.TryStart("failed", false, default)!; // manual retry is allowed
+        await updater.Stamps.Should().BeEqualTo(1);
+        await updater.Saves.Should().BeEqualTo(1);
+        await events.Changes.Should().BeEqualTo(1);
+        clock.Now = clock.Now.AddMinutes(5);
+        await service.CanAutoUpdate("failed").Should().BeTrue();
+    }
+
+    private sealed class Clock : TimeProvider
+    {
+        public DateTimeOffset Now = DateTimeOffset.Parse("2026-11-16T00:00:00Z");
+        public override DateTimeOffset GetUtcNow() => Now;
+    }
+
+    [Test]
     public async Task UpdateAllConflictsWithEveryIndividualAndFailureReleasesAdmission()
     {
         var operations = new RuntimeOperationCoordinator();
@@ -130,10 +160,12 @@ public class SubscriptionWorkflowTests
         public TaskCompletionSource Entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource Release = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public bool Throw; public bool SaveThrows; public int Saves; public int Stamps;
-        public async Task UpdateAsync(string id, bool useProxy, Func<bool, string, Task> progress)
-        { Entered.TrySetResult(); await Release.Task; if (Throw) throw new InvalidOperationException("injected"); }
+        public IReadOnlyList<SubscriptionUpdateResult>? Outcomes;
+        public List<string> StampedIds = [];
+        public async Task<IReadOnlyList<SubscriptionUpdateResult>> UpdateAsync(string id, bool useProxy, Func<bool, string, Task> progress)
+        { Entered.TrySetResult(); await Release.Task; if (Throw) throw new InvalidOperationException("injected"); return Outcomes ?? [new(id, SubscriptionUpdateStatus.Succeeded)]; }
         public Task SaveConfigurationAsync() { Saves++; if (SaveThrows) throw new InvalidOperationException("save"); return Task.CompletedTask; }
-        public Task StampAsync(string id, long unixTime) { Stamps++; return Task.CompletedTask; }
+        public Task StampAsync(string id, long unixTime) { Stamps++; StampedIds.Add(id); return Task.CompletedTask; }
     }
     private sealed class Events : ISubscriptionUpdateEvents
     {

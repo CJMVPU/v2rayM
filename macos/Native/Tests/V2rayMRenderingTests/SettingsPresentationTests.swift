@@ -5,6 +5,48 @@ import V2rayMKit
 @testable import V2rayM
 
 @MainActor final class SettingsPresentationTests: XCTestCase {
+    func testImportRetainsInputOnFailureAndAllowsRetry() async {
+        let draft = ImportDraft()
+        draft.content = "original input"
+        let failed = await draft.submit { _ in throw ClientFailure("invalid_profile") }
+        XCTAssertFalse(failed)
+        XCTAssertEqual(draft.content, "original input")
+        XCTAssertNotNil(draft.error)
+        XCTAssertFalse(draft.saving)
+        let succeeded = await draft.submit { content in XCTAssertEqual(content, "original input") }
+        XCTAssertTrue(succeeded)
+        XCTAssertNil(draft.error)
+    }
+
+    func testImportCannotSubmitTwiceWhilePending() async {
+        let draft = ImportDraft()
+        draft.content = "test"
+        var continuation: CheckedContinuation<Void, Never>?
+        let first = Task { await draft.submit { _ in await withCheckedContinuation { continuation = $0 } } }
+        while continuation == nil { await Task.yield() }
+        XCTAssertTrue(draft.saving)
+        let second = await draft.submit { _ in XCTFail("Duplicate submit") }
+        XCTAssertFalse(second)
+        continuation?.resume()
+        let done = await first.value
+        XCTAssertTrue(done)
+    }
+
+    func testCreateAcknowledgementSurvivesFailedReadAndNextSaveUpdatesSameIdentity() async throws {
+        var draft = RoutingSettingsDraft()
+        draft.route = .object(["remarks": .string("New route")])
+        draft.rules = [.object(["id": .string("rule")])]
+        XCTAssertEqual(draft.saveMethod, "POST")
+        try draft.acceptSaved(.object(["routingId": .string("created-id")]))
+        do {
+            draft = try await draft.selecting(draft.route) { _ in throw ClientFailure("read_failed") }
+            XCTFail("Expected refresh failure")
+        } catch { }
+        XCTAssertEqual(draft.saveMethod, "PUT")
+        XCTAssertEqual(draft.savePath, "/api/settings/routing-profiles/created-id")
+        XCTAssertEqual(draft.rules.first?["id"].text, "rule")
+    }
+
     func testFailedRouteReadPreservesPreviouslyEditableDocument() async throws {
         var draft = RoutingSettingsDraft()
         draft.routeID = "previous"
@@ -34,6 +76,8 @@ import V2rayMKit
         AppFont.register()
         let model = AppModel(dataDirectory: URL(fileURLWithPath: "/tmp/v2raym-ui-fixture"))
         model.ready = true
+        try render(ImportPane(close: {}, save: { _ in }).environmentObject(model),
+            name: "import", height: 568, directory: directory)
         model.routes = try JSONDecoder().decode([RoutingProfile].self, from: Data("""
             [{"id":"one","remarks":"绕过大陆","isActive":true},{"id":"two","remarks":"全局代理","isActive":false}]
             """.utf8))

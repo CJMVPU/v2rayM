@@ -39,6 +39,25 @@ public sealed class SettingsTransaction<TSnapshot, TRuntime>(IExclusiveScope lif
 
     public Task RestoreAsync(SettingsTransactionContext<TSnapshot, TRuntime> context) =>
         mutations.RunAsync(async () => { await store.RestoreAsync(context.Snapshot); return true; });
+
+    // A multi-document mutation may fail after its first durable write, before
+    // runtime application begins. The host retains exclusive operation admission
+    // and this transaction's lifecycle lease. The use case owns its mutation scope;
+    // do not acquire it recursively. Compensation reacquires it before restoring.
+    public async Task<T> MutateAsync<T>(SettingsTransactionContext<TSnapshot, TRuntime> context,
+        Func<Task<T>> change, Func<T, bool> succeeded)
+    {
+        T result;
+        try { result = await change(); }
+        catch (Exception failure)
+        {
+            try { await RestoreAsync(context); }
+            catch (Exception recovery) { throw new AggregateException("Settings mutation and recovery both failed.", failure, recovery); }
+            throw;
+        }
+        if (!succeeded(result)) await RestoreAsync(context);
+        return result;
+    }
 }
 
 public sealed class SettingsTransactionContext<TSnapshot, TRuntime>(IAsyncDisposable lease,

@@ -4,22 +4,33 @@ public static class SubscriptionHandler
 {
     public static async Task UpdateProcess(Config config, string subId, bool blProxy, Func<bool, string, Task> updateFunc)
     {
+        _ = await UpdateProcessWithResults(config, subId, blProxy, updateFunc);
+    }
+
+    // Additive result contract: existing upstream callers keep their Task API.
+    // Never infer success from translated progress text or a normal Task return.
+    public static async Task<IReadOnlyList<SubscriptionUpdateOutcome>> UpdateProcessWithResults(
+        Config config, string subId, bool blProxy, Func<bool, string, Task> updateFunc)
+    {
+        var outcomes = new List<SubscriptionUpdateOutcome>();
         await updateFunc?.Invoke(false, ResUI.MsgUpdateSubscriptionStart);
         var subItem = await ConfigDbQuery.SubItems();
 
         if (subItem is not { Count: > 0 })
         {
             await updateFunc?.Invoke(false, ResUI.MsgNoValidSubscription);
-            return;
+            return outcomes;
         }
 
         var successCount = 0;
         foreach (var item in subItem)
         {
+            if (subId.IsNotEmpty() && item.Id != subId) continue;
             try
             {
                 if (!IsValidSubscription(item, subId))
                 {
+                    outcomes.Add(new(item.Id, SubscriptionUpdateOutcomeKind.Skipped));
                     continue;
                 }
 
@@ -27,6 +38,7 @@ public static class SubscriptionHandler
                 if (item.Enabled == false)
                 {
                     await updateFunc?.Invoke(false, $"{hashCode}{ResUI.MsgSkipSubscriptionUpdate}");
+                    outcomes.Add(new(item.Id, SubscriptionUpdateOutcomeKind.Skipped));
                     continue;
                 }
 
@@ -38,15 +50,15 @@ public static class SubscriptionHandler
                 var result = await DownloadAllSubscriptions(config, item, blProxy, downloadHandle);
 
                 // Process download result
-                if (await ProcessDownloadResult(config, item.Id, result, hashCode, updateFunc))
-                {
-                    successCount++;
-                }
+                var updated = await ProcessDownloadResult(config, item.Id, result, hashCode, updateFunc);
+                outcomes.Add(new(item.Id, updated ? SubscriptionUpdateOutcomeKind.Succeeded : SubscriptionUpdateOutcomeKind.Failed));
+                if (updated) successCount++;
 
                 await updateFunc?.Invoke(false, "-------------------------------------------------------");
             }
             catch (Exception ex)
             {
+                outcomes.Add(new(item.Id, SubscriptionUpdateOutcomeKind.Failed));
                 var hashCode = $"{item.Remarks}->";
                 Logging.SaveLog("UpdateSubscription", ex);
                 await updateFunc?.Invoke(false, $"{hashCode}{ResUI.MsgFailedImportSubscription}: {ex.Message}");
@@ -55,6 +67,7 @@ public static class SubscriptionHandler
         }
 
         await updateFunc?.Invoke(successCount > 0, $"{ResUI.MsgUpdateSubscriptionEnd}");
+        return outcomes;
     }
 
     private static bool IsValidSubscription(SubItem item, string subId)

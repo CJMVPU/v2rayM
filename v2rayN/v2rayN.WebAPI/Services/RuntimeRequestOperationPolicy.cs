@@ -38,7 +38,8 @@ internal static class RuntimeRequestOperationPolicy
             return RuntimeRequestOperationKind.Observation;
         }
 
-        if (!isGet && normalizedPath.StartsWith("/api/settings/", StringComparison.Ordinal))
+        if (!isGet && (normalizedPath.StartsWith("/api/settings/", StringComparison.Ordinal)
+            || normalizedPath == "/api/macos/tun"))
         {
             return RuntimeRequestOperationKind.ExclusiveReadOnly;
         }

@@ -34,6 +34,7 @@ import V2rayMKit
     @Published var moduleTargets: [String] = ["Xray", "GeoFiles"]
     private var logBuffer = RollingLogBuffer()
     private var logCursor: Int64 = 0
+    private var profileObservations: [ProfileObservation]?
     private var updateStarting = false
     private var mutationGeneration: Int { connection.revision }
     @Published var ready = false
@@ -128,6 +129,7 @@ import V2rayMKit
         }
         func startBackend() async throws {
             owner.api = try await owner.backend.startClient(); owner.logCursor = 0
+            owner.profileObservations = nil
         }
         func readTunState() async throws -> TunModeState {
             guard let api = owner.api else { throw ClientFailure("backend_exited") }
@@ -320,14 +322,23 @@ import V2rayMKit
                 dashboard.update(state: state, node: profiles.first { $0.id == id }, entries: tail.items)
             }
         }
-        schedule("profiles", interval: 5) { [self] in
-            let value: [Profile] = try await api.value("/api/profiles?subscriptionId=")
+        schedule("profiles", interval: 30) { [self] in
+            let metadata: [Profile] = try await api.value("/api/profiles?subscriptionId=&includeStatistics=false")
             guard current() else { return }
+            let value = profileObservations.map { ProfileObservation.applying($0, to: metadata, selectedID: status?.currentProfileId) } ?? metadata
             if profiles != value { profiles = value }; clearObservationError("profiles")
             if let state = status {
                 let id = state.coreRunning ? state.runningProfileId : state.currentProfileId
                 dashboard.update(state: state, node: profiles.first { $0.id == id }, entries: [])
             }
+        }
+        schedule("profile-observations", interval: 5) { [self] in
+            let values: [ProfileObservation] = try await api.value("/api/profiles/observations")
+            guard current() else { return }
+            profileObservations = values
+            let updated = ProfileObservation.applying(values, to: profiles, selectedID: status?.currentProfileId)
+            if profiles != updated { profiles = updated }
+            clearObservationError("profile-observations")
         }
         schedule("routes", interval: 30) { [self] in
             let value: [RoutingProfile] = try await api.value("/api/settings/routing-profiles")
@@ -499,8 +510,10 @@ import V2rayMKit
             throw error
         }
     }
-    func importNodes(_ content: String) {
-        run({ api in try await api.send("/api/profiles/import", body: ImportInput(content: content)) }, success: "节点已导入")
+    func importNodes(_ content: String) async throws {
+        try await settingsWrite("/api/profiles/import", method: "POST",
+            body: .object(["content": .string(content), "subscriptionId": .string("")]))
+        message = "节点已导入"
     }
     func deleteProfile(_ item: Profile) {
         run { [self] api in
@@ -553,21 +566,34 @@ import V2rayMKit
         guard ready, let api else { throw ClientFailure("backend_exited") }
         return try await api.value(path)
     }
-    func settingsWrite(_ path: String, method: String = "PUT", body: SettingsValue? = nil) async throws {
+    @discardableResult func settingsWrite(_ path: String, method: String = "PUT", body: SettingsValue? = nil) async throws -> SettingsValue {
         guard ready, !busy, !moduleUpdateActive, !shuttingDown, !pendingDisconnect, let api else { throw ClientFailure("operation_in_progress") }
         connection.invalidateObservations()
         busy = true
         defer { busy = false }
+        var response = SettingsValue.null
         let task = Task {
-            _ = try await NativeCommandService().execute({
-                if let body { try await api.send(path, method: method, body: body) }
-                else { try await api.perform(path, method: method) }
-            }, runtime: CommandAdapter(self), allowDeferredRetry: false)
+            var committed = false
+            do {
+                _ = try await NativeCommandService().execute({
+                    let bytes = try await api.encodedResponse(path, method: method, body: try body.map { try JSONEncoder().encode($0) })
+                    let envelope = try JSONDecoder().decode(APIEnvelope<SettingsValue>.self, from: bytes)
+                    response = envelope.data ?? .null
+                    committed = true
+                }, runtime: CommandAdapter(self), allowDeferredRetry: false)
+            } catch {
+                guard committed else { throw error }
+                // The write was acknowledged. A subsequent observation/proxy
+                // synchronization failure must not turn a create into a retry.
+                self.error = "已保存，但状态同步失败：" + error.localizedDescription
+            }
         }
         settingsOperation = task
         defer { settingsOperation = nil }
         try await task.value
+        return response
     }
+
     func shutdown() async -> Bool {
         defer { shuttingDown = false }
         do {
