@@ -5,6 +5,9 @@ public struct TrafficTrendSample: Equatable, Identifiable, Sendable {
     public let date: Date
     public let upload: Double
     public let download: Double
+    public let directUpload: Double
+    public let directDownload: Double
+    public var maximum: Double { max(upload, download, directUpload, directDownload) }
     public let segment: Int
 }
 
@@ -55,7 +58,8 @@ public struct TrafficTrend: Equatable, Sendable {
             if interrupted || date.timeIntervalSince(last.date) >= 12 { segment += 1 }
         }
         interrupted = false
-        samples.append(TrafficTrendSample(date: date, upload: rates[0], download: rates[1], segment: segment))
+        samples.append(TrafficTrendSample(date: date, upload: rates[0], download: rates[1],
+                                          directUpload: rates[2], directDownload: rates[3], segment: segment))
         if samples.count > Self.maximumSamples { samples.removeFirst(samples.count - Self.maximumSamples) }
     }
 
@@ -63,7 +67,8 @@ public struct TrafficTrend: Equatable, Sendable {
     public func peaks(at now: Date) -> [Double] {
         let now = displayDate(at: now)
         let recent = samples.filter { $0.date <= now && now.timeIntervalSince($0.date) < 60 }
-        return [recent.map(\.upload).max() ?? 0, recent.map(\.download).max() ?? 0]
+        return [recent.map(\.upload).max() ?? 0, recent.map(\.download).max() ?? 0,
+                recent.map(\.directUpload).max() ?? 0, recent.map(\.directDownload).max() ?? 0]
     }
 
     public func visible(at now: Date) -> [TrafficTrendSample] {
@@ -98,7 +103,7 @@ public struct TrafficTrendRetirement: Sendable {
         samples = points
         displayDate = paused
         startedAt = resumedAt
-        ceiling = max(1, (points.map { max($0.upload, $0.download) }.max() ?? 0) * 1.12)
+        ceiling = max(1, (points.map(\.maximum).max() ?? 0) * 1.12)
     }
 
     public func progress(at date: Date) -> Double {

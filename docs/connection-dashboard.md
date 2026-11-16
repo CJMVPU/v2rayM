@@ -1,26 +1,27 @@
 # Native connection dashboard
 
 The fixed 860 × 600 homepage uses a native circular connection display and a
-92-point traffic trend below it. The right-hand status, traffic and recent
+108-point traffic trend below it. The right-hand status, traffic and recent
 connection cards retain their existing data sources. No new connect button is
 introduced; system proxy and TUN controls remain mutually exclusive in the title
 bar. The background uses the same `NSColor.controlBackgroundColor` as Settings.
 
 ## Ring and geometry
 
-- The cyan outer arc represents proxy upload activity; the purple inner arc
-  represents proxy download activity. Both use the existing one-minute average,
+- The inner cyan/purple pair represents proxy upload/download; the outer
+  green/orange pair represents direct upload/download. All four use the existing one-minute average,
   not packet events, capacity, health, progress percentages or loss estimates.
 - Each ring fills clockwise from the bottom, relative to that direction’s
   highest sample in the last 60 seconds. Zero, missing or inactive rates leave
   only the track. Changes ease over 1.2 seconds. Reduce Motion, window occlusion, minimization
   and closure pause animation. The central status preserves offline, recovery,
   updating, stale, faulted and local-core distinctions.
-- The disc and both rings share the horizontal and vertical center of the
+- The disc and all four rings share the horizontal and vertical center of the
   gauge area above the traffic trend. Vertical position uses the actual gauge
   height, with no accumulated offsets. The four badges and trend retain their
   positions; the redundant current-connection heading is omitted. Hover adds a clearly visible disc fill and cyan/purple rim with a
-  0.18-second transition, without changing geometry. Gauge tooltips and the
+  0.18-second transition, without changing geometry. Hover is tested against the inset disc radius,
+  excluding ring tracks and square bounding-box corners. Gauge tooltips and the
   Settings home-display explanation section are removed. Source attribution
   remains bundled in Resources/Globe/ATTRIBUTION.txt.
   Diameter is bounded by both width and the space remaining above the trend.
@@ -34,7 +35,7 @@ bar. The background uses the same `NSColor.controlBackgroundColor` as Settings.
 ## Trend data
 
 `TrafficTrend` records distinct backend `sampledAt` timestamps from coherent
-status refreshes, retaining at most 61 samples and five minutes of history.
+status refreshes, retaining at most 1024 samples and five minutes of history.
 The backend publishes approximately every five seconds; plotted rates are the
 one-minute rolling averages already used by the speed card, in KiB/s.
 
@@ -47,18 +48,27 @@ freezes the chart clock. When sampling resumes, the real five-minute window
 applies again, so points older than five minutes expire naturally. On resume,
 a presentation-only snapshot of expired history crossfades into the live chart
 over 1.2 seconds; expired data never contributes to live peaks. Reduce Motion
-and hidden windows skip this transition. Both lines share one hidden axis; scale is determined from the five-minute
-observed samples with headroom. The header displays the actual combined
-upload/download peak over the last minute, without axis headroom. The chart
+and hidden windows skip this transition. All four lines share one hidden axis; scale is determined from the five-minute
+observed samples with headroom. The header displays the largest individual
+proxy/direct upload/download sample over the last minute, without axis headroom. The chart
 uses its full width, seven horizontal grid lines and no endpoint captions.
 A visible 60 fps timeline scrolls the chart continuously; new endpoints and
 scale changes ease over 1.2 seconds. Bounded cubic segments smooth the curve
 without overshoot or bridging missing data. A single sample is a dot,
 not an invented line across the chart.
 
+## Traffic card and import
+
+The speed card uses inline arrow/value pairs: proxy upload/download on the first
+row and direct upload/download on the second, using the same four colors as the
+rings and chart. Tooltips and accessibility labels name each route and direction.
+Direct counts cover Xray's direct outbound only, excluding traffic bypassing Xray.
+Node cumulative upload/download remain proxy-only and use inline arrow/value pairs.
+Import is available on the Nodes page; the redundant title-bar import icon is removed.
+
 ## Recent connections
 
-The card shows up to five records in evenly spaced rows, with a continuous
+The card shows up to six records without a heading in evenly spaced rows, with a continuous
 route-colored background from the host to its route label: cyan for proxy,
 green for direct and orange for blocked connections. The lower inset is eight
 points. Long hosts truncate in the middle while the route label remains visible;

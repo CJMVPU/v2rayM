@@ -3,15 +3,34 @@ import XCTest
 
 final class TrafficTrendTests: XCTestCase {
     private func state(at time: TimeInterval, profile: String = "a", started: TimeInterval = 900,
-                       running: Bool = true, enabled: Bool = true, upload: Double = 300, download: Double = 600) throws -> RuntimeStatus {
+                       running: Bool = true, enabled: Bool = true, upload: Double = 300, download: Double = 600,
+                       directUpload: Double = 0, directDownload: Double = 0) throws -> RuntimeStatus {
         let formatter = ISO8601DateFormatter()
         let object: [String: Any] = ["coreRunning": running, "xrayAvailable": true, "runtimeState": running ? "running" : "stopped",
             "runningProfileId": profile, "coreStartedAt": formatter.string(from: Date(timeIntervalSince1970: started)),
             "trafficEnabled": enabled, "traffic": ["proxyUp": upload, "proxyDown": download,
-                "directUp": 100, "directDown": 200, "sampleSeconds": 60,
+                "directUp": directUpload, "directDown": directDownload, "sampleSeconds": 60,
                 "sampledAt": formatter.string(from: Date(timeIntervalSince1970: time))]]
         return try JSONDecoder().decode(RuntimeStatus.self, from: JSONSerialization.data(withJSONObject: object))
     }
+    func testDirectTrafficHasIndependentRatesPeaksAndChartScale() throws {
+        var trend = TrafficTrend()
+        let now = Date(timeIntervalSince1970: 1000)
+        trend.record(try state(at: 1000, upload: 60, download: 120,
+                               directUpload: 1800, directDownload: 3600), now: now)
+        let sample = try XCTUnwrap(trend.samples.first)
+        XCTAssertEqual(sample.upload, 1)
+        XCTAssertEqual(sample.download, 2)
+        XCTAssertEqual(sample.directUpload, 30)
+        XCTAssertEqual(sample.directDownload, 60)
+        XCTAssertEqual(sample.maximum, 60)
+        XCTAssertEqual(trend.peaks(at: now), [1, 2, 30, 60])
+        XCTAssertEqual(trend.peaks(at: now.addingTimeInterval(60)), [0, 0, 0, 0])
+        trend.record(try state(at: 1005, running: false), now: now.addingTimeInterval(5))
+        let retired = try XCTUnwrap(TrafficTrendRetirement(previous: trend, resumedAt: now.addingTimeInterval(400)))
+        XCTAssertEqual(retired.ceiling, 60 * 1.12, accuracy: 0.001)
+    }
+
     func testPollingDoesNotDuplicateOrReorderSamples() throws {
         var trend = TrafficTrend()
         let now = Date(timeIntervalSince1970: 1000)
@@ -65,7 +84,7 @@ final class TrafficTrendTests: XCTestCase {
         XCTAssertEqual(trend.samples[0], original)
         XCTAssertNotEqual(trend.samples[0].segment, trend.samples[1].segment)
         XCTAssertEqual(trend.visible(at: Date(timeIntervalSince1970: 1005)).count, 2)
-        XCTAssertEqual(trend.peaks(at: Date(timeIntervalSince1970: 1005)), [5, 10])
+        XCTAssertEqual(trend.peaks(at: Date(timeIntervalSince1970: 1005)), [5, 10, 0, 0])
     }
     func testCapacityAndTimeWindowRemainBoundedEvenWithoutNewSamples() throws {
         var trend = TrafficTrend()
@@ -82,9 +101,9 @@ final class TrafficTrendTests: XCTestCase {
         var trend = TrafficTrend()
         trend.record(try state(at: 1000, upload: 6000, download: 60), now: Date(timeIntervalSince1970: 1000))
         trend.record(try state(at: 1005, upload: 60, download: 3000), now: Date(timeIntervalSince1970: 1005))
-        XCTAssertEqual(trend.peaks(at: Date(timeIntervalSince1970: 1059)), [100, 50])
-        XCTAssertEqual(trend.peaks(at: Date(timeIntervalSince1970: 1060)), [1, 50])
-        XCTAssertEqual(trend.peaks(at: Date(timeIntervalSince1970: 1065)), [0, 0])
+        XCTAssertEqual(trend.peaks(at: Date(timeIntervalSince1970: 1059)), [100, 50, 0, 0])
+        XCTAssertEqual(trend.peaks(at: Date(timeIntervalSince1970: 1060)), [1, 50, 0, 0])
+        XCTAssertEqual(trend.peaks(at: Date(timeIntervalSince1970: 1065)), [0, 0, 0, 0])
         XCTAssertEqual(trend.visible(at: Date(timeIntervalSince1970: 1065)).count, 2)
     }
 
@@ -97,7 +116,7 @@ final class TrafficTrendTests: XCTestCase {
         let after = Date(timeIntervalSince1970: 1300.1)
         XCTAssertEqual(trend.plotSamples(at: before), trend.plotSamples(at: after))
         XCTAssertEqual(trend.visible(at: after).map(\.date), [1005.0, 1010].map(Date.init(timeIntervalSince1970:)))
-        XCTAssertEqual(trend.peaks(at: after), [0, 0])
+        XCTAssertEqual(trend.peaks(at: after), [0, 0, 0, 0])
 
         // The periodic status update must not delete that rendering predecessor.
         trend.record(try state(at: 1300), now: after)
@@ -129,9 +148,9 @@ final class TrafficTrendTests: XCTestCase {
     func testPeaksExcludeFutureButRetainPreviousSessions() throws {
         var trend = TrafficTrend()
         trend.record(try state(at: 1000), now: Date(timeIntervalSince1970: 1000))
-        XCTAssertEqual(trend.peaks(at: Date(timeIntervalSince1970: 999)), [0, 0])
+        XCTAssertEqual(trend.peaks(at: Date(timeIntervalSince1970: 999)), [0, 0, 0, 0])
         trend.record(try state(at: 1005, profile: "b", upload: 0, download: 0), now: Date(timeIntervalSince1970: 1005))
-        XCTAssertEqual(trend.peaks(at: Date(timeIntervalSince1970: 1005)), [5, 10])
+        XCTAssertEqual(trend.peaks(at: Date(timeIntervalSince1970: 1005)), [5, 10, 0, 0])
     }
 
     func testStoppedClockFreezesHistoryAndResumesWhenEnabled() throws {
@@ -143,7 +162,7 @@ final class TrafficTrendTests: XCTestCase {
             trend.record(try state(at: time, running: false), now: Date(timeIntervalSince1970: time))
             XCTAssertEqual(trend.displayDate(at: Date(timeIntervalSince1970: time)), Date(timeIntervalSince1970: 1005))
             XCTAssertEqual(trend.visible(at: Date(timeIntervalSince1970: time)), frozen)
-            XCTAssertEqual(trend.peaks(at: Date(timeIntervalSince1970: time)), [5, 10])
+            XCTAssertEqual(trend.peaks(at: Date(timeIntervalSince1970: time)), [5, 10, 0, 0])
         }
         trend.record(try state(at: 2005), now: Date(timeIntervalSince1970: 2005))
         XCTAssertNil(trend.pausedAt)
@@ -163,7 +182,7 @@ final class TrafficTrendTests: XCTestCase {
         XCTAssertEqual(retirement.progress(at: resume.addingTimeInterval(0.6)), 0.5, accuracy: 0.00001)
         XCTAssertEqual(retirement.progress(at: resume.addingTimeInterval(2)), 1)
         XCTAssertEqual(trend.samples.count, 1)
-        XCTAssertEqual(trend.peaks(at: resume), [0, 0])
+        XCTAssertEqual(trend.peaks(at: resume), [0, 0, 0, 0])
         XCTAssertNil(TrafficTrendRetirement(previous: trend, resumedAt: resume))
     }
 

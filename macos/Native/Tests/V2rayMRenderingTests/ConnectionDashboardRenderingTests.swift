@@ -5,6 +5,15 @@ import AppKit
 @testable import V2rayM
 
 final class ConnectionDashboardRenderingTests: XCTestCase {
+    func testHoverExcludesRingsAndBoundingBoxCorners() {
+        XCTAssertTrue(ConnectionDashboard.containsDisc(CGPoint(x: 192, y: 192), diameter: 384))
+        XCTAssertTrue(ConnectionDashboard.containsDisc(CGPoint(x: 192, y: 335), diameter: 384))
+        XCTAssertFalse(ConnectionDashboard.containsDisc(CGPoint(x: 192, y: 337), diameter: 384))
+        XCTAssertFalse(ConnectionDashboard.containsDisc(CGPoint(x: 192, y: 380), diameter: 384))
+        XCTAssertFalse(ConnectionDashboard.containsDisc(CGPoint(x: 60, y: 60), diameter: 384))
+        XCTAssertFalse(ConnectionDashboard.containsDisc(.zero, diameter: 0))
+    }
+
     @MainActor func testTrendLeftEdgeKeepsVisibleStrokeWhenOldestSampleExpires() throws {
         AppFont.register()
         var trend = TrafficTrend()
@@ -55,7 +64,7 @@ final class ConnectionDashboardRenderingTests: XCTestCase {
         AppFont.register()
         let destinations = [("57.144.5.32", "proxy"), ("89.208.253.211", "proxy"),
                             ("[2606:4700:1234:5678:abcd:ef01:2345:6789]", "proxy"),
-                            ("35.190.80.1", "block"), ("112.19.242.77", "direct")]
+                            ("35.190.80.1", "block"), ("112.19.242.77", "direct"), ("1.1.1.1", "direct")]
         let connections = try destinations.map { host, route in
             try XCTUnwrap(GlobeConnection.parse(LogEntry(timestamp: "2026-10-24T12:00:00Z", source: "core",
                 message: "from tcp:127.0.0.1:1234 accepted tcp:\(host):443 [socks >> \(route)]", sequence: 1)))
@@ -105,20 +114,31 @@ final class ConnectionDashboardRenderingTests: XCTestCase {
         let now = Date()
         let formatter = ISO8601DateFormatter()
         var trend = TrafficTrend()
+        let model = AppModel(dataDirectory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString))
+        model.ready = true
+        model.systemProxyEnabled = true
+        model.lastStatusRefresh = now
+        model.profiles = try JSONDecoder().decode([Profile].self, from: Data("""
+            [{"indexId":"fixture","remarks":"Vless_xray","protocol":"vless","address":"","port":443,
+              "network":"xhttp","streamSecurity":"tls","coreType":"Xray","delay":165,"isCurrent":true,
+              "totalUp":29100000,"totalDown":176500000,"canTest":true}]
+            """.utf8))
         for i in 0...60 {
             let date = now.addingTimeInterval(Double(i - 60) * 5)
             let data: [String: Any] = ["coreRunning": true, "xrayAvailable": true, "runtimeState": "running",
                 "runningProfileId": "fixture", "coreStartedAt": formatter.string(from: now.addingTimeInterval(-600)),
-                "trafficEnabled": true, "traffic": ["proxyUp": Double(20 + i % 13) * 60,
+                "trafficEnabled": true, "statisticsEnabled": true, "installedXrayVersion": "26.11.9 (修复版 M2)", "traffic": ["proxyUp": Double(20 + i % 13) * 60,
                     "proxyDown": Double(800 + i % 19 * 100) * 60,
-                    "directUp": 0, "directDown": 0, "sampleSeconds": 60,
+                    "directUp": Double(100 + i % 17 * 20) * 60, "directDown": Double(400 + i % 23 * 50) * 60, "sampleSeconds": 60,
                     "sampledAt": formatter.string(from: date)]]
             let state = try JSONDecoder().decode(RuntimeStatus.self, from: JSONSerialization.data(withJSONObject: data))
             trend.record(state, now: date)
+            model.telemetry.record(state, now: date)
+            model.status = state
         }
         let dashboard = ConnectionDashboard(state: .tun, city: "洛杉矶", nodeName: "Vless_xray", node: nil,
             startedAt: formatter.string(from: now.addingTimeInterval(-351)), coreRunning: true,
-            rates: [25, 1300], trend: trend, trafficEnabled: true, now: now, connecting: false, reconnect: {})
+            rates: [25, 1300, 300, 700], trend: trend, trafficEnabled: true, now: now, connecting: false, reconnect: {})
             .frame(width: 550, height: 546).padding(12)
             .background(Color(nsColor: .controlBackgroundColor)).environment(\.colorScheme, .dark)
         let host = NSHostingView(rootView: dashboard)
@@ -128,5 +148,23 @@ final class ConnectionDashboardRenderingTests: XCTestCase {
         let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: bitmap)
         try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: output))
+        let entries = (1...6).map { index in
+            LogEntry(timestamp: formatter.string(from: now), source: "core",
+                message: "from tcp:127.0.0.1:1234 accepted tcp:192.0.2.\(index):443 [socks >> \(index > 4 ? "direct" : "proxy")]", sequence: Int64(index))
+        }
+        model.dashboard.update(state: try XCTUnwrap(model.status), node: nil, entries: entries)
+        for dark in [true, false] {
+            let home = NSHostingView(rootView: HomeDashboard().environmentObject(model)
+                .font(AppFont.body).frame(width: 860, height: 568)
+                .environment(\.colorScheme, dark ? .dark : .light))
+            home.frame = CGRect(x: 0, y: 0, width: 860, height: 568)
+            home.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+            home.layoutSubtreeIfNeeded()
+            let image = try XCTUnwrap(home.bitmapImageRepForCachingDisplay(in: home.bounds))
+            home.cacheDisplay(in: home.bounds, to: image)
+            let target = URL(fileURLWithPath: output).deletingLastPathComponent()
+                .appendingPathComponent(dark ? "home-dark.png" : "home-light.png")
+            try XCTUnwrap(image.representation(using: .png, properties: [:])).write(to: target)
+        }
     }
 }

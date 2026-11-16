@@ -21,13 +21,16 @@ public class StatisticsPersistenceTests
             async Task Invoke(string method, params object[] args) =>
                 await (Task)type.GetMethod(method, BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(manager, args)!;
             await Invoke("InitData");
-            await Invoke("UpdateServerStat", new ServerSpeedItem { ProxyUp = 10 });
+            await Invoke("UpdateServerStat", new ServerSpeedItem { ProxyUp = 10, ProxyDown = 30, DirectUp = 1000, DirectDown = 2000 });
             await manager.SaveTo();
             await Invoke("InitData");
-            await Invoke("UpdateServerStat", new ServerSpeedItem { ProxyUp = 20 });
+            await Invoke("UpdateServerStat", new ServerSpeedItem { ProxyUp = 20, ProxyDown = 40, DirectUp = 3000, DirectDown = 4000 });
             await manager.SaveTo();
             var item = (await db.TableAsync<ServerStatItem>().ToListAsync()).Single();
             await item.TotalUp.Should().BeEqualTo(30L);
+            await item.TotalDown.Should().BeEqualTo(70L);
+            await item.TodayUp.Should().BeEqualTo(30L);
+            await item.TodayDown.Should().BeEqualTo(70L);
         }
         finally { await db.DisposeDbConnectionAsync(); Directory.Delete(directory, true); }
     }

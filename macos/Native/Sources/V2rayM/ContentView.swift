@@ -97,10 +97,6 @@ struct ContentView: View {
             }.frame(height: 30, alignment: .bottom)
                 .accessibilityElement(children: .contain).accessibilityLabel("页面")
             Spacer(minLength: 8)
-            Button { importing = true } label: {
-                Image(systemName: "square.and.arrow.down").frame(width: 26, height: 26)
-            }.buttonStyle(HoverButtonStyle(plain: true)).disabled(controlsDisabled)
-                .help("导入节点").accessibilityLabel("导入节点").disabled(editingContent)
             ZStack {
                 Toggle("系统代理", isOn: Binding(get: { model.desiredMode == .system }, set: { model.toggleProxy($0) }))
                     .toggleStyle(.switch).fixedSize().disabled(!model.canToggle(.system) || editingContent || model.proxyNeedsRecovery)

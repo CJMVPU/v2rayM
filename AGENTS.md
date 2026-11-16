@@ -21,8 +21,8 @@ Older documents describing multi-core support are historical, not requirements.
 - Fixed compact window; LXGWWenKaiMono Medium; no sidebar or subscription page.
 - Reuse the main window content for settings, node editing and import; do not add
   separate editor windows or sheets. Preserve unsaved-edit confirmation on return.
-- Home defaults to a house icon. Navigation and import/mutually exclusive system
-  proxy and TUN controls stay in the title bar. No separate connect button.
+- Home defaults to a house icon. Navigation and mutually exclusive system proxy and TUN controls stay in the
+  title bar; node import stays on the Nodes page. No separate connect button.
 - All buttons have disabled-aware hover feedback without layout shifts.
 - Node table has fixed names, order and widths, including transport and TLS; do not
   restore manual column resizing/reordering. Footer height never changes on selection.

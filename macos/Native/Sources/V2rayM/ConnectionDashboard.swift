@@ -35,10 +35,10 @@ struct ConnectionDashboard: View {
     }
     var body: some View {
         GeometryReader { geometry in
-            let trendHeight: CGFloat = 92
+            let trendHeight: CGFloat = 108
             let gap: CGFloat = 12
             let gaugeHeight = max(0, geometry.size.height - trendHeight - gap)
-            let diameter = max(0, min(340, 2 * gaugeHeight - geometry.size.width))
+            let diameter = max(0, min(384, gaugeHeight - 80, geometry.size.width - 24))
             VStack(spacing: gap) {
                 ZStack(alignment: .topLeading) {
                     HStack {
@@ -72,18 +72,21 @@ struct ConnectionDashboard: View {
     }
     private func activityRing(diameter: CGFloat) -> some View {
         let peaks = trend.peaks(at: now)
-        let upload = running && peaks[0] > 0 ? min(1, max(0, (rates?.first ?? 0) / max(peaks[0], 0.000001))) : 0
-        let download = running && peaks[1] > 0 ? min(1, max(0, (rates?.dropFirst().first ?? 0) / max(peaks[1], 0.000001))) : 0
+        let fractions = (0..<4).map { index -> Double in
+            guard running, let rates, rates.indices.contains(index), peaks[index] > 0 else { return 0 }
+            return min(1, max(0, rates[index] / peaks[index]))
+        }
         let animate = windowVisible && !reduceMotion
         return ZStack {
             ZStack {
-                ring(diameter: diameter, color: DashboardTheme.cyan, fraction: upload)
-                ring(diameter: max(0, diameter - 22), color: DashboardTheme.purple, fraction: download)
+                ring(diameter: diameter, color: DashboardTheme.directUpload, fraction: fractions[2])
+                ring(diameter: max(0, diameter - 22), color: DashboardTheme.directDownload, fraction: fractions[3])
+                ring(diameter: max(0, diameter - 44), color: DashboardTheme.cyan, fraction: fractions[0])
+                ring(diameter: max(0, diameter - 66), color: DashboardTheme.purple, fraction: fractions[1])
             }
-            .animation(animate ? .easeInOut(duration: 1.2) : nil, value: upload)
-            .animation(animate ? .easeInOut(duration: 1.2) : nil, value: download)
+            .animation(animate ? .easeInOut(duration: 1.2) : nil, value: fractions)
             .accessibilityHidden(true)
-            DashboardDiscSurface(hovered: discHovered).padding(26)
+            DashboardDiscSurface(hovered: discHovered).padding(Self.discInset)
             VStack(spacing: 9) {
                 Image(systemName: running ? "shield.lefthalf.filled" : state == .recovering ? "arrow.triangle.2.circlepath" : "shield")
                     .font(.system(size: 22)).foregroundStyle(statusColor)
@@ -98,13 +101,28 @@ struct ConnectionDashboard: View {
                     .disabled(state != .offline || connecting)
                     .opacity(state == .offline && !connecting ? 1 : 0)
                     .accessibilityHidden(state != .offline || connecting)
-            }.padding(.horizontal, 44)
+            }.padding(.horizontal, Self.discInset + 18)
         }.frame(width: diameter, height: diameter)
             .contentShape(Circle())
-            .onHover { discHovered = $0 }
+            .onContinuousHover { phase in
+                switch phase {
+                case .active(let location): discHovered = Self.containsDisc(location, diameter: diameter)
+                case .ended: discHovered = false
+                }
+            }
             .onDisappear { discHovered = false }
             .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: discHovered)
     }
+    static let discInset: CGFloat = 48
+
+    /// Hover coordinates belong to the whole gauge, but only the inset disc lights up.
+    static func containsDisc(_ point: CGPoint, diameter: CGFloat) -> Bool {
+        let radius = max(0, diameter / 2 - discInset)
+        let dx = point.x - diameter / 2
+        let dy = point.y - diameter / 2
+        return radius > 0 && dx * dx + dy * dy <= radius * radius
+    }
+
     private func ring(diameter: CGFloat, color: Color, fraction: Double) -> some View {
         ZStack {
             Circle().stroke(Color.primary.opacity(0.08), lineWidth: 5)
@@ -150,7 +168,7 @@ struct TrafficTrendView: View {
     }
     var body: some View {
         let points = trend.plotSamples(at: now)
-        let maximum = max(1, (points.map { max($0.upload, $0.download) }.max() ?? 0) * 1.12)
+        let maximum = max(1, (points.map(\.maximum).max() ?? 0) * 1.12)
         let peak = trend.peaks(at: now).max() ?? 0
         let peakLabel = points.contains { now.timeIntervalSince($0.date) < 60 } ? DashboardStatus.rate(peak) : "—"
         VStack(spacing: 5) {
@@ -160,8 +178,13 @@ struct TrafficTrendView: View {
                 Text("峰值 " + peakLabel)
                     .font(AppFont.size(10)).monospacedDigit().foregroundStyle(DashboardTheme.muted)
                 Spacer(minLength: 0)
-                legend("上传", color: DashboardTheme.cyan)
-                legend("下载", color: DashboardTheme.purple)
+            }
+            HStack(spacing: 12) {
+                Spacer(minLength: 0)
+                legend("代理 ↑", color: DashboardTheme.cyan)
+                legend("代理 ↓", color: DashboardTheme.purple)
+                legend("直连 ↑", color: DashboardTheme.directUpload)
+                legend("直连 ↓", color: DashboardTheme.directDownload)
             }
             TimelineView(.animation(minimumInterval: 1 / 60, paused: !animate || (points.isEmpty && retirement == nil))) { timeline in
                 let date = animate ? timeline.date : now
@@ -208,11 +231,13 @@ struct TrafficTrendView: View {
             }
             .onChange(of: points.last?.id) { _, _ in sampleArrived = Date() }
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("近五分钟代理流量趋势，每五秒采样，显示一分钟均速。最近一分钟峰值 " + peakLabel + "。\(trend.visible(at: now).count) 个有效采样点。" + (points.isEmpty ? emptyTitle : ""))
+            .accessibilityLabel("近五分钟代理及直连流量趋势，每五秒采样，显示一分钟均速。最近一分钟峰值 " + peakLabel + "。\(trend.visible(at: now).count) 个有效采样点。" + (points.isEmpty ? emptyTitle : ""))
     }
     private func draw(_ points: [TrafficTrendSample], date: Date, ceiling: Double, reveal: Double,
                       context: GraphicsContext, size: CGSize) {
-        for (key, color) in [(\TrafficTrendSample.upload, DashboardTheme.cyan), (\TrafficTrendSample.download, DashboardTheme.purple)] {
+        for (key, color) in [(\TrafficTrendSample.upload, DashboardTheme.cyan), (\TrafficTrendSample.download, DashboardTheme.purple),
+                             (\TrafficTrendSample.directUpload, DashboardTheme.directUpload),
+                             (\TrafficTrendSample.directDownload, DashboardTheme.directDownload)] {
             var line = Path()
             var previous: TrafficTrendSample?
             var previousPosition: CGPoint?

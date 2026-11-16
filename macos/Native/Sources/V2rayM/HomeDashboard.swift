@@ -7,6 +7,8 @@ enum DashboardTheme {
     static let line = Color(red: 0.16, green: 0.26, blue: 0.36)
     static let muted = Color(red: 0.57, green: 0.65, blue: 0.77)
     static let cyan = Color(red: 0.02, green: 0.83, blue: 0.96)
+    static let directUpload = Color(red: 0.22, green: 0.79, blue: 0.48)
+    static let directDownload = Color(red: 1.0, green: 0.65, blue: 0.24)
     static let purple = Color(red: 0.72, green: 0.35, blue: 0.98)
 }
 
@@ -121,34 +123,39 @@ private struct DashboardContent: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("实时流量").font(AppFont.size(13))
             HStack(spacing: 10) {
-                trafficColumn("上传", icon: "arrow.up.right", rate: rates?[0], color: DashboardTheme.cyan)
-                Rectangle().fill(DashboardTheme.line).frame(width: 0.5, height: 36)
-                trafficColumn("下载", icon: "arrow.down.left", rate: rates?[1], color: DashboardTheme.purple)
+                VStack(spacing: 8) {
+                    trafficMetric("代理上传", icon: "arrow.up.right", value: DashboardStatus.rate(rates?[0]), color: DashboardTheme.cyan)
+                    trafficMetric("直连上传", icon: "arrow.up.right", value: DashboardStatus.rate(rates?[2]), color: DashboardTheme.directUpload)
+                }
+                Rectangle().fill(DashboardTheme.line).frame(width: 0.5, height: 42)
+                VStack(spacing: 8) {
+                    trafficMetric("代理下载", icon: "arrow.down.left", value: DashboardStatus.rate(rates?[1]), color: DashboardTheme.purple)
+                    trafficMetric("直连下载", icon: "arrow.down.left", value: DashboardStatus.rate(rates?[3]), color: DashboardTheme.directDownload)
+                }
             }
             rule
             Text("节点累计").font(AppFont.size(13))
             HStack(spacing: 10) {
-                trafficMetric("上传", icon: "arrow.up.right", value: DashboardStatus.amount(model.status?.statisticsEnabled == true ? node?.totalUp : nil),
+                trafficMetric("代理累计上传", icon: "arrow.up.right", value: DashboardStatus.amount(model.status?.statisticsEnabled == true ? node?.totalUp : nil),
                               color: DashboardTheme.cyan)
-                Rectangle().fill(DashboardTheme.line).frame(width: 0.5, height: 36)
-                trafficMetric("下载", icon: "arrow.down.left", value: DashboardStatus.amount(model.status?.statisticsEnabled == true ? node?.totalDown : nil),
+                Rectangle().fill(DashboardTheme.line).frame(width: 0.5, height: 22)
+                trafficMetric("代理累计下载", icon: "arrow.down.left", value: DashboardStatus.amount(model.status?.statisticsEnabled == true ? node?.totalDown : nil),
                               color: DashboardTheme.purple)
             }
         }.padding(12).dashboardPanel()
             .help(DashboardStatus.trafficDescription(state: state, enabled: model.status?.trafficEnabled, hasSample: rates != nil)
-                + "；仅统计代理流量。累计值为当前节点历史总量。")
-    }
-    private func trafficColumn(_ title: String, icon: String, rate: Double?, color: Color) -> some View {
-        trafficMetric(title, icon: icon, value: DashboardStatus.rate(rate), color: color)
+                + "；第一行青／紫为代理上传／下载，第二行绿／橙为直连上传／下载。直连仅包含经过 Xray 的流量；节点累计仅统计当前节点的代理流量。")
     }
     private func trafficMetric(_ title: String, icon: String, value: String, color: Color) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Label(title, systemImage: icon).font(AppFont.size(13))
-            Text(value).font(AppFont.size(22))
+        HStack(spacing: 6) {
+            Image(systemName: icon).font(.system(size: 13))
+            Text(value).font(AppFont.size(18))
                 .monospacedDigit().lineLimit(1).minimumScaleFactor(0.65)
                 .contentTransition(.numericText())
                 .animation(reduceMotion ? nil : .easeInOut(duration: 0.5), value: value)
         }.foregroundStyle(color).frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityElement(children: .ignore).accessibilityLabel(title + " " + value)
+            .help(title + "：" + value)
     }
     private var recentCard: some View {
         RecentConnectionsCard(connections: monitor.connections, coreRunning: model.status?.coreRunning == true)
@@ -163,7 +170,6 @@ struct RecentConnectionsCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("近期连接").font(AppFont.size(13))
             GeometryReader { geometry in
                 if connections.isEmpty {
                     Text(coreRunning ? "等待新的连接记录" : "开启代理后显示连接")
@@ -171,10 +177,10 @@ struct RecentConnectionsCard: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     VStack(spacing: 4) {
-                        ForEach(Array(connections.prefix(5))) { connection in
-                            recentConnectionRow(connection, height: max(0, (geometry.size.height - 16) / 5))
+                        ForEach(Array(connections.prefix(6))) { connection in
+                            recentConnectionRow(connection, height: max(0, (geometry.size.height - 20) / 6))
                         }
-                    }.animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: Array(connections.prefix(5).map(\.id)))
+                    }.animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: Array(connections.prefix(6).map(\.id)))
                 }
             }.clipped()
         }.padding(.horizontal, 12).padding(.top, 12).padding(.bottom, 8)
