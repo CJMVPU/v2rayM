@@ -6,6 +6,7 @@ import SwiftUI
 
 @MainActor private final class MotionFixture: ObservableObject {
     @Published var active = false
+    @Published var ready = false
     @Published var rows: [GlobeConnection] = []
 }
 private struct MotionFixtureView: View {
@@ -16,7 +17,7 @@ private struct MotionFixtureView: View {
                 node: nil, startedAt: "2026-11-16T00:00:00Z", coreRunning: fixture.active, rates: nil,
                 trend: TrafficTrend(), trafficEnabled: true, now: Date(), connecting: false, reconnect: {})
                 .frame(width: 550, height: 546)
-            RecentConnectionsCard(connections: fixture.rows, coreRunning: fixture.active).frame(width: 280, height: 205)
+            RecentConnectionsCard(connections: fixture.rows, coreRunning: fixture.active, dataReady: fixture.ready).frame(width: 280, height: 205)
         }.padding(12).background(DashboardTheme.background).environment(\.colorScheme, .dark)
     }
 }
@@ -66,7 +67,12 @@ final class DashboardMotionRenderingTests: XCTestCase {
         fixture.active = true
         try await Task.sleep(for: .milliseconds(380))
         try capture("motion-1-activating")
-        try await Task.sleep(for: .milliseconds(1400))
+        try await Task.sleep(for: .milliseconds(300))
+        try capture("motion-1-waiting-data")
+        fixture.ready = true
+        try await Task.sleep(for: .milliseconds(1500))
+        try capture("motion-1-card-turn")
+        try await Task.sleep(for: .milliseconds(2000))
         try capture("motion-2-ready")
         fixture.rows = try rows(2)
         try await Task.sleep(for: .milliseconds(480))
@@ -75,9 +81,13 @@ final class DashboardMotionRenderingTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(6000))
         try capture("motion-4-latest")
         fixture.active = false
+        fixture.rows = []
+        fixture.ready = false
         try await Task.sleep(for: .milliseconds(150))
         try capture("motion-5-stopping")
-        try await Task.sleep(for: .milliseconds(600))
+        try await Task.sleep(for: .milliseconds(1500))
+        try capture("motion-5-closing-turn")
+        try await Task.sleep(for: .milliseconds(2000))
         try capture("motion-6-resting")
         // Compare the settled rendering against a fresh view of the final rows;
         // an interrupted task must not leave old text or an edge-on row behind.

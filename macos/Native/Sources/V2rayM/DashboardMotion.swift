@@ -81,8 +81,9 @@ struct DashboardActivationFlip: ViewModifier {
     @State private var activation = 0
     @State private var stopping = 0
     func body(content: Content) -> some View {
-        content.keyframeAnimator(initialValue: 0.0, trigger: activation) { view, angle in
-            DashboardSolidSurface(angle: reduceMotion ? 0 : angle, kind: kind, front: view,
+        let reduced = reduceMotion
+        return content.keyframeAnimator(initialValue: 0.0, trigger: activation) { view, angle in
+            DashboardSolidSurface(angle: reduced ? 0 : angle, kind: kind, front: view,
                 back: ZStack {
                     kind.shape.fill(DashboardTheme.panel)
                     VStack(spacing: 8) {
@@ -98,7 +99,7 @@ struct DashboardActivationFlip: ViewModifier {
             MoveKeyframe(0)
         }
         .keyframeAnimator(initialValue: 0.0, trigger: stopping) { view, tilt in
-            view.rotation3DEffect(.degrees(reduceMotion ? 0 : tilt), axis: (x: 1, y: 0, z: 0), perspective: 0.4)
+            view.rotation3DEffect(.degrees(reduced ? 0 : tilt), axis: (x: 1, y: 0, z: 0), perspective: 0.4)
         } keyframes: { _ in
             CubicKeyframe(-3, duration: 0.16)
             CubicKeyframe(0, duration: 0.38)
@@ -108,6 +109,137 @@ struct DashboardActivationFlip: ViewModifier {
             if !old && new { activation += 1 }
             else if old && !new { stopping += 1 }
         }
+    }
+}
+
+/// Keeps telemetry visible through shutdown; presentation never delays the core.
+/// All cards share the same readiness gate, with separate start offsets.
+struct DashboardCardTiming {
+    var outward: TimeInterval = 0.95
+    var inward: TimeInterval = 0.95
+    var settle: TimeInterval = 0.30
+    var stagger: TimeInterval = 0.55
+    var duration: TimeInterval { outward + inward + settle }
+}
+
+@MainActor final class DashboardCardPresentation<Value: Equatable>: ObservableObject {
+    @Published private(set) var displayed: Value
+    @Published private(set) var presentedActive: Bool
+    @Published private(set) var angle = 0.0
+    private(set) var targetActive: Bool
+    private var admitted: Bool
+    private var latest: Value
+    private var idle: Value
+    private var worker: Task<Void, Never>?
+    private var generation = 0
+    private let slot: Int
+    private let timing: DashboardCardTiming
+
+    init(value: Value, idle: Value, active: Bool, ready: Bool, slot: Int,
+         timing: DashboardCardTiming = DashboardCardTiming()) {
+        admitted = active && ready
+        presentedActive = active && ready; targetActive = active && ready
+        displayed = active && ready ? value : idle
+        latest = value; self.idle = idle; self.slot = slot; self.timing = timing
+    }
+
+    func update(value: Value, idle: Value, active: Bool, ready: Bool, reduced: Bool) {
+        latest = value; self.idle = idle
+        if !active { admitted = false }
+        else if ready { admitted = true }
+        let desired = active && admitted
+        if reduced {
+            cancel()
+            targetActive = desired; presentedActive = desired
+            displayed = desired ? latest : idle
+            return
+        }
+        guard desired != targetActive else {
+            if worker == nil { displayed = presentedActive ? latest : idle }
+            return
+        }
+        cancel()
+        targetActive = desired
+        // Stopping before the first reveal simply cancels the queued opening.
+        guard desired || presentedActive else { displayed = idle; return }
+        let token = generation
+        worker = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try await Task.sleep(for: .seconds(Double(self.slot) * self.timing.stagger))
+                guard self.generation == token, !Task.isCancelled else { return }
+                withAnimation(.timingCurve(0.35, 0, 0.25, 1, duration: self.timing.outward)) { self.angle = 180 }
+                try await Task.sleep(for: .seconds(self.timing.outward))
+                guard self.generation == token, !Task.isCancelled else { return }
+                // Opening data changes while the branded back faces the viewer.
+                // Shutdown deliberately retains the last face until the full turn ends.
+                if desired { self.displayed = self.latest; self.presentedActive = true }
+                withAnimation(.timingCurve(0.30, 0, 0.20, 1, duration: self.timing.inward)) { self.angle = 362 }
+                try await Task.sleep(for: .seconds(self.timing.inward))
+                guard self.generation == token, !Task.isCancelled else { return }
+                withAnimation(.easeOut(duration: self.timing.settle)) { self.angle = 360 }
+                try await Task.sleep(for: .seconds(self.timing.settle))
+                guard self.generation == token, !Task.isCancelled else { return }
+                self.withoutAnimation {
+                    self.angle = 0; self.presentedActive = desired
+                    self.displayed = desired ? self.latest : self.idle
+                }
+                self.worker = nil
+            } catch { /* A newer lifecycle request owns presentation. */ }
+        }
+    }
+
+    func cancel() {
+        generation += 1; worker?.cancel(); worker = nil
+        withoutAnimation { angle = 0 }
+    }
+    func disappear() {
+        cancel()
+        withoutAnimation { presentedActive = targetActive; displayed = targetActive ? latest : idle }
+    }
+    private func withoutAnimation(_ change: () -> Void) {
+        var transaction = Transaction(); transaction.disablesAnimations = true
+        withTransaction(transaction, change)
+    }
+}
+
+private struct DashboardCardInput<Value: Equatable>: Equatable {
+    let value: Value
+    let idle: Value
+    let active: Bool
+    let ready: Bool
+    let reduced: Bool
+}
+
+struct DashboardDataCard<Value: Equatable, Content: View>: View {
+    let value: Value
+    let idle: Value
+    let active: Bool
+    let ready: Bool
+    let content: (Value, Bool) -> Content
+    @Environment(\.accessibilityReduceMotion) private var reduced
+    @StateObject private var presentation: DashboardCardPresentation<Value>
+    init(value: Value, idle: Value, active: Bool, ready: Bool, slot: Int,
+         @ViewBuilder content: @escaping (Value, Bool) -> Content) {
+        self.value = value; self.idle = idle; self.active = active; self.ready = ready; self.content = content
+        _presentation = StateObject(wrappedValue: DashboardCardPresentation(value: value, idle: idle,
+            active: active, ready: ready, slot: slot))
+    }
+    var body: some View {
+        DashboardSolidSurface(angle: reduced ? 0 : presentation.angle, kind: .card,
+            front: content(presentation.displayed, presentation.presentedActive),
+            back: ZStack {
+                RoundedRectangle(cornerRadius: 10).fill(DashboardTheme.panel)
+                VStack(spacing: 8) {
+                    Text("v2rayM").font(AppFont.size(18))
+                    Text("Xray").font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
+                }
+            })
+            .onChange(of: DashboardCardInput(value: value, idle: idle, active: active, ready: ready, reduced: reduced), initial: true) { _, input in
+                presentation.update(value: input.value, idle: input.idle, active: input.active,
+                                    ready: input.ready, reduced: input.reduced)
+            }
+            .onDisappear { presentation.disappear() }
     }
 }
 

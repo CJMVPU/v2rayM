@@ -45,6 +45,7 @@ private struct DashboardContent: View {
             let state = model.displayStatus(at: context.date)
             let live = state.active || state == .local
             let rates = live && model.status?.trafficEnabled == true ? model.status?.traffic?.rates(at: context.date) : nil
+            let cardsReady = rates != nil && !monitor.connections.isEmpty
             VStack(spacing: 0) {
                 GeometryReader { geometry in
                     HStack(spacing: 0) {
@@ -56,9 +57,16 @@ private struct DashboardContent: View {
                             reconnect: { Task { await model.connect() } })
                             .frame(maxWidth: .infinity, maxHeight: .infinity).padding(12)
                         VStack(spacing: 12) {
-                            nodeCard(state: state)
-                            trafficCard(rates: rates, state: state)
-                            recentCard
+                            DashboardDataCard(value: state, idle: DashboardStatus.stopped,
+                                active: model.status?.coreRunning == true, ready: cardsReady, slot: 0) { displayed, _ in
+                                nodeCard(state: displayed)
+                            }
+                            DashboardDataCard(value: rates, idle: Optional<[Double]>.none,
+                                active: model.status?.coreRunning == true, ready: cardsReady, slot: 1) { displayed, _ in
+                                trafficCard(rates: displayed, state: state)
+                            }
+                            RecentConnectionsCard(connections: monitor.connections,
+                                coreRunning: model.status?.coreRunning == true, dataReady: cardsReady)
                         }.frame(width: geometry.size.width * 0.325, height: max(0, geometry.size.height - 24))
                             .padding(.trailing, 12).padding(.vertical, 12)
                     }
@@ -99,7 +107,6 @@ private struct DashboardContent: View {
                 .font(AppFont.size(10))
                 .foregroundStyle(DashboardTheme.muted.opacity(0.75)).lineLimit(1).padding(.top, 7)
         }.padding(12).dashboardPanel()
-            .modifier(DashboardActivationFlip(active: model.status?.coreRunning == true))
     }
     private func statusIcon(_ icon: String, title: String, enabled: Bool) -> some View {
         VStack(spacing: 6) {
@@ -136,15 +143,11 @@ private struct DashboardContent: View {
                               color: DashboardTheme.purple)
             }
         }.padding(12).dashboardPanel()
-            .modifier(DashboardActivationFlip(active: model.status?.coreRunning == true))
             .help(DashboardStatus.trafficDescription(state: state, enabled: model.status?.trafficEnabled, hasSample: rates != nil)
                 + "；第一行青／紫为代理上传／下载，第二行绿／橙为直连上传／下载。直连仅包含经过 Xray 的流量；节点累计仅统计当前节点的代理流量。")
     }
     private func trafficMetric(_ title: String, icon: String, value: DashboardMetricValue, color: Color) -> some View {
         DashboardTrafficMetric(title: title, icon: icon, value: value, color: color)
-    }
-    private var recentCard: some View {
-        RecentConnectionsCard(connections: monitor.connections, coreRunning: model.status?.coreRunning == true)
     }
 }
 
@@ -172,7 +175,14 @@ struct DashboardTrafficMetric: View {
 struct RecentConnectionsCard: View {
     let connections: [GlobeConnection]
     let coreRunning: Bool
+    var dataReady = true
     var body: some View {
+        DashboardDataCard(value: connections, idle: [], active: coreRunning,
+                          ready: dataReady && !connections.isEmpty, slot: 2) { displayed, presentedActive in
+            rows(displayed, active: presentedActive)
+        }
+    }
+    private func rows(_ connections: [GlobeConnection], active: Bool) -> some View {
         GeometryReader { geometry in
             if connections.isEmpty {
                 Text(coreRunning ? "等待新的连接记录" : "开启代理后显示连接")
@@ -191,7 +201,6 @@ struct RecentConnectionsCard: View {
                 }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             }
         }.padding(12).frame(maxHeight: .infinity).dashboardPanel()
-            .modifier(DashboardActivationFlip(active: coreRunning))
     }
 }
 
