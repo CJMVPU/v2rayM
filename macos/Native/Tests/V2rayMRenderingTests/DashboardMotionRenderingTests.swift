@@ -16,18 +16,29 @@ private struct MotionFixtureView: View {
                 node: nil, startedAt: "2026-11-16T00:00:00Z", coreRunning: fixture.active, rates: nil,
                 trend: TrafficTrend(), trafficEnabled: true, now: Date(), connecting: false, reconnect: {})
                 .frame(width: 550, height: 546)
-            RecentConnectionsCard(connections: fixture.rows, coreRunning: fixture.active).frame(width: 280, height: 170)
+            RecentConnectionsCard(connections: fixture.rows, coreRunning: fixture.active).frame(width: 280, height: 205)
         }.padding(12).background(DashboardTheme.background).environment(\.colorScheme, .dark)
     }
 }
 final class DashboardMotionRenderingTests: XCTestCase {
+    func testRowPhasesAreIndependentAndHaveAQuietInterval() {
+        let phases = (0..<7).map { DashboardRowTiming.delay(slot: $0, identity: "fixture") }
+        XCTAssertEqual(Set(phases).count, 7)
+        XCTAssertNotEqual(phases, phases.sorted())
+        XCTAssertNotEqual(phases, phases.sorted(by: >))
+        XCTAssertTrue(phases.allSatisfy { $0 >= 0.1 && $0 <= 1.0 })
+        XCTAssertNotEqual(DashboardRowTiming.delay(slot: 0, identity: "first"),
+                          DashboardRowTiming.delay(slot: 0, identity: "second"))
+        XCTAssertGreaterThanOrEqual(DashboardRowTiming.minimumRest, 1.5)
+    }
+
     @MainActor func testActivationRefreshAndRapidReplacementSnapshots() async throws {
         guard let directory = ProcessInfo.processInfo.environment["V2RAYM_MOTION_RENDER_DIRECTORY"] else {
             throw XCTSkip("Set V2RAYM_MOTION_RENDER_DIRECTORY to capture live animation phases")
         }
         AppFont.register()
         func rows(_ group: Int) throws -> [GlobeConnection] {
-            try (1...6).map { index in
+            try (1...7).map { index in
                 try XCTUnwrap(GlobeConnection.parse(LogEntry(timestamp: "2026-11-16T12:00:00Z", source: "core",
                     message: "from tcp:127.0.0.1:1234 accepted tcp:192.0.\(group).\(index):443 [socks >> proxy]", sequence: Int64(index))))
             }
@@ -53,16 +64,21 @@ final class DashboardMotionRenderingTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(100))
         try capture("motion-0-stopped")
         fixture.active = true
-        try await Task.sleep(for: .milliseconds(130))
+        try await Task.sleep(for: .milliseconds(380))
         try capture("motion-1-activating")
-        try await Task.sleep(for: .milliseconds(500))
+        try await Task.sleep(for: .milliseconds(1400))
         try capture("motion-2-ready")
         fixture.rows = try rows(2)
-        try await Task.sleep(for: .milliseconds(110))
+        try await Task.sleep(for: .milliseconds(480))
         try capture("motion-3-row-flip")
         fixture.rows = try rows(3)
-        try await Task.sleep(for: .milliseconds(600))
+        try await Task.sleep(for: .milliseconds(6000))
         try capture("motion-4-latest")
+        fixture.active = false
+        try await Task.sleep(for: .milliseconds(150))
+        try capture("motion-5-stopping")
+        try await Task.sleep(for: .milliseconds(600))
+        try capture("motion-6-resting")
         // Compare the settled rendering against a fresh view of the final rows;
         // an interrupted task must not leave old text or an edge-on row behind.
         let actual = host.bitmapImageRepForCachingDisplay(in: host.bounds)!

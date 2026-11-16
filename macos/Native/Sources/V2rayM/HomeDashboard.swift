@@ -56,7 +56,7 @@ private struct DashboardContent: View {
                             reconnect: { Task { await model.connect() } })
                             .frame(maxWidth: .infinity, maxHeight: .infinity).padding(12)
                         VStack(spacing: 12) {
-                            nodeCard(state: state, now: context.date)
+                            nodeCard(state: state)
                             trafficCard(rates: rates, state: state)
                             recentCard
                         }.frame(width: geometry.size.width * 0.325, height: max(0, geometry.size.height - 24))
@@ -76,7 +76,7 @@ private struct DashboardContent: View {
                 } catch { /* Missing detail must not invent a negotiated protocol. */ }
             }
     }
-    private func nodeCard(state: DashboardStatus, now: Date) -> some View {
+    private func nodeCard(state: DashboardStatus) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 0) {
                 statusIcon("shield.lefthalf.filled", title: "后台服务", enabled: model.ready && model.tun?.helperAvailable == true)
@@ -85,13 +85,6 @@ private struct DashboardContent: View {
                 Rectangle().fill(DashboardTheme.line.opacity(0.5)).frame(width: 0.5, height: 32)
                 statusIcon("personalhotspot", title: "TUN", enabled: state == .tun)
             }.padding(.top, 2).padding(.bottom, 10)
-            rule
-            HStack {
-                Text("连接时长").foregroundStyle(DashboardTheme.muted)
-                Spacer()
-                Text(model.status?.coreRunning == true ? DashboardStatus.duration(since: model.status?.coreStartedAt, now: now) : "—")
-                    .font(AppFont.size(14)).monospacedDigit()
-            }.padding(.vertical, 9)
             rule
             Text("当前节点").font(AppFont.caption).foregroundStyle(DashboardTheme.muted).padding(.top, 11)
             HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -106,6 +99,7 @@ private struct DashboardContent: View {
                 .font(AppFont.size(10))
                 .foregroundStyle(DashboardTheme.muted.opacity(0.75)).lineLimit(1).padding(.top, 7)
         }.padding(12).dashboardPanel()
+            .modifier(DashboardActivationFlip(active: model.status?.coreRunning == true))
     }
     private func statusIcon(_ icon: String, title: String, enabled: Bool) -> some View {
         VStack(spacing: 6) {
@@ -142,6 +136,7 @@ private struct DashboardContent: View {
                               color: DashboardTheme.purple)
             }
         }.padding(12).dashboardPanel()
+            .modifier(DashboardActivationFlip(active: model.status?.coreRunning == true))
             .help(DashboardStatus.trafficDescription(state: state, enabled: model.status?.trafficEnabled, hasSample: rates != nil)
                 + "；第一行青／紫为代理上传／下载，第二行绿／橙为直连上传／下载。直连仅包含经过 Xray 的流量；节点累计仅统计当前节点的代理流量。")
     }
@@ -184,12 +179,12 @@ struct RecentConnectionsCard: View {
                     .font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                let rows = Array(connections.prefix(6))
-                let rowHeight = max(0, (geometry.size.height - 20) / 6)
+                let rows = Array(connections.prefix(7))
+                let rowHeight = max(0, (geometry.size.height - 24) / 7)
                 VStack(spacing: 4) {
                     // Stable slots flip in place instead of moving identified records between rows.
                     ForEach(rows.indices, id: \.self) { index in
-                        DashboardFlipValue(value: rows[index], identity: rows[index].id) { connection in
+                        DashboardFlipValue(value: rows[index], identity: rows[index].id, slot: index) { connection in
                             RecentConnectionRow(connection: connection)
                         }.frame(height: rowHeight)
                     }
@@ -217,7 +212,7 @@ struct RecentConnectionRow: View {
 
 private extension View {
     func dashboardPanel() -> some View {
-        background(LinearGradient(colors: [DashboardTheme.panel, DashboardTheme.panel.opacity(0.65)], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 10))
-            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(DashboardTheme.line.opacity(0.55), lineWidth: 0.6))
+        background(DashboardTheme.panel, in: RoundedRectangle(cornerRadius: 10))
+            .modifier(DashboardRelief())
     }
 }

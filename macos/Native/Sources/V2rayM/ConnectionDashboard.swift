@@ -69,7 +69,7 @@ struct ConnectionDashboard: View {
             Text(value).foregroundStyle(.primary)
         }.font(AppFont.caption).padding(.horizontal, 10).padding(.vertical, 6)
             .background(DashboardTheme.panel, in: RoundedRectangle(cornerRadius: 7))
-            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Color.primary.opacity(0.1), lineWidth: 0.5))
+            .modifier(DashboardRelief(radius: 7))
     }
     private func activityRing(diameter: CGFloat) -> some View {
         let peaks = trend.peaks(at: now)
@@ -89,7 +89,7 @@ struct ConnectionDashboard: View {
             .animation(animate ? .easeInOut(duration: 1.2) : nil, value: fractions)
             .accessibilityHidden(true)
             ZStack {
-                DashboardDiscSurface(hovered: discHovered).padding(Self.discInset)
+                DashboardDiscSurface(hovered: discHovered)
                 VStack(spacing: 9) {
                     Image(systemName: running ? "shield.lefthalf.filled" : state == .recovering ? "arrow.triangle.2.circlepath" : "shield")
                         .font(.system(size: 22)).foregroundStyle(statusColor)
@@ -106,8 +106,9 @@ struct ConnectionDashboard: View {
                         .disabled(state != .offline || connecting)
                         .opacity(state == .offline && !connecting ? 1 : 0)
                         .accessibilityHidden(state != .offline || connecting)
-                }.padding(.horizontal, Self.discInset + 18)
-            }.modifier(DashboardActivationFlip(active: coreRunning))
+                }.padding(.horizontal, 18)
+            }.frame(width: max(0, diameter - Self.discInset * 2), height: max(0, diameter - Self.discInset * 2))
+                .modifier(DashboardActivationFlip(active: coreRunning, kind: .disc))
         }.frame(width: diameter, height: diameter)
             .contentShape(Circle())
             .onContinuousHover { phase in
@@ -144,7 +145,7 @@ struct DashboardDiscSurface: View {
     let hovered: Bool
     var body: some View {
         ZStack {
-            Circle().fill(DashboardTheme.panel.opacity(0.65))
+            Circle().fill(Color(white: 0.165))
             Circle().fill(Color.primary.opacity(hovered ? 0.13 : 0))
             Circle().strokeBorder(
                 LinearGradient(colors: [DashboardTheme.cyan, DashboardTheme.purple],

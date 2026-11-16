@@ -64,7 +64,7 @@ final class ConnectionDashboardRenderingTests: XCTestCase {
         AppFont.register()
         let destinations = [("57.144.5.32", "proxy"), ("89.208.253.211", "proxy"),
                             ("[2606:4700:1234:5678:abcd:ef01:2345:6789]", "proxy"),
-                            ("35.190.80.1", "block"), ("112.19.242.77", "direct"), ("1.1.1.1", "direct")]
+                            ("35.190.80.1", "block"), ("112.19.242.77", "direct"), ("1.1.1.1", "direct"), ("192.0.2.7", "proxy")]
         let connections = try destinations.map { host, route in
             try XCTUnwrap(GlobeConnection.parse(LogEntry(timestamp: "2026-10-24T12:00:00Z", source: "core",
                 message: "from tcp:127.0.0.1:1234 accepted tcp:\(host):443 [socks >> \(route)]", sequence: 1)))
@@ -106,7 +106,7 @@ final class ConnectionDashboardRenderingTests: XCTestCase {
         try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: output))
     }
 
-    @MainActor func testDashboardSnapshot() throws {
+    @MainActor func testDashboardSnapshot() async throws {
         guard let output = ProcessInfo.processInfo.environment["V2RAYM_DASHBOARD_RENDER"] else {
             throw XCTSkip("Set V2RAYM_DASHBOARD_RENDER for an offline dashboard snapshot")
         }
@@ -148,7 +148,7 @@ final class ConnectionDashboardRenderingTests: XCTestCase {
         let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: bitmap)
         try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: output))
-        let entries = (1...6).map { index in
+        let entries = (1...7).map { index in
             LogEntry(timestamp: formatter.string(from: now), source: "core",
                 message: "from tcp:127.0.0.1:1234 accepted tcp:192.0.2.\(index):443 [socks >> \(index > 4 ? "direct" : "proxy")]", sequence: Int64(index))
         }
@@ -165,6 +165,18 @@ final class ConnectionDashboardRenderingTests: XCTestCase {
             let target = URL(fileURLWithPath: output).deletingLastPathComponent()
                 .appendingPathComponent(dark ? "home-dark.png" : "home-light.png")
             try XCTUnwrap(image.representation(using: .png, properties: [:])).write(to: target)
+            let window = NSWindow(contentRect: home.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentView = home
+            window.orderFront(nil)
+            defer { window.close() }
+            try await Task.sleep(for: .milliseconds(200))
+            let capture = Process()
+            capture.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+            capture.arguments = ["-x", "-l", String(window.windowNumber),
+                target.deletingPathExtension().path + "-screen.png"]
+            try capture.run(); capture.waitUntilExit()
+            XCTAssertEqual(capture.terminationStatus, 0)
         }
     }
 }
