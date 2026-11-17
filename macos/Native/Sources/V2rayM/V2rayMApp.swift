@@ -10,6 +10,7 @@ import AppKit
         NSApp.appearance = NSAppearance(named: .darkAqua)
         statusBar = StatusBarController(model: { [weak self] in self?.model }, show: { [weak self] in
             self?.model?.homeRequest += 1
+            WindowMinimizeCoordinator.shared.cancel(for: self?.mainWindow)
             self?.mainWindow?.deminiaturize(nil)
             self?.mainWindow?.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)

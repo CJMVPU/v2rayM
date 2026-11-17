@@ -26,8 +26,15 @@ struct WindowControlButtons: NSViewRepresentable {
                 button.frame = NSRect(x: CGFloat(index) * 26, y: (bounds.height - 24) / 2, width: 24, height: 24)
             }
         }
-        @objc private func closeWindow() { window?.performClose(nil) }
-        @objc private func minimizeWindow() { window?.miniaturize(nil) }
+        @objc private func closeWindow() {
+            WindowMinimizeCoordinator.shared.cancel(for: window)
+            window?.performClose(nil)
+        }
+        @objc private func minimizeWindow() {
+            guard let window else { return }
+            subviews.compactMap { $0 as? RoundButton }.forEach { $0.settleHover() }
+            WindowMinimizeCoordinator.shared.request(window)
+        }
     }
 
     final class RoundButton: NSButton {
@@ -69,6 +76,10 @@ struct WindowControlButtons: NSViewRepresentable {
             }
         }
         deinit { hoverTimer?.invalidate() }
+        func settleHover() {
+            hoverTimer?.invalidate(); hoverTimer = nil
+            hovered = false; hoverLevel = 0; needsDisplay = true
+        }
         private func setHovered(_ value: Bool) {
             guard hovered != value else { return }
             hovered = value
@@ -79,7 +90,8 @@ struct WindowControlButtons: NSViewRepresentable {
             hoverTimer?.invalidate(); hoverTimer = nil
             transitionFrom = hoverLevel
             transitionTo = hovered && isEnabled ? 1 : 0
-            guard isEnabled, window != nil,
+            guard isEnabled, let window,
+                  !WindowMinimizeCoordinator.shared.isPreparing(window),
                   !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
                 hoverLevel = transitionTo; needsDisplay = true
                 return

@@ -6,6 +6,7 @@ struct DashboardVisibilityState: Equatable {
     var windowVisible = false
     var minimized = false
     var minimizing = false
+    var preparingToMinimize = false
     var surfaceRevision = 0
     var occluded = true
     var appHidden = false
@@ -13,7 +14,7 @@ struct DashboardVisibilityState: Equatable {
     var locked = false
     var sleeping = false
     var sessionActive = true
-    var requiresImmediatePause: Bool { !windowVisible || minimized || minimizing || appHidden || locked || sleeping || !sessionActive }
+    var requiresImmediatePause: Bool { !windowVisible || minimized || minimizing || preparingToMinimize || appHidden || locked || sleeping || !sessionActive }
     var permitsRendering: Bool { !requiresImmediatePause && !occluded && appActive }
 }
 
@@ -50,6 +51,13 @@ struct DashboardVisibilityObserver: NSViewRepresentable {
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow(); stop()
             guard let window else { return }
+            state.preparingToMinimize = WindowMinimizeCoordinator.shared.isPreparing(window)
+            for name in [Notification.Name.windowMinimizePreparationBegan, .windowMinimizePreparationEnded] {
+                observe(.default, name, object: window) { [weak self] note in
+                    self?.state.preparingToMinimize = note.name == .windowMinimizePreparationBegan
+                    self?.refresh(synchronous: true)
+                }
+            }
             for name in [NSWindow.willMiniaturizeNotification, NSWindow.didMiniaturizeNotification,
                          NSWindow.didDeminiaturizeNotification, NSWindow.didMoveNotification,
                          NSWindow.didResizeNotification, NSWindow.didChangeScreenNotification,
@@ -128,7 +136,7 @@ struct DashboardVisibilityObserver: NSViewRepresentable {
         func stop() {
             observations.forEach { $0.0.removeObserver($0.1) }; observations.removeAll()
             distributed.forEach { DistributedNotificationCenter.default().removeObserver($0) }; distributed.removeAll()
-            lastValue = nil; resigning = false; hiding = false; state.minimizing = false
+            lastValue = nil; resigning = false; hiding = false; state.minimizing = false; state.preparingToMinimize = false
         }
         deinit { stop() }
     }

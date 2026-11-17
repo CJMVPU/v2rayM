@@ -22,7 +22,7 @@ final class DashboardRenderingEfficiencyTests: XCTestCase {
     func testEveryVisibilityBlockerSuspendsRendering() {
         let visible = DashboardVisibilityState(windowVisible: true, occluded: false)
         XCTAssertTrue(visible.permitsRendering)
-        for key in [\DashboardVisibilityState.minimized, \.occluded, \.appHidden, \.locked, \.sleeping] {
+        for key in [\DashboardVisibilityState.minimized, \.minimizing, \.preparingToMinimize, \.occluded, \.appHidden, \.locked, \.sleeping] {
             var blocked = visible; blocked[keyPath: key] = true
             XCTAssertFalse(blocked.permitsRendering)
         }
