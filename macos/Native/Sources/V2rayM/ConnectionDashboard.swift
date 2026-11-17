@@ -12,6 +12,7 @@ struct ConnectionDashboard: View {
     let coreRunning: Bool
     let rates: [Double]?
     let trend: TrafficTrend
+    var catchUp: TrafficTrendCatchUp? = nil
     let trafficEnabled: Bool?
     let now: Date
     let connecting: Bool
@@ -54,7 +55,7 @@ struct ConnectionDashboard: View {
                         badge("延迟", value: (node?.delay ?? 0) > 0 ? "\(node?.delay ?? 0) ms" : "—")
                     }.padding(.horizontal, 12).padding(.bottom, 12).frame(maxHeight: .infinity, alignment: .bottom)
                 }.frame(height: gaugeHeight)
-                TrafficTrendView(trend: trend, now: trend.displayDate(at: now),
+                TrafficTrendView(trend: trend, catchUp: catchUp, now: trend.displayDate(at: now),
                     animate: coreRunning && trafficEnabled == true && windowVisible && !reduceMotion,
                     emptyTitle: DashboardStatus.trafficDescription(state: state, enabled: trafficEnabled, hasSample: false),
                     awaitingSample: running && coreRunning && trafficEnabled == true)
@@ -157,11 +158,14 @@ struct DashboardDiscSurface: View {
 
 struct TrafficTrendView: View {
     let trend: TrafficTrend
+    var catchUp: TrafficTrendCatchUp? = nil
     let now: Date
     let animate: Bool
     let emptyTitle: String
     var awaitingSample = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dashboardMotionEnabled) private var presentationActive
+    @State private var finishedCatchUp: Date?
     @State private var scaleFrom = 1.0
     @State private var scaleTo = 1.0
     @State private var scaleChanged = Date.distantPast
@@ -211,6 +215,17 @@ struct TrafficTrendView: View {
                 catch { return }
                 retirement = nil
             }
+            .task(id: presentationActive && !reduceMotion ? catchUp?.startedAt : nil) {
+                guard presentationActive, !reduceMotion, let catchUp else { return }
+                do { try await Task.sleep(for: .seconds(max(0, catchUp.duration - Date().timeIntervalSince(catchUp.startedAt)))) }
+                catch { return }
+                guard !Task.isCancelled else { return }
+                // Hand off at the same scale/full endpoint, rather than falling
+                // back to an older scale or last-segment reveal animation.
+                scaleFrom = scaleTo; scaleChanged = .distantPast
+                sampleArrived = .distantPast
+                finishedCatchUp = catchUp.startedAt
+            }
             .onChange(of: points.last?.id) { _, _ in sampleArrived = Date() }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("近五分钟代理及直连流量趋势，每五秒采样，显示一分钟均速。最近一分钟峰值 " + peakLabel + "。\(trend.visible(at: now).count) 个有效采样点。" + (points.isEmpty ? emptyTitle : ""))
@@ -219,11 +234,13 @@ struct TrafficTrendView: View {
             GeometryReader { geometry in
                 // Cache settled curves outside the display-link observer. Only
                 // a translation is needed between data/scale updates.
+                let replaying = catchUp != nil && catchUp?.startedAt != finishedCatchUp && !reduceMotion
+                let history = replaying ? (catchUp?.merged(with: trend) ?? []) : []
                 let settled = strokes(points, date: now, ceiling: maximum, reveal: 1, size: geometry.size)
-                DashboardFrameTimeline(enabled: animate && (!points.isEmpty || retirement != nil), fallback: now) { frameDate in
-                let date = animate ? frameDate : now
-                let ceiling = animate ? scale(at: date) : maximum
-                let reveal = animate ? eased(date.timeIntervalSince(sampleArrived)) : 1
+                DashboardFrameTimeline(enabled: (animate || (presentationActive && replaying)) && (!points.isEmpty || !history.isEmpty || retirement != nil), fallback: now) { frameDate in
+                let date = animate || replaying || !presentationActive ? frameDate : now
+                let ceiling = animate && !replaying ? scale(at: date) : maximum
+                let reveal = animate && !replaying ? eased(date.timeIntervalSince(sampleArrived)) : 1
                 Canvas { context, size in
                     for index in 0...6 {
                         var grid = Path()
@@ -231,6 +248,12 @@ struct TrafficTrendView: View {
                         grid.move(to: CGPoint(x: 0, y: y)); grid.addLine(to: CGPoint(x: size.width, y: y))
                         context.stroke(grid, with: .color(.primary.opacity(index == 6 ? 0.13 : 0.08)), lineWidth: 0.5)
                     }
+                    if let catchUp, replaying, catchUp.progress(at: date) < 1 {
+                        let playbackDate = catchUp.displayDate(at: date)
+                        let replayPoints = TrafficTrendCatchUp.plotSamples(history, at: playbackDate)
+                        let ceiling = catchUp.initialCeiling + (maximum - catchUp.initialCeiling) * catchUp.progress(at: date)
+                        draw(replayPoints, date: playbackDate, ceiling: ceiling, reveal: 1, context: context, size: size)
+                    } else {
                     if let retirement, animate {
                         var old = context
                         old.opacity = 1 - retirement.progress(at: frameDate)
@@ -244,6 +267,7 @@ struct TrafficTrendView: View {
                         paint(settled, context: current)
                     } else {
                         draw(points, date: date, ceiling: ceiling, reveal: reveal, context: current, size: size)
+                    }
                     }
                 }.clipped()
                 }
@@ -300,7 +324,7 @@ struct TrafficTrendView: View {
                 let x = 2 + (1 - age / TrafficTrend.duration) * max(0, size.width - 4)
                 let y = size.height - 3 - point[keyPath: key] / max(1, ceiling) * max(0, size.height - 6)
                 var position = CGPoint(x: x, y: y)
-                if let previousPosition, previous?.segment == point.segment {
+                if let previousPosition, let previous, previous.segment == point.segment, point.date.timeIntervalSince(previous.date) < 12 {
                     if point.id == points.last?.id {
                         position.x = previousPosition.x + (position.x - previousPosition.x) * reveal
                         position.y = previousPosition.y + (position.y - previousPosition.y) * reveal

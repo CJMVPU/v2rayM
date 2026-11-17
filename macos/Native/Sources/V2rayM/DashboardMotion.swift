@@ -82,37 +82,47 @@ struct DashboardActivationFlip: ViewModifier {
     var kind: DashboardSolidKind = .card
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dashboardFlipsEnabled) private var flipsEnabled
-    @State private var activation = 0
-    @State private var stopping = 0
+    @State private var angle = 0.0
+    @State private var tilt = 0.0
+    @State private var worker: Task<Void, Never>?
     func body(content: Content) -> some View {
-        let reduced = reduceMotion || !flipsEnabled
-        return content.keyframeAnimator(initialValue: 0.0, trigger: activation) { view, angle in
-            DashboardSolidSurface(angle: reduced ? 0 : angle, kind: kind, front: view,
-                back: ZStack {
-                    kind.shape.fill(DashboardTheme.panel)
-                    VStack(spacing: 8) {
-                        Text("v2rayM").font(AppFont.size(kind == .disc ? 23 : 18))
-                        Text("Xray").font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
+        DashboardSolidSurface(angle: angle, kind: kind, front: content,
+            back: ZStack {
+                kind.shape.fill(DashboardTheme.panel)
+                VStack(spacing: 8) {
+                    Text("v2rayM").font(AppFont.size(kind == .disc ? 23 : 18))
+                    Text("Xray").font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
+                }
+            })
+            .rotation3DEffect(.degrees(tilt), axis: (x: 1, y: 0, z: 0), perspective: 0.4)
+            .onChange(of: active) { old, new in
+                cancel()
+                guard !reduceMotion && flipsEnabled else { return }
+                worker = Task { @MainActor in
+                    if !old && new {
+                        for (target, seconds) in [(170.0, 0.58), (350.0, 0.52), (362.0, 0.16), (360.0, 0.28)] {
+                            guard !Task.isCancelled else { return }
+                            withAnimation(.easeInOut(duration: seconds)) { angle = target }
+                            do { try await Task.sleep(for: .seconds(seconds)) } catch { return }
+                        }
+                    } else if old && !new {
+                        withAnimation(.easeOut(duration: 0.16)) { tilt = -3 }
+                        do { try await Task.sleep(for: .seconds(0.16)) } catch { return }
+                        guard !Task.isCancelled else { return }
+                        withAnimation(.easeOut(duration: 0.38)) { tilt = 0 }
+                        do { try await Task.sleep(for: .seconds(0.38)) } catch { return }
                     }
-                })
-        } keyframes: { _ in
-            CubicKeyframe(170, duration: 0.58)
-            CubicKeyframe(350, duration: 0.52)
-            CubicKeyframe(362, duration: 0.16)
-            CubicKeyframe(360, duration: 0.28)
-            MoveKeyframe(0)
-        }
-        .keyframeAnimator(initialValue: 0.0, trigger: stopping) { view, tilt in
-            view.rotation3DEffect(.degrees(reduced ? 0 : tilt), axis: (x: 1, y: 0, z: 0), perspective: 0.4)
-        } keyframes: { _ in
-            CubicKeyframe(-3, duration: 0.16)
-            CubicKeyframe(0, duration: 0.38)
-        }
-        .onChange(of: active) { old, new in
-            guard !reduceMotion && flipsEnabled else { return }
-            if !old && new { activation += 1 }
-            else if old && !new { stopping += 1 }
-        }
+                    guard !Task.isCancelled else { return }
+                    reset(); worker = nil
+                }
+            }
+            .onChange(of: reduceMotion || !flipsEnabled) { _, disabled in if disabled { cancel() } }
+            .onDisappear { cancel() }
+    }
+    private func cancel() { worker?.cancel(); worker = nil; reset() }
+    private func reset() {
+        var transaction = Transaction(); transaction.disablesAnimations = true
+        withTransaction(transaction) { angle = 0; tilt = 0 }
     }
 }
 

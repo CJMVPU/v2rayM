@@ -10,6 +10,7 @@ struct DashboardSnapshot: Equatable {
     var status: RuntimeStatus?
     var profiles: [Profile]
     var trend: TrafficTrend
+    var trendCatchUp: TrafficTrendCatchUp?
     var connections: [GlobeConnection]
     var nodePlace: GlobePlace?
     var helperReady: Bool
@@ -30,12 +31,21 @@ struct DashboardSnapshot: Equatable {
     private var subscriptions: [AnyCancellable] = []
     private var timer: Timer?
     private var queued = false
+    private var frozenAt: Date?
+    private var catchUp: TrafficTrendCatchUp?
     init(model: AppModel) { self.model = model; snapshot = DashboardSnapshot(model: model) }
     func setEnabled(_ enabled: Bool) {
         guard enabled != self.enabled else { return }
         self.enabled = enabled
         subscriptions.removeAll(); timer?.invalidate(); timer = nil
-        guard enabled else { return }
+        guard enabled else { frozenAt = Date(); return }
+        let resumedAt = Date()
+        if let frozenAt {
+            let displayedAt = catchUp?.displayDate(at: frozenAt) ?? frozenAt
+            catchUp = TrafficTrendCatchUp(previous: snapshot.trend, displayedAt: displayedAt,
+                latest: model.trafficTrend, resumedAt: resumedAt, retained: catchUp?.samples ?? [])
+        }
+        frozenAt = nil
         refresh()
         for publisher in [model.objectWillChange, model.telemetry.objectWillChange, model.dashboard.objectWillChange] {
             subscriptions.append(publisher.sink { [weak self] in self?.scheduleRefresh() })
@@ -56,7 +66,9 @@ struct DashboardSnapshot: Equatable {
     }
     private func refresh() {
         guard enabled else { return }
-        snapshot = DashboardSnapshot(model: model)
+        var latest = DashboardSnapshot(model: model)
+        latest.trendCatchUp = catchUp
+        snapshot = latest
     }
     deinit { timer?.invalidate() }
 }

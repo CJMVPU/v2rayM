@@ -32,13 +32,32 @@ private struct DashboardSession: View {
             .environment(\.dashboardMotionEnabled, phase.rendersMotion)
             .environment(\.dashboardFlipsEnabled, phase.permitsFlips)
             .transaction { if !phase.rendersMotion { $0.disablesAnimations = true } }
-            .background(DashboardVisibilityObserver { visibility.update($0) })
+            .background {
+                if visibilityOverride == nil {
+                    DashboardVisibilityObserver(rendering: phase.rendersMotion) { state in
+                        if !state.permitsRendering { source.setEnabled(false) }
+                        visibility.update(state)
+                    }
+                }
+            }
+            .onAppear {
+                let duration = visibility.catchUpDuration
+                let reduceMotion = reduced, overridden = visibilityOverride != nil
+                visibility.phaseChanged = { [weak source] phase in
+                    guard !overridden else { return }
+                    // Prepare the latest snapshot/replay before the render gate thaws.
+                    withAnimation(phase == .catchingUp && !reduceMotion ? .easeInOut(duration: duration) : nil) {
+                        source?.setEnabled(phase.acceptsData)
+                    }
+                }
+                source.setEnabled(phase.acceptsData)
+            }
             .onChange(of: phase, initial: true) { _, phase in
                 withAnimation(phase == .catchingUp && !reduced ? .easeInOut(duration: visibility.catchUpDuration) : nil) {
                     source.setEnabled(phase.acceptsData)
                 }
             }
-            .onDisappear { source.setEnabled(false); visibility.stop() }
+            .onDisappear { visibility.phaseChanged = nil; source.setEnabled(false); visibility.stop() }
     }
 }
 
@@ -77,7 +96,7 @@ private struct DashboardContent: View, Equatable {
                         ConnectionDashboard(state: state, city: data.nodePlace?.displayCity ?? "位置未知",
                             nodeName: nodeName, node: node, startedAt: data.status?.coreStartedAt,
                             coreRunning: data.status?.coreRunning == true, rates: rates,
-                            trend: data.trend, trafficEnabled: data.status?.trafficEnabled,
+                            trend: data.trend, catchUp: data.trendCatchUp, trafficEnabled: data.status?.trafficEnabled,
                             now: data.now, connecting: data.connecting,
                             reconnect: { Task { await model.connect() } })
                             .frame(maxWidth: .infinity, maxHeight: .infinity).padding(12)

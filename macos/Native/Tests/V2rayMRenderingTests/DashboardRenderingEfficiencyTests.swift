@@ -32,6 +32,43 @@ final class DashboardRenderingEfficiencyTests: XCTestCase {
         XCTAssertFalse(blocked.permitsRendering, "Display wake must not override a still-locked session")
     }
 
+    @MainActor func testEarlyMinimizeNotificationIsSynchronousAndLatchedUntilRestore() {
+        var values: [DashboardVisibilityState] = []
+        let view = DashboardVisibilityObserver.Watcher { values.append($0) }
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 100, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = view
+        defer { view.stop(); window.close() }
+        NotificationCenter.default.post(name: NSWindow.willMiniaturizeNotification, object: window)
+        XCTAssertEqual(values.last?.minimizing, true, "Will event must freeze synchronously, before isMiniaturized changes")
+        XCTAssertFalse(window.isMiniaturized)
+        NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: window)
+        XCTAssertEqual(values.last?.minimizing, true, "Intermediate visibility events must not thaw the window")
+        NotificationCenter.default.post(name: NSWindow.didDeminiaturizeNotification, object: window)
+        XCTAssertEqual(values.last?.minimizing, false)
+    }
+
+    @MainActor func testDisplayClockCannotReattachBetweenEarlyFreezeAndSwiftUIUpdate() {
+        let clock = DashboardDisplayClock()
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 100, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { clock.stop(); window.close() }
+        clock.attach(window: window, enabled: true)
+        XCTAssertTrue(clock.isRunning)
+        clock.freeze()
+        XCTAssertFalse(clock.isRunning)
+        clock.attach(window: window, enabled: true)
+        XCTAssertFalse(clock.isRunning, "A stale enabled body must not restart the display link")
+        clock.attach(window: window, enabled: false)
+        clock.freeze() // An extra occlusion notification can arrive after the disabled body.
+        clock.attach(window: window, enabled: true)
+        XCTAssertFalse(clock.isRunning)
+        clock.thaw()
+        clock.attach(window: window, enabled: true)
+        XCTAssertTrue(clock.isRunning)
+        clock.attach(window: nil, enabled: true)
+        XCTAssertFalse(clock.isRunning, "Detaching a window must invalidate its display link")
+    }
+
     @MainActor func testRequests120AndAdaptsToScreenCapabilities() {
         for (maximum, expected) in [(120, 120), (144, 120), (60, 60), (48, 48)] {
             let range = DashboardDisplayClock.range(maximum: maximum)
@@ -59,15 +96,15 @@ final class DashboardRenderingEfficiencyTests: XCTestCase {
         XCTAssertEqual(state.fronts, 1)
     }
 
-    @MainActor func testOcclusionWaitsAndQuickReturnCancelsPendingPause() async throws {
-        let coordinator = DashboardVisibilityCoordinator(departureDelay: 0.12, returnDelay: 0.05, catchUpDuration: 0.04)
+    @MainActor func testEarlyFreezeAndQuickReturnCancelStaleResume() async throws {
+        let coordinator = DashboardVisibilityCoordinator(returnDelay: 0.05, catchUpDuration: 0.04)
         let visible = DashboardVisibilityState(windowVisible: true, occluded: false)
         var occluded = visible; occluded.occluded = true
         coordinator.update(visible)
         XCTAssertEqual(coordinator.phase, .live)
         coordinator.update(occluded)
-        XCTAssertEqual(coordinator.phase, .departing)
-        XCTAssertTrue(coordinator.phase.rendersMotion)
+        XCTAssertEqual(coordinator.phase, .suspended)
+        XCTAssertFalse(coordinator.phase.rendersMotion)
         XCTAssertFalse(coordinator.phase.acceptsData)
         try await Task.sleep(for: .milliseconds(30))
         coordinator.update(visible)
@@ -84,11 +121,11 @@ final class DashboardRenderingEfficiencyTests: XCTestCase {
     }
 
     @MainActor func testStageManagerThumbnailCanRemainVisibleWhileInactive() async throws {
-        let coordinator = DashboardVisibilityCoordinator(departureDelay: 0.04, returnDelay: 0.02, catchUpDuration: 0.02)
+        let coordinator = DashboardVisibilityCoordinator(returnDelay: 0.02, catchUpDuration: 0.02)
         var state = DashboardVisibilityState(windowVisible: true, occluded: false)
         coordinator.update(state)
         state.appActive = false; coordinator.update(state)
-        XCTAssertEqual(coordinator.phase, .departing)
+        XCTAssertEqual(coordinator.phase, .suspended)
         XCTAssertFalse(state.permitsRendering)
         try await Task.sleep(for: .milliseconds(60))
         XCTAssertEqual(coordinator.phase, .suspended)
@@ -99,9 +136,27 @@ final class DashboardRenderingEfficiencyTests: XCTestCase {
         coordinator.stop()
     }
 
+    @MainActor func testWillMiniaturizeFreezesBeforeMinimizedFlagAndGeometryDefersReturn() async throws {
+        let coordinator = DashboardVisibilityCoordinator(returnDelay: 0.06, catchUpDuration: 0.02)
+        var state = DashboardVisibilityState(windowVisible: true, occluded: false)
+        coordinator.update(state)
+        state.minimizing = true; coordinator.update(state)
+        XCTAssertFalse(state.minimized)
+        XCTAssertEqual(coordinator.phase, .suspended)
+        state.minimizing = false; coordinator.update(state)
+        XCTAssertEqual(coordinator.phase, .returning)
+        try await Task.sleep(for: .milliseconds(40))
+        state.surfaceRevision += 1; coordinator.update(state)
+        try await Task.sleep(for: .milliseconds(40))
+        XCTAssertEqual(coordinator.phase, .returning, "A moving/restoring surface must remain frozen")
+        try await Task.sleep(for: .milliseconds(60))
+        XCTAssertEqual(coordinator.phase, .live)
+        coordinator.stop()
+    }
+
     @MainActor func testHardBlockersCancelGraceAndCannotBeOverriddenByLateTasks() async throws {
         for key in [\DashboardVisibilityState.minimized, \.appHidden, \.locked, \.sleeping] {
-            let coordinator = DashboardVisibilityCoordinator(departureDelay: 0.04, returnDelay: 0.04, catchUpDuration: 0.02)
+            let coordinator = DashboardVisibilityCoordinator(returnDelay: 0.04, catchUpDuration: 0.02)
             var state = DashboardVisibilityState(windowVisible: true, occluded: false)
             coordinator.update(state); state.occluded = true; coordinator.update(state)
             state.occluded = false; coordinator.update(state)
