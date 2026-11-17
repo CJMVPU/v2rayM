@@ -94,10 +94,7 @@ struct ConnectionDashboard: View {
                     Text(city).font(AppFont.size(25)).lineLimit(1).minimumScaleFactor(0.7)
                     Text(nodeName).font(AppFont.size(12)).foregroundStyle(DashboardTheme.muted)
                         .lineLimit(1).truncationMode(.middle)
-                    Text(duration)
-                        .font(AppFont.size(24)).monospacedDigit().padding(.top, 4)
-                        .contentTransition(.numericText(countsDown: false))
-                        .animation(reduceMotion ? nil : .easeInOut(duration: 0.45), value: duration)
+                    DashboardNumericText(text: duration, size: 24).padding(.top, 4)
                     Text(connecting && state == .offline ? "正在连接本地服务" : state.title)
                         .font(AppFont.size(12)).foregroundStyle(statusColor).lineLimit(1)
                     Button("重新连接服务", action: reconnect).font(AppFont.caption)
@@ -231,20 +228,11 @@ struct TrafficTrendView: View {
                 let input = TrendLayerInput(points)
                 let replayInput = TrendLayerInput(history)
                 let retired = retirement.map { TrendLayerInput($0.samples) }
-                DashboardFrameTimeline(enabled: (animate || (presentationActive && replaying)) && (!points.isEmpty || !history.isEmpty || retirement != nil), fallback: now) { frameDate in
-                    let date = animate || replaying || !presentationActive ? frameDate : now
-                    let catchingUp = replaying && (catchUp?.progress(at: date) ?? 1) < 1
-                    let displayDate = catchingUp ? catchUp!.displayDate(at: date) : date
-                    let ceiling = catchingUp
-                        ? catchUp!.initialCeiling + (maximum - catchUp!.initialCeiling) * catchUp!.progress(at: date)
-                        : (animate && !replaying ? scale(at: date) : maximum)
-                    let reveal = animate && !replaying ? eased(date.timeIntervalSince(sampleArrived)) : 1
-                    DashboardTrendPlot(input: catchingUp ? replayInput : input, date: displayDate,
-                        ceiling: ceiling, reveal: reveal,
-                        opacity: !catchingUp && animate ? (retirement?.progress(at: frameDate) ?? 1) : 1,
-                        retired: !catchingUp && animate ? retired : nil,
-                        retirement: !catchingUp && animate ? retirement : nil)
-                }
+                DashboardTrendPlot(configuration: TrendFrameConfiguration(
+                    input: input, replayInput: replayInput, retired: retired, now: now, maximum: maximum,
+                    animate: animate, presentationActive: presentationActive, replaying: replaying,
+                    catchUp: catchUp, retirement: retirement, scaleFrom: scaleFrom, scaleTo: scaleTo,
+                    scaleChanged: scaleChanged, sampleArrived: sampleArrived))
             }.overlay {
                 if points.isEmpty && retirement == nil {
                     if awaitingSample {

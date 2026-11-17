@@ -42,6 +42,25 @@ import Combine
         XCTAssertEqual(card.angle, 0)
     }
 
+    func testRecentCardChangesContentOnlyWhileBackFacesViewer() async throws {
+        let card = DashboardCardPresentation(value: [Int](), idle: [], active: false, ready: false,
+            slot: 2, timing: timing, contentWhileHidden: true)
+        defer { card.disappear() }
+        card.update(value: [42], idle: [], active: true, ready: true, reduced: false)
+        XCTAssertTrue(card.displayed.isEmpty); XCTAssertFalse(card.presentedActive)
+        try await Task.sleep(for: .milliseconds(230))
+        XCTAssertTrue(card.displayed.isEmpty, "Keep the old front during the outward turn")
+        try await Task.sleep(for: .milliseconds(65))
+        XCTAssertEqual(card.displayed, [42])
+        try await Task.sleep(for: .milliseconds(130))
+        card.update(value: [], idle: [], active: false, ready: false, reduced: false)
+        XCTAssertEqual(card.displayed, [42])
+        try await Task.sleep(for: .milliseconds(230))
+        XCTAssertEqual(card.displayed, [42])
+        try await Task.sleep(for: .milliseconds(65))
+        XCTAssertTrue(card.displayed.isEmpty, "Clear while the branded back hides the content area")
+    }
+
     func testCardsStaggerInBothDirections() async throws {
         let cards = (0...2).map { DashboardCardPresentation(value: 0, idle: 0, active: false, ready: false, slot: $0, timing: timing) }
         for card in cards { card.update(value: 42, idle: 0, active: true, ready: true, reduced: false) }

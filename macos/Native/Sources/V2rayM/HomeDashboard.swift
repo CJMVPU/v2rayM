@@ -202,29 +202,28 @@ struct DashboardTrafficMetric: View {
     let icon: String
     let value: DashboardMetricValue
     let color: Color
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: icon).font(.system(size: 14, weight: .regular))
                 .frame(width: 14, height: 20)
-            Text(value.number).frame(maxWidth: .infinity, alignment: .trailing)
-                .contentTransition(.numericText())
+            DashboardNumericText(text: value.number, size: 14, color: color)
+                .frame(maxWidth: .infinity, alignment: .trailing)
             Text(value.unit).frame(width: 43, alignment: .trailing)
         }.font(AppFont.size(14)).monospacedDigit().lineLimit(1)
             .foregroundStyle(color).frame(maxWidth: .infinity).frame(height: 22)
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.45), value: value)
             .accessibilityElement(children: .ignore).accessibilityLabel(title + " " + value.text)
             .help(title + "：" + value.text)
     }
 }
 
 struct RecentConnectionsCard: View {
+    @StateObject private var rowScheduler = RecentRowFlipScheduler()
     let connections: [GlobeConnection]
     let coreRunning: Bool
     var dataReady = true
     var body: some View {
         DashboardDataCard(value: connections, idle: [], active: coreRunning,
-                          ready: dataReady && !connections.isEmpty, slot: 2) { displayed, presentedActive in
+                          ready: dataReady && !connections.isEmpty, slot: 2, contentWhileHidden: true) { displayed, presentedActive in
             rows(displayed, active: presentedActive)
         }
     }
@@ -238,9 +237,9 @@ struct RecentConnectionsCard: View {
                 let rows = Array(connections.prefix(7))
                 let rowHeight = max(0, (geometry.size.height - 24) / 7)
                 VStack(spacing: 4) {
-                    // Stable slots keep the backgrounds in place; only changed text fades.
+                    // Stable slots share a two-turn budget; each keeps its own bitmap cache.
                     ForEach(rows.indices, id: \.self) { index in
-                        RecentConnectionRow(connection: rows[index]).frame(height: rowHeight)
+                        RecentConnectionRow(connection: rows[index], slot: index, scheduler: rowScheduler, active: active).frame(height: rowHeight)
                     }
                 }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             }
@@ -250,22 +249,18 @@ struct RecentConnectionsCard: View {
 
 struct RecentConnectionRow: View {
     let connection: GlobeConnection
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.dashboardMotionEnabled) private var motionEnabled
-    private var animatesText: Bool { motionEnabled && !reduceMotion }
+    let slot: Int
+    let scheduler: RecentRowFlipScheduler
+    let active: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduced
+    @Environment(\.dashboardMotionEnabled) private var motion
+    @Environment(\.dashboardFlipsEnabled) private var flips
     var body: some View {
-        let color: Color = connection.isProxy ? DashboardTheme.cyan : connection.route == "direct" ? .green : .orange
-        let location: String = connection.place.map { " · " + $0.displayCity + "（IP/DNS 估计）" } ?? " · 位置未知"
-        return HStack(spacing: 8) {
-            Text(connection.host).font(AppFont.caption).lineLimit(1).truncationMode(.middle)
-                .contentTransition(animatesText ? .opacity : .identity)
-                .animation(animatesText ? .easeInOut(duration: 0.4) : nil, value: connection.host)
-            Spacer(minLength: 4)
-            Text(connection.routeTitle).font(AppFont.caption).foregroundStyle(DashboardTheme.muted).fixedSize()
-                .contentTransition(animatesText ? .opacity : .identity)
-                .animation(animatesText ? .easeInOut(duration: 0.4) : nil, value: connection.routeTitle)
-        }.padding(.horizontal, 8).frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(color.opacity(0.13), in: RoundedRectangle(cornerRadius: 5))
+        let location = connection.place.map { " · " + $0.displayCity + "（IP/DNS 估计）" } ?? " · 位置未知"
+        CachedRecentRow(face: RecentRowFace(connection), slot: slot, scheduler: scheduler,
+                        motion: motion, flips: flips && active, reduced: reduced)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(connection.host + "，" + connection.routeTitle)
             .help(connection.host + ":\(connection.port) · " + connection.routeTitle + location)
     }
 }

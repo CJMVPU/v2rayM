@@ -11,8 +11,13 @@ import V2rayMKit
     private(set) var frozen = false
     override init(frame: NSRect) {
         super.init(frame: frame)
+        // Own the layer tree explicitly: AppKit must not redraw a view backing
+        // store when these independently cached layers move or rotate.
+        let root = CALayer()
+        root.isGeometryFlipped = true
+        root.masksToBounds = false
+        layer = root
         wantsLayer = true
-        layer?.masksToBounds = false
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
@@ -25,7 +30,7 @@ import V2rayMKit
             observations.append(NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] note in
                 MainActor.assumeIsolated {
                     if note.name == .dashboardWillFreeze { self?.freeze() }
-                    else { self?.frozen = false }
+                    else { self?.thaw() }
                 }
             })
         }
@@ -38,6 +43,7 @@ import V2rayMKit
         if let layer { apply(layer) }
     }
     func freeze() { frozen = true }
+    func thaw() { frozen = false }
     func withoutActions(_ body: () -> Void) {
         CATransaction.begin(); CATransaction.setDisableActions(true); body(); CATransaction.commit()
     }
@@ -172,23 +178,66 @@ struct TrendLayerGeometry {
     }
 }
 
-struct DashboardTrendPlot: NSViewRepresentable {
+/// Immutable animation inputs change with telemetry, not with display ticks.
+struct TrendFrameConfiguration {
     let input: TrendLayerInput
-    let date: Date
-    let ceiling: Double
-    let reveal: Double
-    var opacity = 1.0
-    var retired: TrendLayerInput?
-    var retirement: TrafficTrendRetirement?
-    func makeNSView(context: Context) -> TrendLayerView { TrendLayerView() }
-    func updateNSView(_ view: TrendLayerView, context: Context) {
-        view.update(input: input, date: date, ceiling: ceiling, reveal: reveal, opacity: opacity,
-                    retired: retired, retirement: retirement)
+    let replayInput: TrendLayerInput
+    let retired: TrendLayerInput?
+    let now: Date
+    let maximum: Double
+    let animate: Bool
+    let presentationActive: Bool
+    let replaying: Bool
+    let catchUp: TrafficTrendCatchUp?
+    let retirement: TrafficTrendRetirement?
+    let scaleFrom: Double
+    let scaleTo: Double
+    let scaleChanged: Date
+    let sampleArrived: Date
+    var enabled: Bool {
+        (animate || (presentationActive && replaying)) &&
+        (!input.samples.isEmpty || !replayInput.samples.isEmpty || retirement != nil)
     }
+    struct Frame {
+        let input: TrendLayerInput
+        let date: Date
+        let ceiling: Double
+        let reveal: Double
+        let opacity: Double
+        let retired: TrendLayerInput?
+        let retirement: TrafficTrendRetirement?
+    }
+    func frame(at wallDate: Date) -> Frame {
+        let date = animate || replaying || !presentationActive ? wallDate : now
+        if replaying, let catchUp, catchUp.progress(at: date) < 1 {
+            return Frame(input: replayInput, date: catchUp.displayDate(at: date),
+                ceiling: catchUp.initialCeiling + (maximum - catchUp.initialCeiling) * catchUp.progress(at: date),
+                reveal: 1, opacity: 1, retired: nil, retirement: nil)
+        }
+        func eased(_ elapsed: Double) -> Double {
+            let t = min(1, max(0, elapsed / 1.2))
+            return t * t * (3 - 2 * t)
+        }
+        let ceiling = animate && !replaying ? scaleFrom + (scaleTo - scaleFrom) * eased(date.timeIntervalSince(scaleChanged)) : maximum
+        return Frame(input: input, date: date, ceiling: ceiling,
+            reveal: animate && !replaying ? eased(date.timeIntervalSince(sampleArrived)) : 1,
+            opacity: animate ? (retirement?.progress(at: wallDate) ?? 1) : 1,
+            retired: animate ? retired : nil, retirement: animate ? retirement : nil)
+    }
+}
+
+struct DashboardTrendPlot: NSViewRepresentable {
+    let configuration: TrendFrameConfiguration
+    func makeNSView(context: Context) -> TrendLayerView { TrendLayerView() }
+    func updateNSView(_ view: TrendLayerView, context: Context) { view.configure(configuration) }
+    static func dismantleNSView(_ view: TrendLayerView, coordinator: ()) { view.freeze() }
 }
 
 @MainActor final class TrendLayerView: DashboardLayerView {
     private let grid = CAShapeLayer(), baseline = CAShapeLayer(), clip = CALayer()
+    let clock = DashboardDisplayClock()
+    private var configuration: TrendFrameConfiguration?
+    private var screenObserver: NSObjectProtocol?
     let current = TrendLayerGroup(), old = TrendLayerGroup()
     private var gridSize = CGSize(width: -1, height: -1)
     private(set) var gridBuilds = 0
@@ -200,8 +249,39 @@ struct DashboardTrendPlot: NSViewRepresentable {
         }
         clip.masksToBounds = true; layer?.addSublayer(clip)
         clip.addSublayer(old.root); clip.addSublayer(current.root)
+        clock.onFrame = { [weak self] in self?.renderFrame(at: $0) }
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    func configure(_ configuration: TrendFrameConfiguration) {
+        self.configuration = configuration
+        guard !frozen else { return }
+        renderFrame(at: configuration.enabled ? (clock.date ?? configuration.now) : configuration.now)
+        attachClock()
+    }
+    private func attachClock() {
+        clock.attach(window: window, enabled: !frozen && configuration?.enabled == true)
+    }
+    private func renderFrame(at date: Date) {
+        guard !frozen, let configuration else { return }
+        let frame = configuration.frame(at: date)
+        update(input: frame.input, date: frame.date, ceiling: frame.ceiling, reveal: frame.reveal,
+               opacity: frame.opacity, retired: frame.retired, retirement: frame.retirement)
+    }
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
+        screenObserver = nil
+        if let window {
+            screenObserver = NotificationCenter.default.addObserver(forName: NSWindow.didChangeScreenNotification,
+                object: window, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.attachClock() }
+                }
+        }
+        attachClock()
+    }
+    override func freeze() { clock.freeze(); super.freeze() }
+    override func thaw() { super.thaw(); clock.thaw(); attachClock() }
+    deinit { if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) } }
     override func layout() {
         super.layout()
         withoutActions {

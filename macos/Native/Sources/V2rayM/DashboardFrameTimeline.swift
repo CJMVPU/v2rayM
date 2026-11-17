@@ -1,21 +1,10 @@
 import AppKit
 import QuartzCore
-import SwiftUI
 
-/// Only this small drawing subtree observes display ticks, not the whole home.
-struct DashboardFrameTimeline<Content: View>: View {
-    let enabled: Bool
-    let fallback: Date
-    @ViewBuilder let content: (Date) -> Content
-    @StateObject private var clock = DashboardDisplayClock()
-    var body: some View {
-        content(clock.date ?? fallback)
-            .background(DisplayClockAttachment(clock: clock, enabled: enabled))
-    }
-}
-
-@MainActor final class DashboardDisplayClock: NSObject, ObservableObject {
-    @Published private(set) var date: Date?
+/// A window-scoped native clock. Ticks do not publish SwiftUI state.
+@MainActor final class DashboardDisplayClock: NSObject {
+    private(set) var date: Date?
+    var onFrame: ((Date) -> Void)?
     private var link: CADisplayLink?
     private weak var window: NSWindow?
     private var target: Target?
@@ -45,57 +34,16 @@ struct DashboardFrameTimeline<Content: View>: View {
     func thaw() { lifecycleBlocked = false }
     func freeze() { lifecycleBlocked = true; stop() }
     func stop() { link?.invalidate(); link = nil; target = nil; window = nil; requestedMaximum = nil }
+    private func frame(at date: Date) {
+        self.date = date
+        onFrame?(date)
+    }
     @MainActor private final class Target: NSObject {
         weak var owner: DashboardDisplayClock?
         init(owner: DashboardDisplayClock) { self.owner = owner }
-        @objc func tick(_ sender: CADisplayLink) { owner?.date = Date() }
-    }
-}
-
-private struct DisplayClockAttachment: NSViewRepresentable {
-    let clock: DashboardDisplayClock
-    let enabled: Bool
-    func makeNSView(context: Context) -> Attachment { Attachment(clock: clock) }
-    func updateNSView(_ view: Attachment, context: Context) {
-        view.enabled = enabled; clock.attach(window: view.window, enabled: enabled)
-    }
-    static func dismantleNSView(_ view: Attachment, coordinator: ()) { view.clock.stop() }
-    final class Attachment: NSView {
-        let clock: DashboardDisplayClock
-        var enabled = false
-        private var screenObserver: NSObjectProtocol?
-        private var freezeObserver: NSObjectProtocol?
-        private var thawObserver: NSObjectProtocol?
-        init(clock: DashboardDisplayClock) { self.clock = clock; super.init(frame: .zero) }
-        required init?(coder: NSCoder) { fatalError("init(coder:) unavailable") }
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
-            screenObserver = nil
-            if let freezeObserver { NotificationCenter.default.removeObserver(freezeObserver) }; freezeObserver = nil
-            if let thawObserver { NotificationCenter.default.removeObserver(thawObserver) }; thawObserver = nil
-            if let window {
-                thawObserver = NotificationCenter.default.addObserver(forName: .dashboardDidThaw, object: window, queue: .main) { [weak self] _ in
-                    MainActor.assumeIsolated {
-                        guard let self else { return }
-                        self.clock.thaw(); self.clock.attach(window: self.window, enabled: self.enabled)
-                    }
-                }
-                freezeObserver = NotificationCenter.default.addObserver(forName: .dashboardWillFreeze, object: window, queue: .main) { [weak self] _ in
-                    MainActor.assumeIsolated { self?.clock.freeze() }
-                }
-                screenObserver = NotificationCenter.default.addObserver(forName: NSWindow.didChangeScreenNotification, object: window, queue: .main) { [weak self] _ in
-                    MainActor.assumeIsolated {
-                        guard let self else { return }; self.clock.attach(window: self.window, enabled: self.enabled)
-                    }
-                }
-            }
-            clock.attach(window: window, enabled: enabled)
-        }
-        deinit {
-            if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
-            if let freezeObserver { NotificationCenter.default.removeObserver(freezeObserver) }
-            if let thawObserver { NotificationCenter.default.removeObserver(thawObserver) }
+        @objc func tick(_ sender: CADisplayLink) {
+            guard let owner, owner.link === sender, !owner.lifecycleBlocked else { return }
+            owner.frame(at: Date())
         }
     }
 }

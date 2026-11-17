@@ -156,13 +156,15 @@ struct DashboardCardTiming {
     private var generation = 0
     private let slot: Int
     private let timing: DashboardCardTiming
+    private let contentWhileHidden: Bool
 
     init(value: Value, idle: Value, active: Bool, ready: Bool, slot: Int,
-         timing: DashboardCardTiming = DashboardCardTiming()) {
+         timing: DashboardCardTiming = DashboardCardTiming(), contentWhileHidden: Bool = false) {
         admitted = active && ready
         presentedActive = active && ready; targetActive = active && ready
         displayed = active && ready ? value : idle
         latest = value; self.idle = idle; self.slot = slot; self.timing = timing
+        self.contentWhileHidden = contentWhileHidden
     }
 
     func update(value: Value, idle: Value, active: Bool, ready: Bool, reduced: Bool) {
@@ -195,8 +197,11 @@ struct DashboardCardTiming {
                 try await Task.sleep(for: .seconds(self.timing.outward))
                 guard self.generation == token, !Task.isCancelled else { return }
                 // Opening data changes while the branded back faces the viewer.
-                // Shutdown deliberately retains the last face until the full turn ends.
-                if desired { self.displayed = self.latest; self.presentedActive = true }
+                // Other cards retain the last face through shutdown; recent connections
+                // opt into clearing while this branded back hides the content.
+                if desired || self.contentWhileHidden {
+                    self.displayed = desired ? self.latest : self.idle; self.presentedActive = desired
+                }
                 withAnimation(.timingCurve(0.30, 0, 0.20, 1, duration: self.timing.inward)) { self.angle = 362 }
                 try await Task.sleep(for: .seconds(self.timing.inward))
                 guard self.generation == token, !Task.isCancelled else { return }
@@ -244,11 +249,11 @@ struct DashboardDataCard<Value: Equatable, Content: View>: View {
     @Environment(\.accessibilityReduceMotion) private var reduced
     @Environment(\.dashboardFlipsEnabled) private var flipsEnabled
     @StateObject private var presentation: DashboardCardPresentation<Value>
-    init(value: Value, idle: Value, active: Bool, ready: Bool, slot: Int,
+    init(value: Value, idle: Value, active: Bool, ready: Bool, slot: Int, contentWhileHidden: Bool = false,
          @ViewBuilder content: @escaping (Value, Bool) -> Content) {
         self.value = value; self.idle = idle; self.active = active; self.ready = ready; self.content = content
         _presentation = StateObject(wrappedValue: DashboardCardPresentation(value: value, idle: idle,
-            active: active, ready: ready, slot: slot))
+            active: active, ready: ready, slot: slot, contentWhileHidden: contentWhileHidden))
     }
     var body: some View {
         DashboardSolidSurface(angle: reduced ? 0 : presentation.angle, kind: .card, animates: flipsEnabled && !reduced,

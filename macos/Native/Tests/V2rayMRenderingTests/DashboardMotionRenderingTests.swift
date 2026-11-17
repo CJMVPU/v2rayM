@@ -64,13 +64,13 @@ final class DashboardMotionRenderingTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(2000))
         try capture("motion-2-ready")
         fixture.rows = try rows(2)
-        try await Task.sleep(for: .milliseconds(120))
-        try capture("motion-3-row-fade")
+        try await Task.sleep(for: .milliseconds(500))
+        try capture("motion-3-row-native-turn")
         fixture.rows = try rows(3)
-        try await Task.sleep(for: .milliseconds(700))
+        try await Task.sleep(for: .milliseconds(5200))
         try capture("motion-4-latest")
         // Compare the settled rendering against a fresh view of the final rows;
-        // a rapid replacement must leave the latest text after the fade.
+        // a rapid replacement must leave the latest text after staggered turns.
         let actual = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
         host.cacheDisplay(in: host.bounds, to: actual)
         let fresh = NSHostingView(rootView: MotionFixtureView(fixture: fixture))

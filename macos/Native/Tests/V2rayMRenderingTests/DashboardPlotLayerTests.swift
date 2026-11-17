@@ -12,6 +12,46 @@ import SwiftUI
                 directUpload: Double(index % 17) * 40, directDownload: Double(index % 23) * 80, segment: index < 30 ? 1 : 2)
         }
     }
+    private func frameConfiguration(animate: Bool = true) -> TrendFrameConfiguration {
+        let points = samples()
+        let now = points.last!.date
+        return TrendFrameConfiguration(input: TrendLayerInput(points), replayInput: TrendLayerInput([]), retired: nil,
+            now: now, maximum: 300, animate: animate, presentationActive: true, replaying: false,
+            catchUp: nil, retirement: nil, scaleFrom: 100, scaleTo: 300, scaleChanged: now, sampleArrived: now)
+    }
+    func testNativeFrameInterpolationAndPausedDate() {
+        let configuration = frameConfiguration()
+        let frame = configuration.frame(at: configuration.now.addingTimeInterval(0.6))
+        XCTAssertEqual(frame.ceiling, 200, accuracy: 0.0001)
+        XCTAssertEqual(frame.reveal, 0.5, accuracy: 0.0001)
+        XCTAssertEqual(frame.date, configuration.now.addingTimeInterval(0.6))
+        XCTAssertTrue(configuration.enabled)
+        let paused = frameConfiguration(animate: false)
+        let stopped = paused.frame(at: paused.now.addingTimeInterval(10))
+        XCTAssertEqual(stopped.date, paused.now); XCTAssertEqual(stopped.ceiling, 300)
+        XCTAssertEqual(stopped.reveal, 1); XCTAssertFalse(paused.enabled)
+    }
+    func testNativeClockRejectsStaleConfigurationUntilWindowThaws() {
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 550, height: 100), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let view = TrendLayerView(frame: window.contentLayoutRect)
+        window.contentView = view; view.layout()
+        defer { view.freeze(); window.close() }
+        let configuration = frameConfiguration()
+        view.configure(configuration)
+        XCTAssertTrue(view.clock.isRunning)
+        NotificationCenter.default.post(name: .dashboardWillFreeze, object: window)
+        let position = view.current.root.position
+        view.configure(configuration)
+        view.clock.onFrame?(configuration.now.addingTimeInterval(5))
+        XCTAssertFalse(view.clock.isRunning)
+        XCTAssertEqual(view.current.root.position, position)
+        NotificationCenter.default.post(name: .dashboardDidThaw, object: window)
+        XCTAssertTrue(view.clock.isRunning)
+        view.clock.onFrame?(configuration.now.addingTimeInterval(0.6))
+        XCTAssertNotEqual(view.current.root.position, position)
+        XCTAssertEqual(view.current.geometryBuilds, 1)
+    }
     func testSteadyScrollingAndRevealReuseHistoryAndGrid() {
         let view = TrendLayerView(frame: CGRect(x: 0, y: 0, width: 550, height: 100))
         view.layout()
