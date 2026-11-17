@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 import QuartzCore
-import CoreImage
+import Accelerate
 
 /// Keep SwiftUI's text metrics/accessibility, but animate cached glyph surfaces.
 /// Only the changing characters roll and soften; unchanged characters stay still.
@@ -40,7 +40,6 @@ private struct NativeNumericText: NSViewRepresentable {
         let width: CGFloat
         let height: CGFloat
     }
-    private static let imageContext = CIContext(options: [.cacheIntermediates: false])
     private var cache: [Character: Glyph] = [:]
     private var glyphLayers: [CALayer] = []
     private var outgoing: [CALayer] = []
@@ -180,13 +179,39 @@ private struct NativeNumericText: NSViewRepresentable {
         string.draw(at: CGPoint(x: pad, y: pad), withAttributes: attrs)
         NSGraphicsContext.restoreGraphicsState()
         guard let image = bitmap.cgImage else { return nil }
-        let source = CIImage(cgImage: image)
         let images = [image] + [0.65, 1.3, 2.0].map { radius in
-            let blurred = source.applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: radius * scale])
-            return Self.imageContext.createCGImage(blurred, from: source.extent) ?? image
+            Self.gaussianBlur(bitmap, radius: radius * scale) ?? image
         }
         let result = Glyph(images: images, width: width, height: height)
         cache[character] = result; glyphBuilds += 1
         return result
     }
+    /// Tiny glyph buffers do not need a Metal render/texture readback. A
+    /// separable Gaussian preserves the softening while keeping a cache miss
+    /// bounded to two short vectorized passes over the existing bitmap.
+    static func gaussianBlur(_ bitmap: NSBitmapImageRep, radius: Double) -> CGImage? {
+        guard let pixels = bitmap.bitmapData, let original = bitmap.cgImage else { return nil }
+        let extent = max(1, Int(ceil(radius * 3)))
+        var kernel = (-extent...extent).map { Float(exp(-Double($0 * $0) / (2 * radius * radius))) }
+        let sum = kernel.reduce(0, +); kernel = kernel.map { $0 / sum }
+        var source = vImage_Buffer(data: pixels, height: vImagePixelCount(bitmap.pixelsHigh),
+                                   width: vImagePixelCount(bitmap.pixelsWide), rowBytes: bitmap.bytesPerRow)
+        var bytes = [UInt8](repeating: 0, count: bitmap.bytesPerRow * bitmap.pixelsHigh)
+        let error = bytes.withUnsafeMutableBytes { storage -> vImage_Error in
+            var destination = vImage_Buffer(data: storage.baseAddress!, height: source.height,
+                                            width: source.width, rowBytes: source.rowBytes)
+            return kernel.withUnsafeBufferPointer { weights in
+                [UInt8](repeating: 0, count: 4).withUnsafeBufferPointer { background in
+                    vImageSepConvolve_ARGB8888(&source, &destination, nil, 0, 0,
+                        weights.baseAddress!, UInt32(kernel.count), weights.baseAddress!, UInt32(kernel.count),
+                        0, background.baseAddress!, vImage_Flags(kvImageBackgroundColorFill | kvImageDoNotTile))
+                }
+            }
+        }
+        guard error == kvImageNoError, let provider = CGDataProvider(data: Data(bytes) as CFData) else { return nil }
+        return CGImage(width: bitmap.pixelsWide, height: bitmap.pixelsHigh, bitsPerComponent: 8,
+            bitsPerPixel: 32, bytesPerRow: bitmap.bytesPerRow, space: original.colorSpace ?? CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: original.bitmapInfo, provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent)
+    }
+
 }
