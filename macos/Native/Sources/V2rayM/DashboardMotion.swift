@@ -17,11 +17,11 @@ struct DashboardRelief: ViewModifier {
 }
 
 enum DashboardSolidKind {
-    case disc, card, row
+    case disc, card
     var shape: AnyShape {
-        self == .disc ? AnyShape(Circle()) : AnyShape(RoundedRectangle(cornerRadius: self == .row ? 5 : 10))
+        self == .disc ? AnyShape(Circle()) : AnyShape(RoundedRectangle(cornerRadius: 10))
     }
-    var depth: CGFloat { self == .disc ? 10 : self == .card ? 7 : 3 }
+    var depth: CGFloat { self == .disc ? 10 : 7 }
 }
 
 /// Layered cross-sections give the turn an actual visible side. Only the facing
@@ -40,12 +40,11 @@ struct DashboardSolidSurface<Front: View, Back: View>: View, Animatable {
         set { angle = animates ? newValue : 0 }
     }
     private var renderedAngle: Double { animates ? angle : 0 }
-    private var vertical: Bool { kind == .row }
     private var frontFacing: Bool { cos(renderedAngle * .pi / 180) >= 0 }
     private var activity: Double { abs(sin(renderedAngle * .pi / 180)) }
     private func plane<V: View>(_ view: V, depth: CGFloat) -> some View {
-        view.rotation3DEffect(.degrees(renderedAngle), axis: vertical ? (x: 1, y: 0, z: 0) : (x: 0, y: 1, z: 0),
-                              anchorZ: depth, perspective: vertical ? 0.6 : 0.7)
+        view.rotation3DEffect(.degrees(renderedAngle), axis: (x: 0, y: 1, z: 0),
+                              anchorZ: depth, perspective: 0.7)
     }
     var body: some View {
         // The sole front face owns layout and identity. Background geometry
@@ -67,16 +66,16 @@ struct DashboardSolidSurface<Front: View, Back: View>: View, Animatable {
                             }
                             if !frontFacing {
                                 plane(back.clipShape(kind.shape).overlay(light)
-                                    .scaleEffect(x: vertical ? 1 : -1, y: vertical ? -1 : 1), depth: kind.depth / 2)
+                                    .scaleEffect(x: -1, y: 1), depth: kind.depth / 2)
                             }
                         }.frame(width: geometry.size.width, height: geometry.size.height)
                     }.accessibilityHidden(true).allowsHitTesting(false)
                 }
             }
-        .rotation3DEffect(.degrees(activity * (vertical ? 5 : -9)), axis: vertical ? (x: 0, y: 1, z: 0) : (x: 1, y: 0, z: 0), perspective: 0.3)
-        .scaleEffect(1 + activity * (vertical ? 0.008 : 0.018))
-        .shadow(color: .black.opacity(0.25 + activity * 0.12), radius: vertical ? 1.5 : 5 + activity * 3,
-                x: activity * 2, y: vertical ? 1.5 : 4 + activity * 3)
+        .rotation3DEffect(.degrees(activity * -9), axis: (x: 1, y: 0, z: 0), perspective: 0.3)
+        .scaleEffect(1 + activity * 0.018)
+        .shadow(color: .black.opacity(0.25 + activity * 0.12), radius: 5 + activity * 3,
+                x: activity * 2, y: 4 + activity * 3)
     }
     private var light: some View {
         kind.shape.fill(LinearGradient(colors: [.white.opacity(activity * 0.16), .clear, .black.opacity(activity * 0.30)],
@@ -266,85 +265,5 @@ struct DashboardDataCard<Value: Equatable, Content: View>: View {
                                     ready: input.ready, reduced: input.reduced)
             }
             .onDisappear { presentation.disappear() }
-    }
-}
-
-enum DashboardRowTiming {
-    static let minimumRest: TimeInterval = 1.8
-    static func delay(slot: Int, identity: String) -> TimeInterval {
-        // Slot phases deliberately alternate; identity adds independent jitter.
-        let phases = [0.31, 0.74, 0.12, 0.59, 0.22, 0.86, 0.45]
-        let hash = identity.utf8.reduce(UInt64(5381)) { ($0 &* 33) &+ UInt64($1) }
-        return phases[abs(slot % 7)] + Double(hash % 17) * 0.008
-    }
-}
-
-/// Each slot owns a single coalescing worker. Updates during a turn wait for that
-/// turn to settle, then only the latest pending record is shown after a rest.
-struct DashboardFlipValue<Value: Equatable, Content: View>: View {
-    let value: Value
-    let identity: String
-    var slot = 0
-    let content: (Value) -> Content
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.dashboardFlipsEnabled) private var flipsEnabled
-    @Environment(\.dashboardMotionEnabled) private var motionEnabled
-    @State private var displayed: Value
-    @State private var displayedIdentity: String
-    @State private var pending: Value
-    @State private var pendingIdentity: String
-    @State private var incoming: Value
-    @State private var angle = 0.0
-    @State private var worker: Task<Void, Never>?
-    @State private var lastFinish = Date.distantPast
-    init(value: Value, identity: String, slot: Int = 0, @ViewBuilder content: @escaping (Value) -> Content) {
-        self.value = value; self.identity = identity; self.slot = slot; self.content = content
-        _displayed = State(initialValue: value); _incoming = State(initialValue: value)
-        _pending = State(initialValue: value)
-        _displayedIdentity = State(initialValue: identity); _pendingIdentity = State(initialValue: identity)
-    }
-    var body: some View {
-        DashboardSolidSurface(angle: reduceMotion ? 0 : angle, kind: .row, animates: flipsEnabled && !reduceMotion,
-            front: content(displayedIdentity == identity ? value : displayed).contentTransition(.opacity), back: content(incoming))
-            .onChange(of: value) { _, _ in enqueue() }
-            .onAppear { enqueue() }
-            .onDisappear { worker?.cancel(); worker = nil; settle() }
-            .onChange(of: reduceMotion || !flipsEnabled) { _, reduced in
-                if reduced { worker?.cancel(); worker = nil; settle() }
-            }
-    }
-    private func enqueue() {
-        pending = value; pendingIdentity = identity
-        guard !reduceMotion && flipsEnabled else { worker?.cancel(); worker = nil; settle(); return }
-        guard worker == nil else { return }
-        guard pendingIdentity != displayedIdentity else { displayed = pending; return }
-        worker = Task { @MainActor in
-            while pendingIdentity != displayedIdentity {
-                let rest = max(0, DashboardRowTiming.minimumRest - Date().timeIntervalSince(lastFinish))
-                let delay = max(rest, DashboardRowTiming.delay(slot: slot, identity: pendingIdentity))
-                do { try await Task.sleep(for: .seconds(delay)) } catch { return }
-                guard !Task.isCancelled else { return }
-                if pendingIdentity == displayedIdentity { break }
-                let target = pending, targetID = pendingIdentity
-                incoming = target
-                withAnimation(.timingCurve(0.35, 0, 0.18, 1, duration: 1.12)) { angle = 180 }
-                do { try await Task.sleep(for: .seconds(1.16)) } catch { return }
-                guard !Task.isCancelled else { return }
-                var transaction = Transaction(); transaction.disablesAnimations = true
-                withTransaction(transaction) { displayed = target; displayedIdentity = targetID; angle = 0 }
-                lastFinish = Date()
-            }
-            worker = nil
-        }
-    }
-    private func settle() {
-        guard angle != 0 || displayed != value || displayedIdentity != identity
-            || pending != value || pendingIdentity != identity || incoming != value else { return }
-        var transaction = Transaction(animation: motionEnabled && !reduceMotion ? .easeInOut(duration: 0.45) : nil)
-        transaction.disablesAnimations = !motionEnabled || reduceMotion
-        withTransaction(transaction) {
-            displayed = value; displayedIdentity = identity; pending = value; pendingIdentity = identity
-            incoming = value; angle = 0
-        }
     }
 }

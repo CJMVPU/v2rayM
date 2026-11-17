@@ -238,11 +238,9 @@ struct RecentConnectionsCard: View {
                 let rows = Array(connections.prefix(7))
                 let rowHeight = max(0, (geometry.size.height - 24) / 7)
                 VStack(spacing: 4) {
-                    // Stable slots flip in place instead of moving identified records between rows.
+                    // Stable slots keep the backgrounds in place; only changed text fades.
                     ForEach(rows.indices, id: \.self) { index in
-                        DashboardFlipValue(value: rows[index], identity: rows[index].id, slot: index) { connection in
-                            RecentConnectionRow(connection: connection)
-                        }.frame(height: rowHeight)
+                        RecentConnectionRow(connection: rows[index]).frame(height: rowHeight)
                     }
                 }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             }
@@ -252,13 +250,20 @@ struct RecentConnectionsCard: View {
 
 struct RecentConnectionRow: View {
     let connection: GlobeConnection
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dashboardMotionEnabled) private var motionEnabled
+    private var animatesText: Bool { motionEnabled && !reduceMotion }
     var body: some View {
         let color: Color = connection.isProxy ? DashboardTheme.cyan : connection.route == "direct" ? .green : .orange
         let location: String = connection.place.map { " · " + $0.displayCity + "（IP/DNS 估计）" } ?? " · 位置未知"
         return HStack(spacing: 8) {
             Text(connection.host).font(AppFont.caption).lineLimit(1).truncationMode(.middle)
+                .contentTransition(animatesText ? .opacity : .identity)
+                .animation(animatesText ? .easeInOut(duration: 0.4) : nil, value: connection.host)
             Spacer(minLength: 4)
             Text(connection.routeTitle).font(AppFont.caption).foregroundStyle(DashboardTheme.muted).fixedSize()
+                .contentTransition(animatesText ? .opacity : .identity)
+                .animation(animatesText ? .easeInOut(duration: 0.4) : nil, value: connection.routeTitle)
         }.padding(.horizontal, 8).frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(color.opacity(0.13), in: RoundedRectangle(cornerRadius: 5))
             .help(connection.host + ":\(connection.port) · " + connection.routeTitle + location)

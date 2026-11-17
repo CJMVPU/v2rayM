@@ -22,17 +22,6 @@ private struct MotionFixtureView: View {
     }
 }
 final class DashboardMotionRenderingTests: XCTestCase {
-    func testRowPhasesAreIndependentAndHaveAQuietInterval() {
-        let phases = (0..<7).map { DashboardRowTiming.delay(slot: $0, identity: "fixture") }
-        XCTAssertEqual(Set(phases).count, 7)
-        XCTAssertNotEqual(phases, phases.sorted())
-        XCTAssertNotEqual(phases, phases.sorted(by: >))
-        XCTAssertTrue(phases.allSatisfy { $0 >= 0.1 && $0 <= 1.0 })
-        XCTAssertNotEqual(DashboardRowTiming.delay(slot: 0, identity: "first"),
-                          DashboardRowTiming.delay(slot: 0, identity: "second"))
-        XCTAssertGreaterThanOrEqual(DashboardRowTiming.minimumRest, 1.5)
-    }
-
     @MainActor func testActivationRefreshAndRapidReplacementSnapshots() async throws {
         guard let directory = ProcessInfo.processInfo.environment["V2RAYM_MOTION_RENDER_DIRECTORY"] else {
             throw XCTSkip("Set V2RAYM_MOTION_RENDER_DIRECTORY to capture live animation phases")
@@ -75,22 +64,13 @@ final class DashboardMotionRenderingTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(2000))
         try capture("motion-2-ready")
         fixture.rows = try rows(2)
-        try await Task.sleep(for: .milliseconds(480))
-        try capture("motion-3-row-flip")
+        try await Task.sleep(for: .milliseconds(120))
+        try capture("motion-3-row-fade")
         fixture.rows = try rows(3)
-        try await Task.sleep(for: .milliseconds(6000))
+        try await Task.sleep(for: .milliseconds(700))
         try capture("motion-4-latest")
-        fixture.active = false
-        fixture.rows = []
-        fixture.ready = false
-        try await Task.sleep(for: .milliseconds(150))
-        try capture("motion-5-stopping")
-        try await Task.sleep(for: .milliseconds(1500))
-        try capture("motion-5-closing-turn")
-        try await Task.sleep(for: .milliseconds(2000))
-        try capture("motion-6-resting")
         // Compare the settled rendering against a fresh view of the final rows;
-        // an interrupted task must not leave old text or an edge-on row behind.
+        // a rapid replacement must leave the latest text after the fade.
         let actual = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
         host.cacheDisplay(in: host.bounds, to: actual)
         let fresh = NSHostingView(rootView: MotionFixtureView(fixture: fixture))
@@ -112,5 +92,15 @@ final class DashboardMotionRenderingTests: XCTestCase {
         }
         XCTAssertLessThan(Double(mismatches) / Double(compared), 0.01,
                           "Settled connection rows must match a fresh rendering of the latest data")
+        window.contentView = host
+        fixture.active = false
+        fixture.rows = []
+        fixture.ready = false
+        try await Task.sleep(for: .milliseconds(150))
+        try capture("motion-5-stopping")
+        try await Task.sleep(for: .milliseconds(1500))
+        try capture("motion-5-closing-turn")
+        try await Task.sleep(for: .milliseconds(2000))
+        try capture("motion-6-resting")
     }
 }
