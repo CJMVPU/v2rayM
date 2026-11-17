@@ -2,9 +2,12 @@ import SwiftUI
 import AppKit
 import V2rayMKit
 
-private enum Page: String, CaseIterable, Identifiable {
+enum Page: String, CaseIterable, Identifiable {
     case home = "主页", profiles = "节点", logs = "日志", settings = "设置"
     var id: String { rawValue }
+    var symbol: RealityNavigationSymbol {
+        switch self { case .home: return .home; case .profiles: return .nodes; case .logs: return .logs; case .settings: return .settings }
+    }
 }
 struct ContentView: View {
     @EnvironmentObject var model: AppModel
@@ -16,46 +19,46 @@ struct ContentView: View {
     @State private var editingProfile: Profile?
     private var editingContent: Bool { settingsEditing || importing || editingProfile != nil }
     private var controlsDisabled: Bool { !model.ready || model.busy || model.moduleUpdateActive }
+    init(initialPage: Page = .home) { _page = State(initialValue: initialPage) }
     var body: some View {
-        VStack(spacing: 0) {
-            titleBar
-            if importing {
-                ImportPane(close: { importing = false }, save: { try await model.importNodes($0) })
-                    .environmentObject(model)
-            } else if let profile = editingProfile {
-                ProfileEditor(profile: profile, close: { editingProfile = nil }).environmentObject(model)
-            } else if !model.ready && page != .home && !settingsEditing {
-                ContentUnavailableView {
-                    Label(model.connecting ? "正在连接本地服务" : "本地服务尚未连接", systemImage: "desktopcomputer")
-                } description: { Text(model.connecting ? "首次启动可能需要几秒钟。" : "连接后即可管理节点。") }
-                actions: {
-                    if model.connecting { ProgressView().controlSize(.small) }
-                    else { Button("重新连接服务") { Task { await model.connect() } } }
-                }.frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                switch page {
-                case .home: homePage
-                case .profiles: profilePage
-                case .logs: ObservedLogConsole(state: model.logState)
-                case .settings: SettingsPage(navigationLocked: $settingsEditing).environmentObject(model)
+        RealityWindow {
+            VStack(spacing: 0) {
+                titleBar
+                if importing {
+                    ImportPane(close: { importing = false }, save: { try await model.importNodes($0) })
+                        .environmentObject(model)
+                } else if let profile = editingProfile {
+                    ProfileEditor(profile: profile, close: { editingProfile = nil }).environmentObject(model)
+                } else if !model.ready && page != .home && !settingsEditing {
+                    ContentUnavailableView {
+                        Label(model.connecting ? "正在连接本地服务" : "本地服务尚未连接", systemImage: "desktopcomputer")
+                    } description: { Text(model.connecting ? "首次启动可能需要几秒钟。" : "连接后即可管理节点。") }
+                    actions: {
+                        if model.connecting { ProgressView().controlSize(.small) }
+                        else { Button("重新连接服务") { Task { await model.connect() } } }
+                    }.frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    switch page {
+                    case .home: homePage
+                    case .profiles: profilePage
+                    case .logs: ObservedLogConsole(state: model.logState)
+                    case .settings: SettingsPage(navigationLocked: $settingsEditing).environmentObject(model)
+                    }
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .scrollIndicators(.never)
+            .background(HiddenScrollbars())
+            .realitySurface(.init(shape: .panel(14), color: NSColor(calibratedWhite: 0.12, alpha: 1), depth: 10, level: -20))
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(alignment: .bottomTrailing) {
+                Group {
+                    if let error = model.error { notice(error, error: true) }
+                    else if let message = model.message { notice(message, error: false) }
+                }.frame(maxWidth: 440).padding(12)
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .scrollIndicators(.never)
-        .background(HiddenScrollbars())
-        .background(DashboardTheme.background)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.primary.opacity(0.32), lineWidth: 1.5)
-                .allowsHitTesting(false)
-        }
-        .overlay(alignment: .bottomTrailing) {
-            Group {
-                if let error = model.error { notice(error, error: true) }
-                else if let message = model.message { notice(message, error: false) }
-            }.frame(maxWidth: 440).padding(12)
-        }
         // Expand the entire clipped surface into the title bar. Expanding only
         // its children leaves the clipping mask below them and hides controls.
         .ignoresSafeArea(.container, edges: .top)
@@ -76,19 +79,7 @@ struct ContentView: View {
             HStack(spacing: 4) {
                 ForEach(Page.allCases) { item in
                     Button { page = item } label: {
-                        Group {
-                            if item == .home { Image(systemName: "house.fill").font(.system(size: 17)) }
-                            else { Text(item.rawValue) }
-                        }
-                            .foregroundStyle(page == item ? DashboardTheme.cyan : DashboardTheme.muted)
-                            .frame(width: 44, height: 29)
-                            .background {
-                                if page == item {
-                                    BottomJoinedTab().fill(DashboardTheme.cyan.opacity(0.12))
-                                        .overlay(BottomJoinedTab().stroke(Color.primary.opacity(0.18), lineWidth: 1))
-                                }
-                            }
-                            .contentShape(Rectangle())
+                        RealityNavigationIcon(symbol: item.symbol, selected: page == item)
                     }.buttonStyle(HoverButtonStyle(plain: true)).disabled(editingContent)
                         .help(item.rawValue)
                         .accessibilityLabel(item.rawValue)
@@ -99,14 +90,15 @@ struct ContentView: View {
             Spacer(minLength: 8)
             ZStack {
                 Toggle("系统代理", isOn: Binding(get: { model.desiredMode == .system }, set: { model.toggleProxy($0) }))
-                    .toggleStyle(.switch).fixedSize().disabled(!model.canToggle(.system) || editingContent || model.proxyNeedsRecovery)
+                    .environment(\.realityContentVisible, !model.proxyNeedsRecovery)
+                    .toggleStyle(RealityToggleStyle()).fixedSize().disabled(!model.canToggle(.system) || editingContent || model.proxyNeedsRecovery)
                     .opacity(model.proxyNeedsRecovery ? 0 : 1).accessibilityHidden(model.proxyNeedsRecovery)
                 if model.proxyNeedsRecovery {
                     Button("恢复代理") { model.recoverProxy() }.disabled(model.busy || model.moduleUpdateActive)
                 }
             }
             Toggle("TUN", isOn: Binding(get: { model.desiredMode == .tun }, set: { model.toggleTun($0) }))
-                .toggleStyle(.switch).fixedSize().disabled(!model.canToggle(.tun) || model.tun == nil || editingContent)
+                .toggleStyle(RealityToggleStyle()).fixedSize().disabled(!model.canToggle(.tun) || model.tun == nil || editingContent)
         }.controlSize(.small).padding(.horizontal, 12).frame(height: 32)
             .overlay {
                 Text("powered by cj")
@@ -116,10 +108,7 @@ struct ContentView: View {
                     .shadow(color: .white.opacity(0.16), radius: 0.4, x: 0, y: 1)
                     .allowsHitTesting(false).accessibilityLabel("powered by cj")
             }
-            .background(alignment: .bottom) {
-                Rectangle().fill(DashboardTheme.line.opacity(0.6)).frame(height: 0.5)
-            }
-            .background(LinearGradient(colors: [DashboardTheme.panel, DashboardTheme.background], startPoint: .top, endPoint: .bottom))
+            .realitySurface(.init(shape: .panel(9), color: NSColor(calibratedWhite: 0.23, alpha: 1), depth: 7, level: 50))
     }
 
     private func notice(_ text: String, error: Bool) -> some View {
@@ -132,9 +121,7 @@ struct ContentView: View {
             Button { if error { model.error = nil } else { model.message = nil } } label: { Image(systemName: "xmark") }
                 .buttonStyle(HoverButtonStyle(plain: true)).help("关闭提示").accessibilityLabel("关闭提示")
         }.padding(12)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(error ? Color.orange.opacity(0.35) : Color.primary.opacity(0.12)))
-            .shadow(color: .black.opacity(0.14), radius: 12, y: 4)
+            .realitySurface(.init(shape: .panel(12), color: NSColor(calibratedWhite: 0.25, alpha: 1), depth: 8, level: 100))
     }
     private var profilePage: some View {
         VStack(spacing: 0) {
@@ -145,34 +132,12 @@ struct ContentView: View {
                 actions: { Button("导入节点") { importing = true } }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                Table(model.profiles, selection: $selectedProfile) {
-                    TableColumn("节点") { item in
-                        HStack(spacing: 8) {
-                            Image(systemName: item.isCurrent ? "checkmark.circle.fill" : "circle")
-                                .foregroundStyle(item.isCurrent ? .green : .secondary)
-                            Text(item.remarks.isEmpty ? item.address : item.remarks)
-                                .lineLimit(1).frame(height: 22).help(item.remarks.isEmpty ? item.address : item.remarks)
-                        }
-                    }.width(304)
-                    TableColumn("协议") { Text($0.protocol.uppercased()).font(AppFont.caption).foregroundStyle(.secondary) }.width(62)
-                    TableColumn("传输") { Text($0.network.isEmpty ? "—" : $0.network).foregroundStyle(.secondary) }.width(64)
-                    TableColumn("TLS") { Text(($0.streamSecurity ?? "").isEmpty ? "—" : ($0.streamSecurity ?? "").uppercased()).foregroundStyle(.secondary) }.width(64)
-                    TableColumn("服务器") { Text(verbatim: "\($0.address):\($0.port)").foregroundStyle(.secondary).lineLimit(1).help("\($0.address):\($0.port)") }.width(170)
-                    TableColumn("延迟") { Text($0.delay > 0 ? "\($0.delay) ms" : "—").monospacedDigit() }.width(75)
-                }
-                .controlSize(.small)
-                .environment(\.defaultMinListRowHeight, 22)
-                .contextMenu(forSelectionType: String.self) { ids in
-                    if let id = ids.first, let item = model.profiles.first(where: { $0.id == id }) {
-                        Button("设为当前节点") { model.select(item) }.disabled((model.busy || model.moduleUpdateActive))
-                        Button("配置节点") { editingProfile = item }.disabled(controlsDisabled)
-                        Button("测试延迟") { model.run { try await $0.perform("/api/profiles/\(item.id)/latency") } }.disabled((model.busy || model.moduleUpdateActive) || !item.canTest)
-                        Divider()
-                        Button("删除节点", role: .destructive) { deletingProfile = item }.disabled((model.busy || model.moduleUpdateActive))
-                    }
-                } primaryAction: { ids in
-                    if let id = ids.first, let item = model.profiles.first(where: { $0.id == id }) { model.select(item) }
-                }
+                RealityProfileTable(profiles: model.profiles, selection: $selectedProfile,
+                    busy: model.busy || model.moduleUpdateActive, controlsDisabled: controlsDisabled,
+                    select: { model.select($0) }, edit: { editingProfile = $0 },
+                    latency: { item in model.run { try await $0.perform("/api/profiles/\(item.id)/latency") } },
+                    delete: { deletingProfile = $0 })
+
             }
             Divider()
             HStack {
@@ -185,10 +150,12 @@ struct ContentView: View {
                 Button("配置节点") { editingProfile = item }
                     .disabled(item == nil || controlsDisabled)
                 Button("设为当前节点") { if let item { model.select(item) } }
+                    .environment(\.realityContentVisible, item != nil)
                     .disabled(item == nil || model.busy || model.moduleUpdateActive)
                     .opacity(item == nil ? 0 : 1)
                     .accessibilityHidden(item == nil)
             }.padding(.horizontal, 12).frame(height: 34)
+                .realitySurface(.init(shape: .panel(0), depth: 4, level: 18))
         }
     }
 
@@ -197,18 +164,4 @@ struct ContentView: View {
             .environmentObject(model)
     }
 
-}
-/// The selected tab opens onto the content below; the outline has no bottom edge.
-private struct BottomJoinedTab: Shape {
-    func path(in rect: CGRect) -> Path {
-        let radius: CGFloat = 8
-        var path = Path()
-        path.move(to: CGPoint(x: rect.minX, y: rect.maxY))
-        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + radius))
-        path.addQuadCurve(to: CGPoint(x: rect.minX + radius, y: rect.minY), control: CGPoint(x: rect.minX, y: rect.minY))
-        path.addLine(to: CGPoint(x: rect.maxX - radius, y: rect.minY))
-        path.addQuadCurve(to: CGPoint(x: rect.maxX, y: rect.minY + radius), control: CGPoint(x: rect.maxX, y: rect.minY))
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
-        return path
-    }
 }

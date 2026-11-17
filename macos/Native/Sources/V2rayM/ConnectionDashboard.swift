@@ -68,8 +68,7 @@ struct ConnectionDashboard: View {
             Text(title).foregroundStyle(DashboardTheme.muted)
             Text(value).foregroundStyle(.primary)
         }.font(AppFont.caption).padding(.horizontal, 10).padding(.vertical, 6)
-            .background(DashboardTheme.panel, in: RoundedRectangle(cornerRadius: 7))
-            .modifier(DashboardRelief(radius: 7))
+            .realitySurface(.init(shape: .panel(7), depth: 3, level: 15))
     }
     private func activityRing(diameter: CGFloat) -> some View {
         let peaks = trend.peaks(at: now)
@@ -98,12 +97,13 @@ struct ConnectionDashboard: View {
                     Text(connecting && state == .offline ? "正在连接本地服务" : state.title)
                         .font(AppFont.size(12)).foregroundStyle(statusColor).lineLimit(1)
                     Button("重新连接服务", action: reconnect).font(AppFont.caption)
+                        .environment(\.realityContentVisible, state == .offline && !connecting)
                         .disabled(state != .offline || connecting)
                         .opacity(state == .offline && !connecting ? 1 : 0)
                         .accessibilityHidden(state != .offline || connecting)
                 }.padding(.horizontal, 18)
             }.frame(width: max(0, diameter - Self.discInset * 2), height: max(0, diameter - Self.discInset * 2))
-                .modifier(DashboardActivationFlip(active: coreRunning, kind: .disc))
+                .modifier(DashboardActivationFlip(active: coreRunning, kind: .disc, highlighted: discHovered))
         }.frame(width: diameter, height: diameter)
             .contentShape(Circle())
             .onContinuousHover { phase in
@@ -134,17 +134,16 @@ struct ConnectionDashboard: View {
 /// Hover changes only the surface, preserving ring geometry and hit testing.
 struct DashboardDiscSurface: View {
     let hovered: Bool
+    @Environment(\.insideRealitySolid) private var inside
     var body: some View {
-        ZStack {
-            Circle().fill(Color(white: 0.165))
-            Circle().fill(Color.primary.opacity(hovered ? 0.13 : 0))
-            Circle().strokeBorder(
-                LinearGradient(colors: [DashboardTheme.cyan, DashboardTheme.purple],
-                               startPoint: .topLeading, endPoint: .bottomTrailing)
-                    .opacity(hovered ? 0.85 : 0), lineWidth: 2)
-                .shadow(color: DashboardTheme.cyan.opacity(hovered ? 0.32 : 0), radius: 14)
+        Color.clear.background {
+            if !inside {
+                RealitySurface(style: .init(shape: .disc, color: NSColor(calibratedWhite: 0.23, alpha: 1),
+                                            depth: 10, level: 20, highlighted: hovered))
+            }
         }
     }
+
 }
 
 struct TrafficTrendView: View {

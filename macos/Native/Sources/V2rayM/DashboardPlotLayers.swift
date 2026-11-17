@@ -50,67 +50,30 @@ import V2rayMKit
     deinit { observations.forEach { NotificationCenter.default.removeObserver($0) } }
 }
 
-struct DashboardRing: NSViewRepresentable {
+struct DashboardRing: View {
     let fraction: Double
     let color: Color
     let animate: Bool
-    func makeNSView(context: Context) -> RingLayerView { RingLayerView() }
-    func updateNSView(_ view: RingLayerView, context: Context) {
-        view.update(fraction: fraction, color: NSColor(color).cgColor, animate: animate)
+    var body: some View {
+        Color.clear
+            .background { RealitySurface(style: .init(shape: .ring(1), color: NSColor(calibratedWhite: 0.22, alpha: 1), depth: 5, level: 16)) }
+            .background { RealityRingArc(fraction: fraction, color: color)
+                .animation(animate ? .easeInOut(duration: 1.2) : nil, value: fraction) }
     }
 }
 
-@MainActor final class RingLayerView: DashboardLayerView {
-    let track = CAShapeLayer(), arc = CAShapeLayer()
-    private var pathSize = CGSize(width: -1, height: -1)
-    private var target: Double?
-    private(set) var pathBuilds = 0
-    override init(frame: NSRect = .zero) {
-        super.init(frame: frame)
-        for shape in [track, arc] {
-            shape.fillColor = nil; shape.lineWidth = 5; shape.lineCap = .round
-            shape.contentsScale = 2
-            layer?.addSublayer(shape)
-        }
-        track.strokeColor = NSColor.white.withAlphaComponent(0.08).cgColor
-        arc.strokeEnd = 0
+private struct RealityRingArc: View, Animatable {
+    var fraction: Double
+    let color: Color
+    var animatableData: Double {
+        get { fraction }
+        set { fraction = newValue }
     }
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-    override func layout() {
-        super.layout()
-        guard pathSize != bounds.size else { return }
-        pathSize = bounds.size; pathBuilds += 1
-        let path = CGMutablePath()
-        path.addArc(center: CGPoint(x: bounds.midX, y: bounds.midY), radius: max(0, min(bounds.width, bounds.height) / 2),
-                    startAngle: .pi / 2, endAngle: .pi * 2.5, clockwise: false)
-        withoutActions { track.path = path; arc.path = path }
-    }
-    func update(fraction: Double, color: CGColor, animate: Bool) {
-        guard !frozen else { return }
-        let value = min(1, max(0, fraction))
-        withoutActions { if arc.strokeColor != color { arc.strokeColor = color } }
-        guard target != value || (!animate && arc.animation(forKey: "endpoint") != nil) else { return }
-        let from = arc.presentation()?.strokeEnd ?? arc.strokeEnd
-        let hadTarget = target != nil
-        target = value
-        withoutActions { arc.removeAnimation(forKey: "endpoint"); arc.strokeEnd = value }
-        if animate, hadTarget, abs(from - value) > 0.00001 {
-            let animation = CABasicAnimation(keyPath: "strokeEnd")
-            animation.fromValue = from; animation.toValue = value; animation.duration = 1.2
-            animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            arc.add(animation, forKey: "endpoint")
-        }
-    }
-    override func freeze() {
-        guard !frozen else { return }
-        let current = arc.presentation()?.strokeEnd ?? arc.strokeEnd
-        withoutActions { arc.removeAllAnimations(); arc.strokeEnd = current }
-        target = current
-        super.freeze()
+    var body: some View {
+        RealitySurface(style: .init(shape: .ring(fraction), color: NSColor(color), depth: 5, level: 20))
     }
 }
 
-/// One identity per data publication, outside the display-link subtree.
 final class TrendLayerInput {
     let samples: [TrafficTrendSample]
     init(_ samples: [TrafficTrendSample]) { self.samples = samples }
@@ -227,13 +190,17 @@ struct TrendFrameConfiguration {
 }
 
 struct DashboardTrendPlot: NSViewRepresentable {
+    @Environment(\.realityScene) private var scene
     let configuration: TrendFrameConfiguration
     func makeNSView(context: Context) -> TrendLayerView { TrendLayerView() }
-    func updateNSView(_ view: TrendLayerView, context: Context) { view.configure(configuration) }
+    func updateNSView(_ view: TrendLayerView, context: Context) { view.setScene(scene); view.configure(configuration) }
     static func dismantleNSView(_ view: TrendLayerView, coordinator: ()) { view.freeze() }
 }
 
 @MainActor final class TrendLayerView: DashboardLayerView {
+    private let realityAnchor = RealitySurfaceAnchor()
+    private let realityPlot = RealityPlotModel()
+    private weak var sceneOwner: RealityWindowScene?
     private let grid = CAShapeLayer(), baseline = CAShapeLayer(), clip = CALayer()
     let clock = DashboardDisplayClock()
     private var configuration: TrendFrameConfiguration?
@@ -250,8 +217,16 @@ struct DashboardTrendPlot: NSViewRepresentable {
         clip.masksToBounds = true; layer?.addSublayer(clip)
         clip.addSublayer(old.root); clip.addSublayer(current.root)
         clock.onFrame = { [weak self] in self?.renderFrame(at: $0) }
+        addSubview(realityAnchor)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    func setScene(_ scene: RealityWindowScene?) {
+        sceneOwner = scene
+        grid.isHidden = scene != nil; baseline.isHidden = scene != nil; clip.isHidden = scene != nil
+        realityAnchor.frame = bounds
+        realityAnchor.configure(scene: scene, style: .init(shape: .panel(0), color: NSColor(calibratedWhite: 0.12, alpha: 1), depth: 0.1, level: 5))
+        scene?.attachDrawing(realityPlot.entity, to: realityAnchor.surfaceID)
+    }
     func configure(_ configuration: TrendFrameConfiguration) {
         self.configuration = configuration
         guard !frozen else { return }
@@ -298,6 +273,8 @@ struct DashboardTrendPlot: NSViewRepresentable {
             }
             current.resize(bounds.size); old.resize(bounds.size)
         }
+        setScene(sceneOwner)
+        updateRealityPlot()
     }
     func update(input: TrendLayerInput, date: Date, ceiling: Double, reveal: Double, opacity: Double,
                 retired: TrendLayerInput? = nil, retirement: TrafficTrendRetirement? = nil) {
@@ -309,6 +286,24 @@ struct DashboardTrendPlot: NSViewRepresentable {
                            reveal: 1, opacity: 1 - opacity, size: bounds.size)
             } else { old.clear() }
         }
+        updateRealityPlot()
+    }
+    private func updateRealityPlot() {
+        guard sceneOwner != nil else { return }
+        var strokes: [RealityPlotStroke] = []
+        for shape in [grid,baseline] {
+            if let path = shape.path, let color = shape.strokeColor { strokes.append(.init(path: path, color: color, width: shape.lineWidth)) }
+        }
+        for group in [old,current] where !group.root.isHidden && group.root.opacity > 0 {
+            for case let shape as CAShapeLayer in group.root.sublayers ?? [] {
+                if let path = shape.path, let color = shape.strokeColor ?? shape.fillColor {
+                    strokes.append(.init(path: path, color: color, width: shape.strokeColor == nil ? 1.2 : shape.lineWidth,
+                                         offset: group.root.position.x, opacity: group.root.opacity))
+                }
+            }
+        }
+        realityPlot.update(strokes, size: bounds.size)
+        sceneOwner?.attachDrawing(realityPlot.entity, to: realityAnchor.surfaceID)
     }
 }
 

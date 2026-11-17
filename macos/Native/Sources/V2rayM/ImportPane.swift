@@ -21,7 +21,7 @@ struct ImportPane: View {
             Text("粘贴分享链接或兼容的配置内容，可一次导入多个节点。").foregroundStyle(.secondary)
             TextEditor(text: $draft.content).font(AppFont.body).scrollIndicators(.never).scrollContentBackground(.hidden)
                 .padding(10).frame(maxHeight: .infinity)
-                .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 10))
+                .realitySurface(.init(shape: .panel(10), depth: 3, level: 14))
                 .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(DashboardTheme.line))
                 .accessibilityLabel("节点分享链接或配置").disabled(draft.saving)
             HStack {

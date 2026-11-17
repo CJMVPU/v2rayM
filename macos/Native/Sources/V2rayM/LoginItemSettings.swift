@@ -59,10 +59,11 @@ struct LoginItemStatusRow: View {
             }
             Spacer()
             Button("打开登录项设置", action: openSettings)
+                .environment(\.realityContentVisible, requiresApproval)
                 .disabled(!requiresApproval).opacity(requiresApproval ? 1 : 0)
                 .accessibilityHidden(!requiresApproval)
             Toggle("开机启动", isOn: $registered)
-                .labelsHidden().toggleStyle(.switch).disabled(updating || !bundled)
+                .labelsHidden().toggleStyle(RealityToggleStyle(showsLabel: false)).disabled(updating || !bundled)
         }
     }
 }

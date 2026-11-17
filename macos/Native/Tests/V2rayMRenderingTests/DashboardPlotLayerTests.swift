@@ -127,28 +127,6 @@ import SwiftUI
             XCTAssertEqual(end.y, 97 - input.samples.last!.upload / ceiling * 94, accuracy: 0.00001)
         }
     }
-    func testRingRetainsFullPathAndFreezesPresentationUntilThaw() {
-        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 300, height: 300), styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        let view = RingLayerView(frame: window.contentLayoutRect)
-        window.contentView = view; view.layout()
-        defer { window.close() }
-        let path = view.arc.path
-        view.update(fraction: 0.2, color: NSColor.cyan.cgColor, animate: false)
-        view.update(fraction: 0.8, color: NSColor.cyan.cgColor, animate: true)
-        XCTAssertNotNil(view.arc.animation(forKey: "endpoint"))
-        NotificationCenter.default.post(name: .dashboardWillFreeze, object: window)
-        let frozen = view.arc.strokeEnd
-        XCTAssertNil(view.arc.animation(forKey: "endpoint"))
-        view.update(fraction: 1, color: NSColor.cyan.cgColor, animate: true)
-        XCTAssertEqual(view.arc.strokeEnd, frozen)
-        NotificationCenter.default.post(name: .dashboardDidThaw, object: window)
-        view.update(fraction: 0.4, color: NSColor.cyan.cgColor, animate: true)
-        XCTAssertNotNil(view.arc.animation(forKey: "endpoint"))
-        XCTAssertEqual(view.arc.path, path)
-        XCTAssertEqual(view.pathBuilds, 1)
-    }
-
     /// Opt-in CPU microbenchmark. Includes layer-property updates, but does not
     /// measure GPU execution, WindowServer composition or actual display FPS.
     func testGeometryCPUComparison() throws {

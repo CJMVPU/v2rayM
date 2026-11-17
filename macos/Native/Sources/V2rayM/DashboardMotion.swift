@@ -1,101 +1,78 @@
 import SwiftUI
 
-/// A consistent material: the fill remains neutral; the lower edge and shadow
-/// provide depth without tinting the card when animation is idle.
-struct DashboardRelief: ViewModifier {
-    var radius: CGFloat = 10
-    func body(content: Content) -> some View {
-        content.overlay {
-            RoundedRectangle(cornerRadius: radius).strokeBorder(
-                LinearGradient(colors: [.white.opacity(0.12), .black.opacity(0.32)],
-                               startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 0.7)
-                .allowsHitTesting(false)
-        }
-        .shadow(color: .black.opacity(0.28), radius: 1, y: 2)
-        .shadow(color: .black.opacity(0.25), radius: 5, y: 4)
-    }
-}
-
 enum DashboardSolidKind {
     case disc, card
-    var shape: AnyShape {
-        self == .disc ? AnyShape(Circle()) : AnyShape(RoundedRectangle(cornerRadius: 10))
-    }
     var depth: CGFloat { self == .disc ? 10 : 7 }
 }
 
-/// Layered cross-sections give the turn an actual visible side. Only the facing
-/// face is drawn; its back text is counter-mirrored, so there is no edge-on jump.
+/// Native semantic faces follow an orthographic RealityKit solid. The entity
+/// owns thickness and lighting; the faces keep selectable, accessible content.
 struct DashboardSolidSurface<Front: View, Back: View>: View, Animatable {
     var angle: Double
     let kind: DashboardSolidKind
     var animates = true
+    var highlighted = false
     let front: Front
     let back: Back
-    // A cancelled task does not necessarily retire SwiftUI's in-flight
-    // interpolation. Gate its vector and rendered geometry as well, so the
-    // frozen surface cannot keep building side/back planes during departure.
+    @State private var surfaceID = UUID()
     var animatableData: Double {
         get { animates ? angle : 0 }
         set { angle = animates ? newValue : 0 }
     }
     private var renderedAngle: Double { animates ? angle : 0 }
     private var frontFacing: Bool { cos(renderedAngle * .pi / 180) >= 0 }
-    private var activity: Double { abs(sin(renderedAngle * .pi / 180)) }
-    private func plane<V: View>(_ view: V, depth: CGFloat) -> some View {
-        view.rotation3DEffect(.degrees(renderedAngle), axis: (x: 0, y: 1, z: 0),
-                              anchorZ: depth, perspective: 0.7)
-    }
     var body: some View {
-        // The sole front face owns layout and identity. Background geometry
-        // supplies thickness without creating a hidden second content tree.
-        plane(front.clipShape(kind.shape).overlay { if activity > 0.0001 { light } }
-            .opacity(frontFacing ? 1 : 0), depth: -kind.depth / 2)
+        front
+            .environment(\.insideRealitySolid, true)
+            .environment(\.realityParentSurface, surfaceID)
+            .opacity(frontFacing ? 1 : 0)
+            .rotation3DEffect(.degrees(renderedAngle), axis: (x: 0, y: 1, z: 0), perspective: 0)
             .allowsHitTesting(frontFacing)
-            .background {
-                if activity > 0.0001 || !frontFacing {
-                    GeometryReader { geometry in
-                        ZStack {
-                            if activity > 0.0001 {
-                                ForEach(0..<9) { index in
-                                    plane(kind.shape.fill(LinearGradient(colors: [Color(white: 0.34), Color(white: 0.11)],
-                                        startPoint: .topLeading, endPoint: .bottomTrailing)),
-                                          depth: kind.depth * (CGFloat(index) / 8 - 0.5))
-                                        .opacity(min(1, activity * 8))
-                                }
-                            }
-                            if !frontFacing {
-                                plane(back.clipShape(kind.shape).overlay(light)
-                                    .scaleEffect(x: -1, y: 1), depth: kind.depth / 2)
-                            }
-                        }.frame(width: geometry.size.width, height: geometry.size.height)
-                    }.accessibilityHidden(true).allowsHitTesting(false)
+            .overlay {
+                if !frontFacing {
+                    back.environment(\.insideRealitySolid, true)
+                        .rotation3DEffect(.degrees(renderedAngle - 180), axis: (x: 0, y: 1, z: 0), perspective: 0)
+                        .allowsHitTesting(false).accessibilityHidden(true)
                 }
             }
-        .rotation3DEffect(.degrees(activity * -9), axis: (x: 1, y: 0, z: 0), perspective: 0.3)
-        .scaleEffect(1 + activity * 0.018)
-        .shadow(color: .black.opacity(0.25 + activity * 0.12), radius: 5 + activity * 3,
-                x: activity * 2, y: 4 + activity * 3)
+            .background {
+                RealitySurface(style: .init(shape: kind == .disc ? .disc : .panel(10),
+                    depth: Float(kind.depth), level: 20, highlighted: highlighted, angle: renderedAngle), id: surfaceID)
+            }
     }
-    private var light: some View {
-        kind.shape.fill(LinearGradient(colors: [.white.opacity(activity * 0.16), .clear, .black.opacity(activity * 0.30)],
-                                        startPoint: .topLeading, endPoint: .bottomTrailing))
-            .allowsHitTesting(false)
+}
+
+private struct InsideRealitySolidKey: EnvironmentKey { static let defaultValue = false }
+extension EnvironmentValues {
+    var insideRealitySolid: Bool {
+        get { self[InsideRealitySolidKey.self] }
+        set { self[InsideRealitySolidKey.self] = newValue }
+    }
+}
+
+struct RealityPanelModifier: ViewModifier {
+    @Environment(\.insideRealitySolid) private var inside
+    var radius: CGFloat = 10
+    func body(content: Content) -> some View {
+        content.background {
+            if !inside { RealitySurface(style: .init(shape: .panel(radius))) }
+        }
     }
 }
 
 struct DashboardActivationFlip: ViewModifier {
     let active: Bool
     var kind: DashboardSolidKind = .card
+    var highlighted = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dashboardFlipsEnabled) private var flipsEnabled
     @State private var angle = 0.0
     @State private var tilt = 0.0
     @State private var worker: Task<Void, Never>?
     func body(content: Content) -> some View {
-        DashboardSolidSurface(angle: angle, kind: kind, animates: flipsEnabled && !reduceMotion, front: content,
+        DashboardSolidSurface(angle: angle, kind: kind, animates: flipsEnabled && !reduceMotion, highlighted: highlighted, front: content,
             back: ZStack {
-                kind.shape.fill(DashboardTheme.panel)
+                Color.clear
                 VStack(spacing: 8) {
                     Text("v2rayM").font(AppFont.size(kind == .disc ? 23 : 18))
                     Text("Xray").font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
@@ -259,7 +236,7 @@ struct DashboardDataCard<Value: Equatable, Content: View>: View {
         DashboardSolidSurface(angle: reduced ? 0 : presentation.angle, kind: .card, animates: flipsEnabled && !reduced,
             front: content(presentation.displayed, presentation.presentedActive),
             back: ZStack {
-                RoundedRectangle(cornerRadius: 10).fill(DashboardTheme.panel)
+                Color.clear
                 VStack(spacing: 8) {
                     Text("v2rayM").font(AppFont.size(18))
                     Text("Xray").font(AppFont.caption).foregroundStyle(DashboardTheme.muted)

@@ -72,7 +72,7 @@ struct ProfileEditor: View {
                             Text("传输扩展（JSON，包括 XHTTP 模式、路径、Host 和 extra）").foregroundStyle(.secondary)
                             TextEditor(text: binding("transportExtra")).scrollIndicators(.never).frame(height: 145)
                         }
-                    }.textFieldStyle(.roundedBorder).padding(2)
+                    }.textFieldStyle(RealityTextFieldStyle()).padding(2)
                 }.scrollIndicators(.never).disabled(saving)
             } else {
                 Spacer()

@@ -1,7 +1,7 @@
 # v2rayM repository instructions
 
 Read `docs/upstream-merge-policy.md` before importing upstream changes. The latest
-explicit user decision is **macOS SwiftUI + Xray only**, including native Xray TUN.
+explicit user decision is **native macOS (SwiftUI/AppKit host + RealityKit visual scene) + Xray only**, including native Xray TUN.
 Older documents describing multi-core support are historical, not requirements.
 
 ## Product boundaries
@@ -18,9 +18,11 @@ Older documents describing multi-core support are historical, not requirements.
   another VPN/TUN owns the network; use offline/loopback validation first.
 
 ## Native experience
+- RealityKit owns the shared visual scene across the whole window, including custom title-bar controls, panels, dashboard solids, rings, plots and recent connections. SwiftUI/AppKit retain native window management, text, input, focus, accessibility and actions. Preserve this split when importing UI changes.
 - Fixed compact window; LXGWWenKaiMono Medium; dark appearance only; no sidebar or subscription page.
 - Reuse the main window content for settings, node editing and import; do not add
   separate editor windows or sheets. Preserve unsaved-edit confirmation on return.
+- Title-bar navigation uses volumetric RealityKit assets (house, nodes, log book, gear), with no icon background plates or outlines. Hover and newly selected pages flip once, respecting disabled state, Reduce Motion and window suspension.
 - Home defaults to a house icon. Navigation and mutually exclusive system proxy and TUN controls stay in the
   title bar; node import stays on the Nodes page. No separate connect button.
 - All buttons have disabled-aware hover feedback without layout shifts.

@@ -119,7 +119,7 @@ private struct DashboardContent: View, Equatable {
                 }
 
             }
-        }.background(DashboardTheme.background)
+        }
             .task(id: node?.id) {
                 alpn = ""
                 guard let node else { return }
@@ -267,7 +267,6 @@ struct RecentConnectionRow: View {
 
 private extension View {
     func dashboardPanel() -> some View {
-        background(DashboardTheme.panel, in: RoundedRectangle(cornerRadius: 10))
-            .modifier(DashboardRelief())
+        modifier(RealityPanelModifier())
     }
 }

@@ -20,8 +20,7 @@ struct SettingsCard<Content: View>: View {
             content
         }
         .padding(14).frame(maxWidth: .infinity, maxHeight: fillHeight ? .infinity : nil, alignment: .topLeading)
-        .background(DashboardTheme.panel, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(DashboardTheme.line.opacity(0.55)))
+        .realitySurface(.init(shape: .panel(12), depth: 6, level: 10))
     }
 }
 

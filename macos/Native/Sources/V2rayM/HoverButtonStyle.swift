@@ -17,8 +17,8 @@ struct HoverButtonStyle: ButtonStyle {
                 .padding(.vertical, plain ? 0 : 2)
                 .background {
                     if !plain {
-                        RoundedRectangle(cornerRadius: 5)
-                            .fill(Color.primary.opacity(enabled && hovering ? 0.22 : 0.13))
+                        RealitySurface(style: .init(shape: .panel(5), depth: 3, level: 75,
+                            highlighted: hovering || configuration.isPressed, enabled: enabled))
                     }
                 }
                 .brightness(enabled && hovering ? 0.13 : 0)

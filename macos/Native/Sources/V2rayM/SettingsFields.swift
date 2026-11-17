@@ -16,17 +16,17 @@ extension SettingsFields {
             Text(title)
             Spacer(minLength: 12)
             Toggle(title, isOn: Binding(get: { binding.wrappedValue.flag }, set: { binding.wrappedValue = .bool($0) }))
-                .labelsHidden().toggleStyle(.switch).controlSize(.small)
+                .labelsHidden().toggleStyle(RealityToggleStyle(showsLabel: false)).controlSize(.small)
         }.frame(minHeight: 24)
     }
     func field(_ title: String, _ root: Binding<SettingsValue>, _ key: String) -> some View {
-        SettingsFieldRow(title: title) { TextField("", text: text(root, key)).textFieldStyle(.roundedBorder).accessibilityLabel(title) }
+        SettingsFieldRow(title: title) { TextField("", text: text(root, key)).textFieldStyle(RealityTextFieldStyle()).accessibilityLabel(title) }
     }
     func number(_ title: String, _ root: Binding<SettingsValue>, _ key: String, range: ClosedRange<Int>) -> some View {
         let binding = value(root, key)
         return SettingsFieldRow(title: title) {
             TextField("", value: Binding<Int>(get: { Int(binding.wrappedValue.text) ?? 0 }, set: { binding.wrappedValue = .number(Double(min(range.upperBound, max(range.lowerBound, $0)))) }), format: .number.grouping(.never))
-                .textFieldStyle(.roundedBorder).frame(width: 110).accessibilityLabel(title)
+                .textFieldStyle(RealityTextFieldStyle()).frame(width: 110).accessibilityLabel(title)
             Spacer()
         }
     }
@@ -48,8 +48,7 @@ extension SettingsFields {
             Text(title).foregroundStyle(.secondary)
             TextEditor(text: content).font(AppFont.caption).scrollIndicators(.never)
                 .scrollContentBackground(.hidden).padding(6).frame(height: 96)
-                .background(Color.black.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
-                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.secondary.opacity(0.25)))
+                .realitySurface(.init(shape: .panel(6), color: NSColor(calibratedWhite: 0.13, alpha: 1), depth: 2, level: 18))
                 .accessibilityLabel(title)
         }
     }

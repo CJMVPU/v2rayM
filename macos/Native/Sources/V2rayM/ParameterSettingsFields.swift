@@ -23,7 +23,7 @@ struct ParameterSettingsFields: SettingsFields {
                     toggle("局域网使用独立端口", inbound, "newPort4LAN").disabled(!inbound.wrappedValue["allowLANConn"].flag)
                     let lanAuth = inbound.wrappedValue["allowLANConn"].flag && inbound.wrappedValue["newPort4LAN"].flag
                     field("局域网用户名", inbound, "user").disabled(!lanAuth)
-                    SettingsFieldRow(title: "局域网密码") { SecureField("", text: text(inbound, "pass")).textFieldStyle(.roundedBorder).accessibilityLabel("局域网密码") }.disabled(!lanAuth)
+                    SettingsFieldRow(title: "局域网密码") { SecureField("", text: text(inbound, "pass")).textFieldStyle(RealityTextFieldStyle()).accessibilityLabel("局域网密码") }.disabled(!lanAuth)
                     Text("用户名与密码仅用于独立局域网端口，需同时填写。").font(AppFont.caption).foregroundStyle(.secondary)
                     Divider()
                     toggle("启用流量嗅探", inbound, "sniffingEnabled")
@@ -90,7 +90,7 @@ struct ParameterSettingsFields: SettingsFields {
                     SettingsFieldRow(title: "自定义 MTU") {
                         TextField("1280–65535", value: Binding<Int>(get: { Int(tunSettings["mtu"].text) ?? 1500 },
                             set: { tunSettings["mtu"] = .number(Double($0)); dirty = true }), format: .number.grouping(.never))
-                            .textFieldStyle(.roundedBorder).frame(width: 110).accessibilityLabel("自定义 MTU")
+                            .textFieldStyle(RealityTextFieldStyle()).frame(width: 110).accessibilityLabel("自定义 MTU")
                         Text("有效范围 1280–65535").font(AppFont.caption).foregroundStyle(.secondary)
                         Spacer(minLength: 0)
                     }

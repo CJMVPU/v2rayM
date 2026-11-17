@@ -113,6 +113,8 @@ fileprivate struct RowBitmapKey: Equatable {
 }
 
 struct CachedRecentRow: NSViewRepresentable {
+    @Environment(\.realityScene) private var scene
+    @Environment(\.realityParentSurface) private var parent
     let face: RecentRowFace
     let slot: Int
     let scheduler: RecentRowFlipScheduler
@@ -121,24 +123,28 @@ struct CachedRecentRow: NSViewRepresentable {
     let reduced: Bool
     func makeNSView(context: Context) -> CachedRecentRowView { CachedRecentRowView(slot: slot, scheduler: scheduler) }
     func updateNSView(_ view: CachedRecentRowView, context: Context) {
+        view.setScene(scene, parent: parent)
         view.update(face, motion: motion, flips: flips, reduced: reduced)
     }
     static func dismantleNSView(_ view: CachedRecentRowView, coordinator: ()) { view.stop() }
 }
 
+/// The existing bounded scheduler now drives RealityKit entities and cached
+/// face textures. No CATransformLayer or Core Animation face stack is rendered.
 @MainActor final class CachedRecentRowView: DashboardLayerView {
     private typealias CacheKey = RowBitmapKey
     let slot: Int
     private weak var scheduler: RecentRowFlipScheduler?
-    private let flat = CALayer(), scene = CALayer(), solid = CATransformLayer()
-    private let front = CALayer(), back = CALayer(), top = CALayer(), bottom = CALayer()
+    private let surface = RealitySurfaceAnchor()
+    private weak var sceneOwner: RealityWindowScene?
+    private var parentID: UUID?
     private var cache: [(CacheKey, CGImage)] = []
     private var latest: RecentRowFace?
     private(set) var displayed: RecentRowFace?
-    private var incoming: RecentRowFace?
+    private(set) var preparedFace: RecentRowFace?
     private var motion = false, flips = false, reduced = false
     private var needsRecovery = false
-    private var completion: RowFlipCompletion?
+    private var worker: Task<Void, Never>?
     private var token = 0
     private var lastSize = CGSize.zero
     private var lastScale: CGFloat = 0
@@ -151,44 +157,24 @@ struct CachedRecentRow: NSViewRepresentable {
     init(slot: Int, scheduler: RecentRowFlipScheduler) {
         self.slot = slot; self.scheduler = scheduler
         super.init(frame: .zero)
-        layer?.addSublayer(flat); layer?.addSublayer(scene); scene.addSublayer(solid)
-        for face in [front, back, top, bottom] {
-            face.isDoubleSided = false; solid.addSublayer(face)
-        }
-        scene.isHidden = true
-        top.backgroundColor = NSColor(white: 0.29, alpha: 1).cgColor
-        bottom.backgroundColor = NSColor(white: 0.12, alpha: 1).cgColor
-        // Static, explicit shadow outline. No per-frame blur/lighting rebuild.
-        scene.shadowColor = NSColor.black.cgColor; scene.shadowOpacity = 0.18
-        scene.shadowRadius = 1.5; scene.shadowOffset = CGSize(width: 0, height: 1)
+        addSubview(surface)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) unavailable") }
+    func setScene(_ scene: RealityWindowScene?, parent: UUID? = nil) {
+        sceneOwner = scene; parentID = parent; synchronizeSurface()
+    }
+    private func synchronizeSurface() {
+        surface.frame = bounds
+        surface.configure(scene: sceneOwner, style: .init(shape: .panel(5),
+            color: NSColor(calibratedWhite: 0.17, alpha: 1), depth: 1.4, level: 30, parentID: parentID))
+        if !turning, let displayed, let bitmap = image(displayed) { surface.textureImage = bitmap }
+    }
     override func layout() {
         super.layout()
         let scale = window?.backingScaleFactor ?? 2
         guard bounds.size != lastSize || scale != lastScale else { return }
-        lastSize = bounds.size; lastScale = scale
-        cache.removeAll()
-        withoutActions {
-            flat.frame = bounds; scene.frame = bounds
-            var perspective = CATransform3DIdentity; perspective.m34 = -1 / 600
-            scene.sublayerTransform = perspective
-            solid.position = CGPoint(x: bounds.midX, y: bounds.midY)
-            solid.bounds = CGRect(origin: .zero, size: bounds.size)
-            for face in [front, back] {
-                face.bounds = bounds; face.position = CGPoint(x: bounds.midX, y: bounds.midY); face.contentsScale = scale
-            }
-            front.transform = CATransform3DMakeTranslation(0, 0, 0.7)
-            back.transform = CATransform3DRotate(CATransform3DMakeTranslation(0, 0, -0.7), .pi, 1, 0, 0)
-            for (edge, y, angle) in [(top, CGFloat(0), -CGFloat.pi / 2), (bottom, bounds.height, CGFloat.pi / 2)] {
-                edge.bounds = CGRect(x: 0, y: 0, width: max(0, bounds.width - 8), height: 1.4)
-                edge.position = CGPoint(x: bounds.midX, y: y)
-                edge.transform = CATransform3DMakeRotation(angle, 1, 0, 0)
-            }
-            scene.shadowPath = CGPath(roundedRect: bounds, cornerWidth: 5, cornerHeight: 5, transform: nil)
-            if let displayed { flat.contents = image(displayed); front.contents = flat.contents }
-            if let incoming { back.contents = image(incoming) }
-        }
+        lastSize = bounds.size; lastScale = scale; cache.removeAll()
+        synchronizeSurface()
     }
     override func viewDidChangeBackingProperties() { super.viewDidChangeBackingProperties(); needsLayout = true }
     func update(_ face: RecentRowFace, motion: Bool, flips: Bool, reduced: Bool) {
@@ -198,98 +184,59 @@ struct CachedRecentRow: NSViewRepresentable {
         if reduced { stopAnimation(); showLatest(animated: false); return }
         guard motion else { freeze(); return }
         if needsRecovery {
-            needsRecovery = false
-            showLatest(animated: true)
+            needsRecovery = false; showLatest(animated: true)
         } else if !turning && !recovering {
             if flips { scheduler?.enqueue(self) }
             else { showLatest(animated: displayed != latest) }
         }
     }
     func startFlip(duration: Double) {
-        guard canFlip, let displayed, let latest else { scheduler?.cancel(self); return }
-        turning = true; incoming = latest; token += 1
+        guard canFlip, let latest else { scheduler?.cancel(self); return }
+        turning = true; preparedFace = latest; token += 1
         let ticket = token
-        let animation = CABasicAnimation(keyPath: "transform.rotation.x")
-        animation.fromValue = 0; animation.toValue = Double.pi; animation.duration = duration
-        animation.timingFunction = CAMediaTimingFunction(controlPoints: 0.28, 0, 0.24, 1)
-        let delegate = RowFlipCompletion { [weak self] in
+        let nextImage = image(latest)
+        sceneOwner?.turn(surface.surfaceID, degrees: 90, duration: duration / 2)
+        worker = Task { @MainActor [weak self] in
+            do { try await Task.sleep(for: .seconds(duration / 2)) } catch { return }
             guard let self, self.token == ticket, !self.frozen else { return }
-            self.turning = false; self.displayed = self.incoming
-            self.withoutActions {
-                self.flat.contents = self.back.contents
-                self.flat.opacity = 1; self.scene.isHidden = true; self.scene.opacity = 0
-                self.solid.transform = CATransform3DIdentity
-                self.front.contents = nil; self.back.contents = nil
-            }
-            self.incoming = nil; self.completion = nil
-            self.scheduler?.finished(self)
-            // A newer arrival waits as one coalesced value for the next turn.
-            // Prepare its hidden back for that turn; never replace visible text afterward.
-            self.scheduler?.enqueue(self)
-        }
-        completion = delegate; animation.delegate = delegate
-        // Prepare the back while it is hidden. Commit the old visible front and
-        // animation atomically so no new content flashes before rotation begins.
-        let previousImage = image(displayed), nextImage = image(latest)
-        withoutActions {
-            front.contents = previousImage; back.contents = nextImage
-            flat.opacity = 0; scene.opacity = 1; scene.isHidden = false
-            solid.transform = CATransform3DMakeRotation(.pi, 1, 0, 0)
-            solid.add(animation, forKey: "row-turn")
+            if let nextImage { self.surface.textureImage = nextImage }
+            self.sceneOwner?.turn(self.surface.surfaceID, degrees: -90, duration: 0)
+            self.sceneOwner?.turn(self.surface.surfaceID, degrees: 0, duration: duration / 2)
+            do { try await Task.sleep(for: .seconds(duration / 2)) } catch { return }
+            guard self.token == ticket, !self.frozen else { return }
+            self.displayed = self.preparedFace; self.preparedFace = nil; self.turning = false; self.worker = nil
+            self.scheduler?.finished(self); self.scheduler?.enqueue(self)
         }
     }
     private func showLatest(animated: Bool) {
         guard let latest else { return }
-        token += 1; let ticket = token
-        let wasTurningSurface = !scene.isHidden
-        let oldImage = flat.contents
-        withoutActions {
-            solid.removeAllAnimations(); flat.removeAllAnimations(); scene.removeAllAnimations()
-            flat.contents = image(latest); flat.opacity = 1
-            if !animated { scene.isHidden = true; scene.opacity = 0; solid.transform = CATransform3DIdentity }
-        }
-        displayed = latest; turning = false; incoming = nil
-        guard animated, oldImage != nil else { recovering = false; scheduler?.cancel(self); return }
+        stopAnimation()
+        displayed = latest
+        if let bitmap = image(latest) { surface.textureImage = bitmap }
+        sceneOwner?.turn(surface.surfaceID, degrees: 0, duration: 0)
+        guard animated else { return }
         recovering = true
-        let duration = 0.4 * (scheduler?.timingScale ?? 1)
-        let animation = CABasicAnimation(keyPath: "opacity")
-        animation.fromValue = 0; animation.toValue = 1; animation.duration = duration
-        animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-        if !wasTurningSurface {
-            withoutActions { front.contents = oldImage; back.contents = nil; solid.transform = CATransform3DIdentity; scene.isHidden = false; scene.opacity = 1 }
-        }
-        let fade = CABasicAnimation(keyPath: "opacity")
-        fade.fromValue = scene.presentation()?.opacity ?? 1; fade.toValue = 0; fade.duration = duration
-        withoutActions { scene.opacity = 0 }
-        let delegate = RowFlipCompletion { [weak self] in
-            guard let self, self.token == ticket, !self.frozen else { return }
-            self.withoutActions { self.scene.isHidden = true; self.solid.transform = CATransform3DIdentity; self.front.contents = nil; self.back.contents = nil }
-            self.recovering = false; self.completion = nil
-            // A final coalesced change uses a fade, never replays missed flips.
+        let ticket = token
+        worker = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do { try await Task.sleep(for: .seconds(0.4 * (self.scheduler?.timingScale ?? 1))) } catch { return }
+            guard self.token == ticket, !self.frozen else { return }
+            self.recovering = false; self.worker = nil
             if self.displayed != self.latest { self.showLatest(animated: true) }
         }
-        completion = delegate; animation.delegate = delegate
-        scene.add(fade, forKey: "row-out"); flat.add(animation, forKey: "row-in")
     }
     override func freeze() {
         guard !frozen else { return }
-        token += 1; completion = nil
-        withoutActions {
-            let transform = solid.presentation()?.transform ?? solid.transform
-            let flatOpacity = flat.presentation()?.opacity ?? flat.opacity
-            let sceneOpacity = scene.presentation()?.opacity ?? scene.opacity
-            solid.removeAllAnimations(); flat.removeAllAnimations(); scene.removeAllAnimations()
-            solid.transform = transform; flat.opacity = flatOpacity; scene.opacity = sceneOpacity
-        }
-        needsRecovery = true; turning = false; recovering = false
-        super.freeze(); scheduler?.cancel(self)
+        stopAnimation(); needsRecovery = true
+        super.freeze()
     }
     private func stopAnimation() {
-        token += 1; completion = nil; turning = false; recovering = false; needsRecovery = false
-        withoutActions { solid.removeAllAnimations(); flat.removeAllAnimations(); scene.removeAllAnimations() }
+        token += 1; worker?.cancel(); worker = nil
+        turning = false; recovering = false; preparedFace = nil
+        sceneOwner?.turn(surface.surfaceID, degrees: 0, duration: 0)
         scheduler?.cancel(self)
     }
-    func stop() { freeze(); cache.removeAll() }
+    func stop() { freeze(); surface.detach(); cache.removeAll() }
     private func image(_ face: RecentRowFace) -> CGImage? {
         guard bounds.width > 0, bounds.height > 0 else { return nil }
         let scale = window?.backingScaleFactor ?? 2
@@ -325,14 +272,5 @@ struct CachedRecentRow: NSViewRepresentable {
         scheduler?.retainImage(result, key: key)
         cache.append((key, result)); if cache.count > 3 { cache.removeFirst(cache.count - 3) }
         return result
-    }
-}
-
-private final class RowFlipCompletion: NSObject, CAAnimationDelegate {
-    let finished: @MainActor () -> Void
-    init(_ finished: @escaping @MainActor () -> Void) { self.finished = finished }
-    func animationDidStop(_ anim: CAAnimation, finished flag: Bool) {
-        guard flag else { return }
-        Task { @MainActor [finished] in finished() }
     }
 }

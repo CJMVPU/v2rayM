@@ -3,9 +3,12 @@ import SwiftUI
 
 /// Circular controls share the small title-bar switch's 16-point thumb diameter.
 struct WindowControlButtons: NSViewRepresentable {
+    @Environment(\.realityScene) private var scene
     static let diameter: CGFloat = 16
     func makeNSView(context: Context) -> ControlsView { ControlsView() }
-    func updateNSView(_ view: ControlsView, context: Context) {}
+    func updateNSView(_ view: ControlsView, context: Context) {
+        for button in view.subviews.compactMap({ $0 as? RoundButton }) { button.sceneOwner = scene; button.updateSurface() }
+    }
 
     final class ControlsView: NSView {
         override var isFlipped: Bool { true }
@@ -39,6 +42,8 @@ struct WindowControlButtons: NSViewRepresentable {
 
     final class RoundButton: NSButton {
         enum Role { case close, minimize }
+        weak var sceneOwner: RealityWindowScene?
+        private let surface = RealitySurfaceAnchor()
         private let role: Role
         private var hovered = false
         private var hoverLevel: CGFloat = 0
@@ -53,6 +58,7 @@ struct WindowControlButtons: NSViewRepresentable {
         init(role: Role) {
             self.role = role
             super.init(frame: .zero)
+            addSubview(surface)
             title = ""
             isBordered = false
             setButtonType(.momentaryChange)
@@ -60,6 +66,17 @@ struct WindowControlButtons: NSViewRepresentable {
             toolTip = role == .close ? "关闭窗口" : "最小化窗口"
         }
         required init?(coder: NSCoder) { fatalError("init(coder:) is unavailable") }
+        override func layout() {
+            super.layout()
+            surface.frame = NSRect(x: bounds.midX - diameter / 2, y: bounds.midY - diameter / 2, width: diameter, height: diameter)
+            updateSurface()
+        }
+        func updateSurface() {
+            let level: CGFloat = isEnabled ? (isHighlighted ? 1 : hoverLevel) : 0
+            let highlight: NSColor = role == .close ? .systemRed : .systemYellow
+            let color = NSColor(calibratedWhite: 0.66, alpha: 1).blended(withFraction: level, of: highlight)!
+            surface.configure(scene: sceneOwner, style: .init(shape: .disc, color: color, depth: 4, level: 90, highlighted: level > 0, enabled: isEnabled))
+        }
         override func updateTrackingAreas() {
             super.updateTrackingAreas()
             if let hoverTracking { removeTrackingArea(hoverTracking) }
@@ -122,16 +139,8 @@ struct WindowControlButtons: NSViewRepresentable {
         override func mouseExited(with event: NSEvent) { setHovered(false) }
         override func draw(_ dirtyRect: NSRect) {
             let rect = NSRect(x: bounds.midX - diameter / 2, y: bounds.midY - diameter / 2, width: diameter, height: diameter)
-            let highlight: NSColor = role == .close ? .systemRed : .systemYellow
             let level: CGFloat = isEnabled ? (isHighlighted ? 1 : hoverLevel) : 0
-            if level > 0 {
-                highlight.withAlphaComponent(0.22 * level).setFill()
-                NSBezierPath(ovalIn: rect.insetBy(dx: -3, dy: -3)).fill()
-            }
-            let base = !isEnabled ? NSColor(calibratedWhite: 0.28, alpha: 1)
-                : NSColor(calibratedWhite: 0.66, alpha: 1).blended(withFraction: level, of: highlight)!
-            (isHighlighted && isEnabled ? base.blended(withFraction: 0.18, of: .black)! : base).setFill()
-            NSBezierPath(ovalIn: rect).fill()
+            updateSurface()
             // Normal state is a quiet gray circle; hover reveals the action symbol.
             guard level > 0 else { return }
             let symbol = NSBezierPath()

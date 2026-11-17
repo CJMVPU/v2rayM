@@ -32,7 +32,7 @@ struct AdvancedSettingsPanel: View {
                         }
                         Spacer(minLength: 0)
                     }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 14))
+                        .realitySurface(.init(shape: .panel(14), depth: 3, level: 14))
                         .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(DashboardTheme.cyan.opacity(0.18)))
                 }.buttonStyle(HoverButtonStyle(plain: true))
                     .disabled(!model.ready || model.busy || model.moduleUpdateActive)
@@ -112,6 +112,7 @@ struct SettingsEditor: View {
                 InlineActivityIndicator(active: working)
                 Button("重新连接服务") { Task { await model.connect() } }
                     .disabled(model.ready || working || model.connecting)
+                    .environment(\.realityContentVisible, !model.ready)
                     .opacity(model.ready ? 0 : 1).accessibilityHidden(model.ready)
                 if pane == .parameters { Button("保存参数") { saveParameters() }.disabled(!loaded || working || !dirty || !model.ready) }
                 if pane == .routing { Button("保存方案与规则") { saveRoute() }.disabled(!loaded || working || !dirty || !model.ready) }

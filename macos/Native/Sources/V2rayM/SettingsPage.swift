@@ -81,6 +81,6 @@ struct SettingsPage: View {
                     }
                 }.fixedSize(horizontal: false, vertical: true)
             }.padding(16)
-        }.scrollIndicators(.never).background(DashboardTheme.background)
+        }.scrollIndicators(.never)
     }
 }

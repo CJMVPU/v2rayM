@@ -17,7 +17,7 @@ struct DNSSettingsFields: SettingsFields {
                 field("直连 DNS", $simpleDNS, "directDNS")
                 SettingsFieldRow(title: "远程 DNS") {
                     TextField("", text: text($simpleDNS, "remoteDNS"))
-                        .textFieldStyle(.roundedBorder).accessibilityLabel("远程 DNS")
+                        .textFieldStyle(RealityTextFieldStyle()).accessibilityLabel("远程 DNS")
                     Menu("常用地址") {
                         ForEach(remotePresets, id: \.self) { address in
                             Button(address) { text($simpleDNS, "remoteDNS").wrappedValue = address }

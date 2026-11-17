@@ -35,6 +35,7 @@ private struct ModuleUpdateContent: View {
                     .lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
                     .help(model.moduleUpdateError ?? "")
                 Button("详情") { showingError = true }
+                    .environment(\.realityContentVisible, model.moduleUpdateError != nil)
                     .disabled(model.moduleUpdateError == nil)
                     .opacity(model.moduleUpdateError == nil ? 0 : 1)
                     .accessibilityHidden(model.moduleUpdateError == nil)
@@ -69,6 +70,7 @@ struct ModuleUpdateRow: View {
                 Text(active && progress?.phase == "downloading" ? progress?.downloadFraction.map { "\(Int($0 * 100))%" } ?? "" : "")
                     .monospacedDigit().frame(width: 38, alignment: .trailing)
                 Button("详情") { showingDetails = true }.frame(width: 36)
+                    .environment(\.realityContentVisible, detail != nil)
                     .disabled(detail == nil).opacity(detail == nil ? 0 : 1).accessibilityHidden(detail == nil)
                     .popover(isPresented: $showingDetails) { UpdateDetails(text: detail ?? "") }
                 Button(id == "GeoFiles" ? "更新数据" : "检查版本", action: update)
@@ -82,7 +84,7 @@ struct ModuleUpdateRow: View {
                 }
             }.accessibilityHidden(!active)
         }.padding(10)
-            .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 8))
+            .realitySurface(.init(shape: .panel(8), depth: 3, level: 14))
     }
 }
 

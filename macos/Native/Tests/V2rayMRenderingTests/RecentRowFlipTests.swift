@@ -39,12 +39,8 @@ import AppKit
         rows[0].startFlip(duration: 1)
         XCTAssertEqual(rows[0].displayed, try face(1, 0))
         XCTAssertTrue(rows[0].turning)
-        let solid = try XCTUnwrap(rows[0].layer?.sublayers?.last?.sublayers?.first)
-        let animation = try XCTUnwrap(solid.animation(forKey: "row-turn"))
-        XCTAssertEqual(animation.beginTime, 0, "No pre-flip content hold")
-        let faces = try XCTUnwrap(solid.sublayers)
-        XCTAssertNotNil(faces[0].contents); XCTAssertNotNil(faces[1].contents)
-        XCTAssertFalse(faces[1].isDoubleSided, "The new back must stay hidden until facing the viewer")
+        XCTAssertEqual(rows[0].preparedFace, try face(2), "The next face must be prepared without replacing displayed content")
+        XCTAssertGreaterThanOrEqual(rows[0].bitmapBuilds, 2)
         XCTAssertLessThanOrEqual(scheduler.activeCount, 2)
     }
     func testConnectionMovingBetweenSlotsReusesSharedFace() throws {
