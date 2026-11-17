@@ -6,12 +6,10 @@ import AppKit
     private func window() -> NSWindow {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
                               styleMask: [.titled, .miniaturizable], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.orderFront(nil)
+        window.isReleasedWhenClosed = false; window.orderFront(nil)
         return window
     }
-
-    func testFreezesSynchronouslyThenYieldsBeforeSingleMinimizeAndHandsOffLatch() async throws {
+    func testFreezesBeforeImmediateMinimizeAndHandsOffLatch() {
         let window = window()
         var state: DashboardVisibilityState?
         let watcher = DashboardVisibilityObserver.Watcher { state = $0 }
@@ -21,97 +19,65 @@ import AppKit
         let freeze = NotificationCenter.default.addObserver(forName: .dashboardWillFreeze, object: window, queue: .main) { _ in
             MainActor.assumeIsolated { clock.freeze() }
         }
-        var calls = 0
-        let started = ProcessInfo.processInfo.systemUptime
+        var calls = 0, requestReturned = false
         let coordinator = WindowMinimizeCoordinator { target in
             calls += 1
+            XCTAssertFalse(requestReturned, "No delayed task/run-loop turn before AppKit")
             XCTAssertTrue(target === window)
-            XCTAssertGreaterThanOrEqual(ProcessInfo.processInfo.systemUptime - started, 0.5)
             XCTAssertEqual(state?.preparingToMinimize, true)
             XCTAssertFalse(clock.isRunning)
             NotificationCenter.default.post(name: NSWindow.willMiniaturizeNotification, object: target)
         }
-        defer {
-            coordinator.cancel(); NotificationCenter.default.removeObserver(freeze)
-            clock.stop(); watcher.stop(); window.close()
-        }
-        coordinator.request(window)
-        XCTAssertEqual(state?.preparingToMinimize, true)
-        XCTAssertFalse(state?.permitsRendering ?? true)
-        XCTAssertFalse(clock.isRunning, "Stop display callbacks in the click's turn, before sleeping")
-        coordinator.request(window)
-        NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: window)
-        XCTAssertEqual(state?.preparingToMinimize, true)
-        watcher.thaw()
-        clock.attach(window: window, enabled: true)
-        XCTAssertFalse(clock.isRunning, "Intermediate updates cannot thaw the preparation interval")
-        try await Task.sleep(for: .milliseconds(300))
-        XCTAssertEqual(calls, 0, "The main actor must remain available during the gap")
-        try await Task.sleep(for: .milliseconds(350))
-        XCTAssertEqual(calls, 1, "Repeated clicks must not queue repeated minimizations")
+        defer { NotificationCenter.default.removeObserver(freeze); clock.stop(); watcher.stop(); window.close() }
+        coordinator.request(window); requestReturned = true
+        XCTAssertEqual(calls, 1)
         XCTAssertEqual(state?.preparingToMinimize, false)
-        XCTAssertEqual(state?.minimizing, true, "AppKit owns the freeze after the preparation gap")
+        XCTAssertEqual(state?.minimizing, true)
+        watcher.thaw(); clock.attach(window: window, enabled: true)
+        XCTAssertFalse(clock.isRunning)
         NotificationCenter.default.post(name: NSWindow.didDeminiaturizeNotification, object: window)
         XCTAssertEqual(state?.minimizing, false)
     }
-
-    func testCancellationPreventsLateMinimizeAndAllowsNewRequest() async throws {
+    func testReentrantRequestIsIgnoredAndNoOpReleasesLatch() {
         let window = window()
         var calls = 0
-        let coordinator = WindowMinimizeCoordinator(preparationDelay: 0.04) { _ in calls += 1 }
-        defer { coordinator.cancel(); window.close() }
+        var coordinator: WindowMinimizeCoordinator!
+        coordinator = WindowMinimizeCoordinator { target in calls += 1; coordinator.request(target) }
+        defer { window.close() }
         coordinator.request(window)
-        coordinator.cancel(for: window)
-        XCTAssertFalse(coordinator.isPreparing(window))
-        try await Task.sleep(for: .milliseconds(80))
-        XCTAssertEqual(calls, 0)
+        XCTAssertEqual(calls, 1); XCTAssertFalse(coordinator.isPreparing(window))
         coordinator.request(window)
-        try await Task.sleep(for: .milliseconds(80))
-        XCTAssertEqual(calls, 1)
-        XCTAssertFalse(coordinator.isPreparing(window), "A rejected/no-op system minimize must release preparation")
+        XCTAssertEqual(calls, 2)
     }
-
-    func testCloseHideResignRestoreAndExternalMinimizeCancelPendingAction() async throws {
-        for name in [NSWindow.willCloseNotification, NSApplication.willHideNotification,
-                     NSApplication.willResignActiveNotification, NSWindow.didDeminiaturizeNotification,
-                     NSWindow.willMiniaturizeNotification] {
+    func testSynchronousCancellationOrHiddenWindowPreventsAction() {
+        for cancel in [true, false] {
             let window = window()
             var calls = 0
-            let coordinator = WindowMinimizeCoordinator(preparationDelay: 0.03) { _ in calls += 1 }
+            let coordinator = WindowMinimizeCoordinator { _ in calls += 1 }
+            let observer = NotificationCenter.default.addObserver(forName: .windowMinimizePreparationBegan, object: window, queue: .main) { _ in
+                MainActor.assumeIsolated {
+                    if cancel { coordinator.cancel(for: window) } else { window.orderOut(nil) }
+                }
+            }
             coordinator.request(window)
-            XCTAssertTrue(coordinator.isPreparing(window))
-            NotificationCenter.default.post(name: name, object: window)
-            XCTAssertFalse(coordinator.isPreparing(window), name.rawValue)
-            try await Task.sleep(for: .milliseconds(60))
-            XCTAssertEqual(calls, 0, name.rawValue)
-            coordinator.cancel(); window.close()
+            XCTAssertEqual(calls, 0); XCTAssertFalse(coordinator.isPreparing(window))
+            NotificationCenter.default.removeObserver(observer); window.close()
         }
     }
-
-    func testHiddenWindowIsRecheckedAfterDelay() async throws {
-        let window = window()
-        var calls = 0
-        let coordinator = WindowMinimizeCoordinator(preparationDelay: 0.03) { _ in calls += 1 }
-        defer { coordinator.cancel(); window.close() }
+    func testAlreadyHiddenWindowDoesNotPrepare() {
+        let window = window(); window.orderOut(nil)
+        let coordinator = WindowMinimizeCoordinator { _ in XCTFail("Hidden window must not minimize") }
         coordinator.request(window)
-        window.orderOut(nil)
-        try await Task.sleep(for: .milliseconds(60))
-        XCTAssertEqual(calls, 0)
-        XCTAssertFalse(coordinator.isPreparing(window))
-        coordinator.request(window)
-        XCTAssertFalse(coordinator.isPreparing(window))
+        XCTAssertFalse(coordinator.isPreparing(window)); window.close()
     }
-
-    func testOtherWindowDoesNotCancelPreparation() async throws {
+    func testOtherWindowDoesNotCancelPreparation() {
         let first = window(), second = window()
         var calls = 0
-        let coordinator = WindowMinimizeCoordinator(preparationDelay: 0.04) { _ in calls += 1 }
-        defer { coordinator.cancel(); first.close(); second.close() }
-        coordinator.request(first)
-        coordinator.cancel(for: second)
-        NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: second)
-        XCTAssertTrue(coordinator.isPreparing(first))
-        try await Task.sleep(for: .milliseconds(80))
-        XCTAssertEqual(calls, 1)
+        let coordinator = WindowMinimizeCoordinator { _ in calls += 1 }
+        let observer = NotificationCenter.default.addObserver(forName: .windowMinimizePreparationBegan, object: first, queue: .main) { _ in
+            MainActor.assumeIsolated { coordinator.cancel(for: second); XCTAssertTrue(coordinator.isPreparing(first)) }
+        }
+        defer { NotificationCenter.default.removeObserver(observer); first.close(); second.close() }
+        coordinator.request(first); XCTAssertEqual(calls, 1)
     }
 }

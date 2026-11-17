@@ -77,7 +77,6 @@ struct ConnectionDashboard: View {
             guard running, let rates, rates.indices.contains(index), peaks[index] > 0 else { return 0 }
             return min(1, max(0, rates[index] / peaks[index]))
         }
-        let animate = windowVisible && !reduceMotion
         let duration = coreRunning ? DashboardStatus.duration(since: startedAt, now: now) : "—"
         return ZStack {
             ZStack {
@@ -86,7 +85,6 @@ struct ConnectionDashboard: View {
                 ring(diameter: max(0, diameter - 44), color: DashboardTheme.cyan, fraction: fractions[0])
                 ring(diameter: max(0, diameter - 66), color: DashboardTheme.purple, fraction: fractions[1])
             }
-            .animation(animate ? .easeInOut(duration: 1.2) : nil, value: fractions)
             .accessibilityHidden(true)
             ZStack {
                 DashboardDiscSurface(hovered: discHovered)
@@ -131,12 +129,8 @@ struct ConnectionDashboard: View {
     }
 
     private func ring(diameter: CGFloat, color: Color, fraction: Double) -> some View {
-        ZStack {
-            Circle().stroke(Color.primary.opacity(0.08), lineWidth: 5)
-            Circle().trim(from: 0, to: fraction)
-                .stroke(color, style: StrokeStyle(lineWidth: 5, lineCap: .round))
-                .rotationEffect(.degrees(90))
-        }.frame(width: max(0, diameter - 4), height: max(0, diameter - 4))
+        DashboardRing(fraction: fraction, color: color, animate: windowVisible && !reduceMotion)
+            .frame(width: max(0, diameter - 4), height: max(0, diameter - 4))
     }
 }
 
@@ -232,44 +226,24 @@ struct TrafficTrendView: View {
     }
     private func plot(points: [TrafficTrendSample], maximum: Double) -> some View {
             GeometryReader { geometry in
-                // Cache settled curves outside the display-link observer. Only
-                // a translation is needed between data/scale updates.
                 let replaying = catchUp != nil && catchUp?.startedAt != finishedCatchUp && !reduceMotion
                 let history = replaying ? (catchUp?.merged(with: trend) ?? []) : []
-                let settled = strokes(points, date: now, ceiling: maximum, reveal: 1, size: geometry.size)
+                let input = TrendLayerInput(points)
+                let replayInput = TrendLayerInput(history)
+                let retired = retirement.map { TrendLayerInput($0.samples) }
                 DashboardFrameTimeline(enabled: (animate || (presentationActive && replaying)) && (!points.isEmpty || !history.isEmpty || retirement != nil), fallback: now) { frameDate in
-                let date = animate || replaying || !presentationActive ? frameDate : now
-                let ceiling = animate && !replaying ? scale(at: date) : maximum
-                let reveal = animate && !replaying ? eased(date.timeIntervalSince(sampleArrived)) : 1
-                Canvas { context, size in
-                    for index in 0...6 {
-                        var grid = Path()
-                        let y = 3 + Double(index) / 6 * max(0, size.height - 6)
-                        grid.move(to: CGPoint(x: 0, y: y)); grid.addLine(to: CGPoint(x: size.width, y: y))
-                        context.stroke(grid, with: .color(.primary.opacity(index == 6 ? 0.13 : 0.08)), lineWidth: 0.5)
-                    }
-                    if let catchUp, replaying, catchUp.progress(at: date) < 1 {
-                        let playbackDate = catchUp.displayDate(at: date)
-                        let replayPoints = TrafficTrendCatchUp.plotSamples(history, at: playbackDate)
-                        let ceiling = catchUp.initialCeiling + (maximum - catchUp.initialCeiling) * catchUp.progress(at: date)
-                        draw(replayPoints, date: playbackDate, ceiling: ceiling, reveal: 1, context: context, size: size)
-                    } else {
-                    if let retirement, animate {
-                        var old = context
-                        old.opacity = 1 - retirement.progress(at: frameDate)
-                        draw(retirement.samples, date: retirement.displayDate, ceiling: retirement.ceiling,
-                             reveal: 1, context: old, size: size)
-                    }
-                    var current = context
-                    if let retirement, animate { current.opacity = retirement.progress(at: frameDate) }
-                    if reveal == 1 && abs(ceiling - maximum) < 0.0001 {
-                        current.translateBy(x: -date.timeIntervalSince(now) / TrafficTrend.duration * max(0, size.width - 4), y: 0)
-                        paint(settled, context: current)
-                    } else {
-                        draw(points, date: date, ceiling: ceiling, reveal: reveal, context: current, size: size)
-                    }
-                    }
-                }.clipped()
+                    let date = animate || replaying || !presentationActive ? frameDate : now
+                    let catchingUp = replaying && (catchUp?.progress(at: date) ?? 1) < 1
+                    let displayDate = catchingUp ? catchUp!.displayDate(at: date) : date
+                    let ceiling = catchingUp
+                        ? catchUp!.initialCeiling + (maximum - catchUp!.initialCeiling) * catchUp!.progress(at: date)
+                        : (animate && !replaying ? scale(at: date) : maximum)
+                    let reveal = animate && !replaying ? eased(date.timeIntervalSince(sampleArrived)) : 1
+                    DashboardTrendPlot(input: catchingUp ? replayInput : input, date: displayDate,
+                        ceiling: ceiling, reveal: reveal,
+                        opacity: !catchingUp && animate ? (retirement?.progress(at: frameDate) ?? 1) : 1,
+                        retired: !catchingUp && animate ? retired : nil,
+                        retirement: !catchingUp && animate ? retirement : nil)
                 }
             }.overlay {
                 if points.isEmpty && retirement == nil {
@@ -294,56 +268,6 @@ struct TrafficTrendView: View {
             }
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: awaitingSample)
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: points.isEmpty)
-    }
-    private struct Stroke {
-        let line: Path
-        let dots: Path
-        let color: Color
-    }
-    private func paint(_ strokes: [Stroke], context: GraphicsContext) {
-        for stroke in strokes {
-            context.fill(stroke.dots, with: .color(stroke.color))
-            context.stroke(stroke.line, with: .color(stroke.color), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
-        }
-    }
-    private func draw(_ points: [TrafficTrendSample], date: Date, ceiling: Double, reveal: Double,
-                      context: GraphicsContext, size: CGSize) {
-        paint(strokes(points, date: date, ceiling: ceiling, reveal: reveal, size: size), context: context)
-    }
-    private func strokes(_ points: [TrafficTrendSample], date: Date, ceiling: Double, reveal: Double, size: CGSize) -> [Stroke] {
-        var result: [Stroke] = []
-        for (key, color) in [(\TrafficTrendSample.upload, DashboardTheme.cyan), (\TrafficTrendSample.download, DashboardTheme.purple),
-                             (\TrafficTrendSample.directUpload, DashboardTheme.directUpload),
-                             (\TrafficTrendSample.directDownload, DashboardTheme.directDownload)] {
-            var line = Path()
-            var dots = Path()
-            var previous: TrafficTrendSample?
-            var previousPosition: CGPoint?
-            for point in points {
-                let age = date.timeIntervalSince(point.date)
-                let x = 2 + (1 - age / TrafficTrend.duration) * max(0, size.width - 4)
-                let y = size.height - 3 - point[keyPath: key] / max(1, ceiling) * max(0, size.height - 6)
-                var position = CGPoint(x: x, y: y)
-                if let previousPosition, let previous, previous.segment == point.segment, point.date.timeIntervalSince(previous.date) < 12 {
-                    if point.id == points.last?.id {
-                        position.x = previousPosition.x + (position.x - previousPosition.x) * reveal
-                        position.y = previousPosition.y + (position.y - previousPosition.y) * reveal
-                    }
-                    // Horizontal tangents make a smooth, bounded curve: no
-                    // spline overshoot, invented peaks or bridges across gaps.
-                    let middle = (previousPosition.x + position.x) / 2
-                    line.addCurve(to: position,
-                        control1: CGPoint(x: middle, y: previousPosition.y),
-                        control2: CGPoint(x: middle, y: position.y))
-                } else {
-                    line.move(to: position)
-                    dots.addEllipse(in: CGRect(x: position.x - 1.2, y: position.y - 1.2, width: 2.4, height: 2.4))
-                }
-                previous = point; previousPosition = position
-            }
-            result.append(Stroke(line: line, dots: dots, color: color))
-        }
-        return result
     }
     private func legend(_ title: String, color: Color) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 4) {
