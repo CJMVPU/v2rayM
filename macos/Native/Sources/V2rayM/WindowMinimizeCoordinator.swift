@@ -11,7 +11,7 @@ import AppKit
     private var generation = 0
     private let minimize: @MainActor (NSWindow) -> Void
 
-    init(preparationDelay: TimeInterval = 0.18,
+    init(preparationDelay: TimeInterval = 0.5,
          minimize: @escaping @MainActor (NSWindow) -> Void = { $0.miniaturize(nil) }) {
         self.preparationDelay = preparationDelay
         self.minimize = minimize

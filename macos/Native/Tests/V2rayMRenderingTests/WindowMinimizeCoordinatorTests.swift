@@ -23,10 +23,10 @@ import AppKit
         }
         var calls = 0
         let started = ProcessInfo.processInfo.systemUptime
-        let coordinator = WindowMinimizeCoordinator(preparationDelay: 0.08) { target in
+        let coordinator = WindowMinimizeCoordinator { target in
             calls += 1
             XCTAssertTrue(target === window)
-            XCTAssertGreaterThanOrEqual(ProcessInfo.processInfo.systemUptime - started, 0.08)
+            XCTAssertGreaterThanOrEqual(ProcessInfo.processInfo.systemUptime - started, 0.5)
             XCTAssertEqual(state?.preparingToMinimize, true)
             XCTAssertFalse(clock.isRunning)
             NotificationCenter.default.post(name: NSWindow.willMiniaturizeNotification, object: target)
@@ -45,9 +45,9 @@ import AppKit
         watcher.thaw()
         clock.attach(window: window, enabled: true)
         XCTAssertFalse(clock.isRunning, "Intermediate updates cannot thaw the preparation interval")
-        try await Task.sleep(for: .milliseconds(25))
+        try await Task.sleep(for: .milliseconds(300))
         XCTAssertEqual(calls, 0, "The main actor must remain available during the gap")
-        try await Task.sleep(for: .milliseconds(120))
+        try await Task.sleep(for: .milliseconds(350))
         XCTAssertEqual(calls, 1, "Repeated clicks must not queue repeated minimizations")
         XCTAssertEqual(state?.preparingToMinimize, false)
         XCTAssertEqual(state?.minimizing, true, "AppKit owns the freeze after the preparation gap")
