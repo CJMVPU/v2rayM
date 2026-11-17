@@ -1,17 +1,19 @@
 import XCTest
 import AppKit
 import SwiftUI
+import Combine
 @testable import V2rayM
 
 @MainActor private final class EfficiencyFixture: ObservableObject {
     @Published var angle = 0.0
+    @Published var motion = true
     var fronts = 0
     var backs = 0
 }
 private struct SurfaceFixture: View {
     @ObservedObject var state: EfficiencyFixture
     var body: some View {
-        DashboardSolidSurface(angle: state.angle, kind: .card,
+        DashboardSolidSurface(angle: state.angle, kind: .card, animates: state.motion,
             front: Text("front").frame(width: 200, height: 100)
                 .onAppear { state.fronts += 1 },
             back: Text("back").frame(width: 200, height: 100)
@@ -19,6 +21,75 @@ private struct SurfaceFixture: View {
     }
 }
 final class DashboardRenderingEfficiencyTests: XCTestCase {
+    @MainActor func testFreezingRetiresInFlightSurfaceGeometryWithoutReplacingFront() async throws {
+        let state = EfficiencyFixture()
+        let host = NSHostingView(rootView: SurfaceFixture(state: state))
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host; window.orderFront(nil)
+        defer { window.close() }
+        try await Task.sleep(for: .milliseconds(80))
+        withAnimation(.linear(duration: 1.5)) { state.angle = 150 }
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertEqual(state.backs, 0)
+        // Leave the animation's target in place: freezing must gate SwiftUI's
+        // already-created interpolator, not depend on a worker resetting it.
+        state.motion = false
+        try await Task.sleep(for: .milliseconds(1500))
+        XCTAssertEqual(state.backs, 0, "The old animation must not build its back while frozen")
+        XCTAssertEqual(state.fronts, 1, "The existing front tree must remain mounted")
+        state.angle = 0; state.motion = true
+        try await Task.sleep(for: .milliseconds(50))
+        withAnimation(.linear(duration: 0.1)) { state.angle = 150 }
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertEqual(state.backs, 1, "Foreground solid flips must still render their back")
+        XCTAssertEqual(state.fronts, 1)
+    }
+
+    @MainActor func testDepartureBurstUsesCachedLockStateAndKeepsFreezing() {
+        var queries = 0, freezes = 0
+        var locked = true
+        var latest: DashboardVisibilityState?
+        let view = DashboardVisibilityObserver.Watcher(changed: { latest = $0 }, queryLocked: {
+            queries += 1; return locked
+        })
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 100, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let observer = NotificationCenter.default.addObserver(forName: .dashboardWillFreeze, object: window, queue: .main) { _ in freezes += 1 }
+        window.contentView = view
+        defer { NotificationCenter.default.removeObserver(observer); view.stop(); window.close() }
+        XCTAssertEqual(queries, 1)
+        for _ in 0..<20 {
+            NotificationCenter.default.post(name: NSApplication.willResignActiveNotification, object: NSApp)
+            NotificationCenter.default.post(name: NSWindow.didMoveNotification, object: window)
+            NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: window)
+        }
+        XCTAssertEqual(queries, 1, "Departure must not synchronously query session state before freezing")
+        XCTAssertGreaterThan(freezes, 0, "Geometry/occlusion bursts must keep newly attached clocks frozen")
+        XCTAssertEqual(latest?.locked, true, "Cached lock state must remain authoritative during departure")
+        locked = false
+        NotificationCenter.default.post(name: NSApplication.didBecomeActiveNotification, object: NSApp)
+        XCTAssertEqual(queries, 2, "Return must reconcile the lock state, even if an unlock notification was missed")
+        XCTAssertEqual(latest?.locked, false)
+    }
+
+    @MainActor func testGeometryBurstsDoNotRepublishSuspendedOrReturningPhase() async throws {
+        let coordinator = DashboardVisibilityCoordinator(returnDelay: 0.04, catchUpDuration: 0.02)
+        var state = DashboardVisibilityState(windowVisible: true, occluded: false)
+        coordinator.update(state)
+        var publications = 0
+        let observation = coordinator.objectWillChange.sink { publications += 1 }
+        defer { observation.cancel(); coordinator.stop() }
+        state.appActive = false; coordinator.update(state)
+        for _ in 0..<20 { state.surfaceRevision += 1; coordinator.update(state) }
+        XCTAssertEqual(publications, 1)
+        state.appActive = true; coordinator.update(state)
+        for _ in 0..<20 { state.surfaceRevision += 1; coordinator.update(state) }
+        XCTAssertEqual(publications, 2, "Return geometry must restart the quiet timer without republishing identical state")
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(coordinator.phase, .live)
+        XCTAssertEqual(publications, 4, "Only suspended, returning, catchingUp and live should publish")
+    }
+
     func testEveryVisibilityBlockerSuspendsRendering() {
         let visible = DashboardVisibilityState(windowVisible: true, occluded: false)
         XCTAssertTrue(visible.permitsRendering)

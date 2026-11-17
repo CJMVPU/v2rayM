@@ -29,14 +29,22 @@ enum DashboardSolidKind {
 struct DashboardSolidSurface<Front: View, Back: View>: View, Animatable {
     var angle: Double
     let kind: DashboardSolidKind
+    var animates = true
     let front: Front
     let back: Back
-    var animatableData: Double { get { angle } set { angle = newValue } }
+    // A cancelled task does not necessarily retire SwiftUI's in-flight
+    // interpolation. Gate its vector and rendered geometry as well, so the
+    // frozen surface cannot keep building side/back planes during departure.
+    var animatableData: Double {
+        get { animates ? angle : 0 }
+        set { angle = animates ? newValue : 0 }
+    }
+    private var renderedAngle: Double { animates ? angle : 0 }
     private var vertical: Bool { kind == .row }
-    private var frontFacing: Bool { cos(angle * .pi / 180) >= 0 }
-    private var activity: Double { abs(sin(angle * .pi / 180)) }
+    private var frontFacing: Bool { cos(renderedAngle * .pi / 180) >= 0 }
+    private var activity: Double { abs(sin(renderedAngle * .pi / 180)) }
     private func plane<V: View>(_ view: V, depth: CGFloat) -> some View {
-        view.rotation3DEffect(.degrees(angle), axis: vertical ? (x: 1, y: 0, z: 0) : (x: 0, y: 1, z: 0),
+        view.rotation3DEffect(.degrees(renderedAngle), axis: vertical ? (x: 1, y: 0, z: 0) : (x: 0, y: 1, z: 0),
                               anchorZ: depth, perspective: vertical ? 0.6 : 0.7)
     }
     var body: some View {
@@ -86,7 +94,7 @@ struct DashboardActivationFlip: ViewModifier {
     @State private var tilt = 0.0
     @State private var worker: Task<Void, Never>?
     func body(content: Content) -> some View {
-        DashboardSolidSurface(angle: angle, kind: kind, front: content,
+        DashboardSolidSurface(angle: angle, kind: kind, animates: flipsEnabled && !reduceMotion, front: content,
             back: ZStack {
                 kind.shape.fill(DashboardTheme.panel)
                 VStack(spacing: 8) {
@@ -121,6 +129,7 @@ struct DashboardActivationFlip: ViewModifier {
     }
     private func cancel() { worker?.cancel(); worker = nil; reset() }
     private func reset() {
+        guard angle != 0 || tilt != 0 else { return }
         var transaction = Transaction(); transaction.disablesAnimations = true
         withTransaction(transaction) { angle = 0; tilt = 0 }
     }
@@ -164,8 +173,9 @@ struct DashboardCardTiming {
         let desired = active && admitted
         if reduced {
             cancel()
-            targetActive = desired; presentedActive = desired
-            displayed = desired ? latest : idle
+            targetActive = desired
+            if presentedActive != desired { presentedActive = desired }
+            setDisplayed(desired ? latest : idle)
             return
         }
         guard desired != targetActive else {
@@ -242,7 +252,7 @@ struct DashboardDataCard<Value: Equatable, Content: View>: View {
             active: active, ready: ready, slot: slot))
     }
     var body: some View {
-        DashboardSolidSurface(angle: reduced ? 0 : presentation.angle, kind: .card,
+        DashboardSolidSurface(angle: reduced ? 0 : presentation.angle, kind: .card, animates: flipsEnabled && !reduced,
             front: content(presentation.displayed, presentation.presentedActive),
             back: ZStack {
                 RoundedRectangle(cornerRadius: 10).fill(DashboardTheme.panel)
@@ -294,7 +304,7 @@ struct DashboardFlipValue<Value: Equatable, Content: View>: View {
         _displayedIdentity = State(initialValue: identity); _pendingIdentity = State(initialValue: identity)
     }
     var body: some View {
-        DashboardSolidSurface(angle: reduceMotion ? 0 : angle, kind: .row,
+        DashboardSolidSurface(angle: reduceMotion ? 0 : angle, kind: .row, animates: flipsEnabled && !reduceMotion,
             front: content(displayedIdentity == identity ? value : displayed).contentTransition(.opacity), back: content(incoming))
             .onChange(of: value) { _, _ in enqueue() }
             .onAppear { enqueue() }
@@ -328,6 +338,8 @@ struct DashboardFlipValue<Value: Equatable, Content: View>: View {
         }
     }
     private func settle() {
+        guard angle != 0 || displayed != value || displayedIdentity != identity
+            || pending != value || pendingIdentity != identity || incoming != value else { return }
         var transaction = Transaction(animation: motionEnabled && !reduceMotion ? .easeInOut(duration: 0.45) : nil)
         transaction.disablesAnimations = !motionEnabled || reduceMotion
         withTransaction(transaction) {

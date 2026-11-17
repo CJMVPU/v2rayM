@@ -1,8 +1,21 @@
 import XCTest
+import Combine
 @testable import V2rayM
 
 @MainActor final class DashboardCardPresentationTests: XCTestCase {
     private let timing = DashboardCardTiming(outward: 0.06, inward: 0.06, settle: 0.03, stagger: 0.10)
+
+    func testFreezingRestingCardDoesNotPublishIdenticalContent() {
+        let card = DashboardCardPresentation(value: 42, idle: 0, active: true, ready: true, slot: 0)
+        var publications = 0
+        let observation = card.objectWillChange.sink { publications += 1 }
+        defer { observation.cancel(); card.disappear() }
+        for _ in 0..<20 { card.update(value: 42, idle: 0, active: true, ready: true, reduced: true) }
+        XCTAssertEqual(publications, 0, "Freezing must not cause extra passes for unchanged front content")
+        card.update(value: 43, idle: 0, active: true, ready: true, reduced: true)
+        XCTAssertEqual(card.displayed, 43)
+        XCTAssertEqual(publications, 1, "The latest value must still publish on catch-up")
+    }
 
     func testWaitsForDataAndRetainsLastSnapshotUntilClosingFinishes() async throws {
         let card = DashboardCardPresentation(value: [Double](), idle: [], active: false, ready: false, slot: 0, timing: timing)

@@ -31,7 +31,9 @@ private struct DashboardSession: View {
             .environment(\.colorScheme, .dark)
             .environment(\.dashboardMotionEnabled, phase.rendersMotion)
             .environment(\.dashboardFlipsEnabled, phase.permitsFlips)
-            .transaction { if !phase.rendersMotion { $0.disablesAnimations = true } }
+            .transaction {
+                if !phase.rendersMotion { $0.disablesAnimations = true; $0.animation = nil }
+            }
             .background {
                 if visibilityOverride == nil {
                     DashboardVisibilityObserver(rendering: phase.rendersMotion) { state in

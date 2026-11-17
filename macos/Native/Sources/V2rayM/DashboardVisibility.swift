@@ -46,7 +46,16 @@ struct DashboardVisibilityObserver: NSViewRepresentable {
         private var lastValue: DashboardVisibilityState?
         private var resigning = false
         private var hiding = false
-        init(changed: @escaping (DashboardVisibilityState) -> Void) { self.changed = changed; super.init(frame: .zero) }
+        private let queryLocked: () -> Bool?
+        init(changed: @escaping (DashboardVisibilityState) -> Void,
+             queryLocked: @escaping () -> Bool? = {
+                 (CGSessionCopyCurrentDictionary() as? [String: Any]).map {
+                     $0["CGSSessionScreenIsLocked"] as? Bool ?? false
+                 }
+             }) {
+            self.changed = changed; self.queryLocked = queryLocked
+            super.init(frame: .zero)
+        }
         required init?(coder: NSCoder) { fatalError("init(coder:) unavailable") }
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow(); stop()
@@ -81,7 +90,7 @@ struct DashboardVisibilityObserver: NSViewRepresentable {
                     if note.name == NSApplication.didBecomeActiveNotification { self.resigning = false }
                     if note.name == NSApplication.willHideNotification { self.hiding = true }
                     if note.name == NSApplication.didUnhideNotification { self.hiding = false }
-                    self.refresh(synchronous: true)
+                    self.refresh(queryLock: note.name == NSApplication.didBecomeActiveNotification, synchronous: true)
                 }
             }
             let workspace = NSWorkspace.shared.notificationCenter
@@ -89,10 +98,10 @@ struct DashboardVisibilityObserver: NSViewRepresentable {
                 observe(workspace, name) { [weak self] _ in self?.state.sleeping = true; self?.refresh() }
             }
             for name in [NSWorkspace.screensDidWakeNotification, NSWorkspace.didWakeNotification] {
-                observe(workspace, name) { [weak self] _ in self?.state.sleeping = false; self?.refresh() }
+                observe(workspace, name) { [weak self] _ in self?.state.sleeping = false; self?.refresh(queryLock: true) }
             }
             observe(workspace, NSWorkspace.sessionDidResignActiveNotification) { [weak self] _ in self?.state.sessionActive = false; self?.refresh() }
-            observe(workspace, NSWorkspace.sessionDidBecomeActiveNotification) { [weak self] _ in self?.state.sessionActive = true; self?.refresh() }
+            observe(workspace, NSWorkspace.sessionDidBecomeActiveNotification) { [weak self] _ in self?.state.sessionActive = true; self?.refresh(queryLock: true) }
             // Distributed notifications cover lock/unlock even if the window's
             // occlusion notification arrives later. Initial state is queried too.
             for (name, locked) in [("com.apple.screenIsLocked", true), ("com.apple.screenIsUnlocked", false)] {
@@ -100,21 +109,22 @@ struct DashboardVisibilityObserver: NSViewRepresentable {
                     self?.state.locked = locked; self?.refresh(queryLock: false)
                 })
             }
-            refresh()
+            refresh(queryLock: true)
         }
         private func observe(_ center: NotificationCenter, _ name: Notification.Name, object: Any? = nil,
                              action: @escaping (Notification) -> Void) {
             observations.append((center, center.addObserver(forName: name, object: object, queue: .main, using: action)))
         }
-        private func refresh(closing: Bool = false, queryLock: Bool = true, synchronous: Bool = false) {
+        private func refresh(closing: Bool = false, queryLock: Bool = false, synchronous: Bool = false) {
             state.windowVisible = !closing && window?.isVisible == true
             state.minimized = window?.isMiniaturized == true
             state.occluded = window?.occlusionState.contains(.visible) != true
             state.appHidden = hiding || NSApplication.shared.isHidden
             state.appActive = !resigning && NSApplication.shared.isActive
-            if queryLock, let session = CGSessionCopyCurrentDictionary() as? [String: Any] {
-                state.locked = session["CGSSessionScreenIsLocked"] as? Bool ?? false
-            }
+            // Query at attachment/return/wake. Departure and geometry events use
+            // the lock notifications' cached state, without a session-state query
+            // on the critical path before invalidating the display link.
+            if queryLock, let locked = queryLocked() { state.locked = locked }
             let value = state
             guard value != lastValue else { return }
             lastValue = value
@@ -136,7 +146,8 @@ struct DashboardVisibilityObserver: NSViewRepresentable {
         func stop() {
             observations.forEach { $0.0.removeObserver($0.1) }; observations.removeAll()
             distributed.forEach { DistributedNotificationCenter.default().removeObserver($0) }; distributed.removeAll()
-            lastValue = nil; resigning = false; hiding = false; state.minimizing = false; state.preparingToMinimize = false
+            lastValue = nil; resigning = false; hiding = false
+            state.minimizing = false; state.preparingToMinimize = false
         }
         deinit { stop() }
     }
@@ -172,23 +183,28 @@ enum DashboardPresentationPhase: Equatable {
         if wasVisible && state.permitsRendering && phase == .live { return }
         worker?.cancel(); worker = nil
         if !state.permitsRendering {
-            phase = .suspended
+            transition(to: .suspended)
         } else if !hasPresented {
-            hasPresented = true; phase = .live
+            hasPresented = true; transition(to: .live)
         } else {
-            phase = .returning
+            transition(to: .returning)
             worker = Task { @MainActor [weak self] in
                 guard let self else { return }
                 do { try await Task.sleep(for: .seconds(self.returnDelay)) } catch { return }
                 guard !Task.isCancelled else { return }
-                self.phase = .catchingUp
+                self.transition(to: .catchingUp)
                 do { try await Task.sleep(for: .seconds(self.catchUpDuration)) } catch { return }
                 guard !Task.isCancelled else { return }
-                self.phase = .live
+                self.transition(to: .live)
             }
         }
     }
-    func stop() { worker?.cancel(); worker = nil; lastState = nil; phase = .suspended }
+    private func transition(to next: DashboardPresentationPhase) {
+        // @Published emits even when equal; geometry bursts must not invalidate
+        // the dashboard again while it is already suspended or returning.
+        if phase != next { phase = next }
+    }
+    func stop() { worker?.cancel(); worker = nil; lastState = nil; transition(to: .suspended) }
     deinit { worker?.cancel() }
 }
 
