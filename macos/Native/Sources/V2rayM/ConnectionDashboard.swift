@@ -192,50 +192,7 @@ struct TrafficTrendView: View {
                 legend("直连 ↑", color: DashboardTheme.directUpload)
                 legend("直连 ↓", color: DashboardTheme.directDownload)
             }
-            TimelineView(.animation(minimumInterval: 1 / 60, paused: !animate || (points.isEmpty && retirement == nil))) { timeline in
-                let date = animate ? timeline.date : now
-                let ceiling = animate ? scale(at: date) : maximum
-                let reveal = animate ? eased(date.timeIntervalSince(sampleArrived)) : 1
-                Canvas { context, size in
-                    for index in 0...6 {
-                        var grid = Path()
-                        let y = 3 + Double(index) / 6 * max(0, size.height - 6)
-                        grid.move(to: CGPoint(x: 0, y: y)); grid.addLine(to: CGPoint(x: size.width, y: y))
-                        context.stroke(grid, with: .color(.primary.opacity(index == 6 ? 0.13 : 0.08)), lineWidth: 0.5)
-                    }
-                    if let retirement, animate {
-                        var old = context
-                        old.opacity = 1 - retirement.progress(at: timeline.date)
-                        draw(retirement.samples, date: retirement.displayDate, ceiling: retirement.ceiling,
-                             reveal: 1, context: old, size: size)
-                    }
-                    var current = context
-                    if let retirement, animate { current.opacity = retirement.progress(at: timeline.date) }
-                    draw(points, date: date, ceiling: ceiling, reveal: reveal, context: current, size: size)
-                }.clipped()
-            }.overlay {
-                if points.isEmpty && retirement == nil {
-                    if awaitingSample {
-                        VStack {
-                            Spacer(minLength: 0)
-                            HStack(spacing: 4) {
-                                Spacer(minLength: 0)
-                                ForEach(0..<4) { index in
-                                    Circle().fill([DashboardTheme.cyan, DashboardTheme.purple,
-                                                   DashboardTheme.directUpload, DashboardTheme.directDownload][index])
-                                        .frame(width: 4, height: 4)
-                                }
-                            }
-                        }.padding(.trailing, 2).padding(.bottom, 1)
-                            .transition(.opacity.combined(with: .scale(scale: 0.8, anchor: .bottomTrailing)))
-                    } else {
-                        Text(emptyTitle).font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
-                            .transition(.opacity)
-                    }
-                }
-            }
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: awaitingSample)
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: points.isEmpty)
+            plot(points: points, maximum: maximum)
         }.padding(.top, 7)
             .overlay(alignment: .top) { Rectangle().fill(Color.primary.opacity(0.1)).frame(height: 0.5) }
             .onAppear { scaleFrom = maximum; scaleTo = maximum }
@@ -259,12 +216,84 @@ struct TrafficTrendView: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("近五分钟代理及直连流量趋势，每五秒采样，显示一分钟均速。最近一分钟峰值 " + peakLabel + "。\(trend.visible(at: now).count) 个有效采样点。" + (points.isEmpty ? emptyTitle : ""))
     }
+    private func plot(points: [TrafficTrendSample], maximum: Double) -> some View {
+            GeometryReader { geometry in
+                // Cache settled curves outside the display-link observer. Only
+                // a translation is needed between data/scale updates.
+                let settled = strokes(points, date: now, ceiling: maximum, reveal: 1, size: geometry.size)
+                DashboardFrameTimeline(enabled: animate && (!points.isEmpty || retirement != nil), fallback: now) { frameDate in
+                let date = animate ? frameDate : now
+                let ceiling = animate ? scale(at: date) : maximum
+                let reveal = animate ? eased(date.timeIntervalSince(sampleArrived)) : 1
+                Canvas { context, size in
+                    for index in 0...6 {
+                        var grid = Path()
+                        let y = 3 + Double(index) / 6 * max(0, size.height - 6)
+                        grid.move(to: CGPoint(x: 0, y: y)); grid.addLine(to: CGPoint(x: size.width, y: y))
+                        context.stroke(grid, with: .color(.primary.opacity(index == 6 ? 0.13 : 0.08)), lineWidth: 0.5)
+                    }
+                    if let retirement, animate {
+                        var old = context
+                        old.opacity = 1 - retirement.progress(at: frameDate)
+                        draw(retirement.samples, date: retirement.displayDate, ceiling: retirement.ceiling,
+                             reveal: 1, context: old, size: size)
+                    }
+                    var current = context
+                    if let retirement, animate { current.opacity = retirement.progress(at: frameDate) }
+                    if reveal == 1 && abs(ceiling - maximum) < 0.0001 {
+                        current.translateBy(x: -date.timeIntervalSince(now) / TrafficTrend.duration * max(0, size.width - 4), y: 0)
+                        paint(settled, context: current)
+                    } else {
+                        draw(points, date: date, ceiling: ceiling, reveal: reveal, context: current, size: size)
+                    }
+                }.clipped()
+                }
+            }.overlay {
+                if points.isEmpty && retirement == nil {
+                    if awaitingSample {
+                        VStack {
+                            Spacer(minLength: 0)
+                            HStack(spacing: 4) {
+                                Spacer(minLength: 0)
+                                ForEach(0..<4) { index in
+                                    Circle().fill([DashboardTheme.cyan, DashboardTheme.purple,
+                                                   DashboardTheme.directUpload, DashboardTheme.directDownload][index])
+                                        .frame(width: 4, height: 4)
+                                }
+                            }
+                        }.padding(.trailing, 2).padding(.bottom, 1)
+                            .transition(.opacity.combined(with: .scale(scale: 0.8, anchor: .bottomTrailing)))
+                    } else {
+                        Text(emptyTitle).font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
+                            .transition(.opacity)
+                    }
+                }
+            }
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: awaitingSample)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: points.isEmpty)
+    }
+    private struct Stroke {
+        let line: Path
+        let dots: Path
+        let color: Color
+    }
+    private func paint(_ strokes: [Stroke], context: GraphicsContext) {
+        for stroke in strokes {
+            context.fill(stroke.dots, with: .color(stroke.color))
+            context.stroke(stroke.line, with: .color(stroke.color), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+        }
+    }
     private func draw(_ points: [TrafficTrendSample], date: Date, ceiling: Double, reveal: Double,
                       context: GraphicsContext, size: CGSize) {
+        paint(strokes(points, date: date, ceiling: ceiling, reveal: reveal, size: size), context: context)
+    }
+    private func strokes(_ points: [TrafficTrendSample], date: Date, ceiling: Double, reveal: Double, size: CGSize) -> [Stroke] {
+        var result: [Stroke] = []
         for (key, color) in [(\TrafficTrendSample.upload, DashboardTheme.cyan), (\TrafficTrendSample.download, DashboardTheme.purple),
                              (\TrafficTrendSample.directUpload, DashboardTheme.directUpload),
                              (\TrafficTrendSample.directDownload, DashboardTheme.directDownload)] {
             var line = Path()
+            var dots = Path()
             var previous: TrafficTrendSample?
             var previousPosition: CGPoint?
             for point in points {
@@ -285,12 +314,13 @@ struct TrafficTrendView: View {
                         control2: CGPoint(x: middle, y: position.y))
                 } else {
                     line.move(to: position)
-                    context.fill(Path(ellipseIn: CGRect(x: position.x - 1.2, y: position.y - 1.2, width: 2.4, height: 2.4)), with: .color(color))
+                    dots.addEllipse(in: CGRect(x: position.x - 1.2, y: position.y - 1.2, width: 2.4, height: 2.4))
                 }
                 previous = point; previousPosition = position
             }
-            context.stroke(line, with: .color(color), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+            result.append(Stroke(line: line, dots: dots, color: color))
         }
+        return result
     }
     private func legend(_ title: String, color: Color) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 4) {

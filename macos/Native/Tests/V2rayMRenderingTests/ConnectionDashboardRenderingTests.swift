@@ -154,7 +154,7 @@ final class ConnectionDashboardRenderingTests: XCTestCase {
         }
         model.dashboard.update(state: try XCTUnwrap(model.status), node: nil, entries: entries)
         for dark in [true, false] {
-            let home = NSHostingView(rootView: HomeDashboard().environmentObject(model)
+            let home = NSHostingView(rootView: HomeDashboard().environmentObject(model).environment(\.dashboardVisibilityOverride, true)
                 .font(AppFont.body).frame(width: 860, height: 568)
                 .environment(\.colorScheme, dark ? .dark : .light))
             home.frame = CGRect(x: 0, y: 0, width: 860, height: 568)

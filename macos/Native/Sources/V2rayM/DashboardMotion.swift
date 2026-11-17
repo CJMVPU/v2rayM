@@ -40,28 +40,31 @@ struct DashboardSolidSurface<Front: View, Back: View>: View, Animatable {
                               anchorZ: depth, perspective: vertical ? 0.6 : 0.7)
     }
     var body: some View {
-        // The original face owns layout. Extrusion must not accept the parent's
-        // larger proposal (notably the space reserved for the traffic rings).
-        front.hidden().overlay {
-            GeometryReader { geometry in
-                ZStack {
-                    ForEach(0..<9) { index in
-                        plane(kind.shape.fill(LinearGradient(colors: [Color(white: 0.34), Color(white: 0.11)],
-                            startPoint: .topLeading, endPoint: .bottomTrailing)),
-                              depth: kind.depth * (CGFloat(index) / 8 - 0.5))
-                            .opacity(min(1, activity * 8))
-                            .accessibilityHidden(true).allowsHitTesting(false)
-                    }
-                    plane(front.clipShape(kind.shape).overlay(light).opacity(frontFacing ? 1 : 0), depth: -kind.depth / 2)
-                        .allowsHitTesting(frontFacing)
-                    plane(back.clipShape(kind.shape).overlay(light)
-                        .scaleEffect(x: vertical ? 1 : -1, y: vertical ? -1 : 1)
-                        .opacity(frontFacing ? 0 : 1), depth: kind.depth / 2)
-                        .accessibilityHidden(true).allowsHitTesting(false)
+        // The sole front face owns layout and identity. Background geometry
+        // supplies thickness without creating a hidden second content tree.
+        plane(front.clipShape(kind.shape).overlay { if activity > 0.0001 { light } }
+            .opacity(frontFacing ? 1 : 0), depth: -kind.depth / 2)
+            .allowsHitTesting(frontFacing)
+            .background {
+                if activity > 0.0001 || !frontFacing {
+                    GeometryReader { geometry in
+                        ZStack {
+                            if activity > 0.0001 {
+                                ForEach(0..<9) { index in
+                                    plane(kind.shape.fill(LinearGradient(colors: [Color(white: 0.34), Color(white: 0.11)],
+                                        startPoint: .topLeading, endPoint: .bottomTrailing)),
+                                          depth: kind.depth * (CGFloat(index) / 8 - 0.5))
+                                        .opacity(min(1, activity * 8))
+                                }
+                            }
+                            if !frontFacing {
+                                plane(back.clipShape(kind.shape).overlay(light)
+                                    .scaleEffect(x: vertical ? 1 : -1, y: vertical ? -1 : 1), depth: kind.depth / 2)
+                            }
+                        }.frame(width: geometry.size.width, height: geometry.size.height)
+                    }.accessibilityHidden(true).allowsHitTesting(false)
                 }
-                .frame(width: geometry.size.width, height: geometry.size.height)
             }
-        }
         .rotation3DEffect(.degrees(activity * (vertical ? 5 : -9)), axis: vertical ? (x: 0, y: 1, z: 0) : (x: 1, y: 0, z: 0), perspective: 0.3)
         .scaleEffect(1 + activity * (vertical ? 0.008 : 0.018))
         .shadow(color: .black.opacity(0.25 + activity * 0.12), radius: vertical ? 1.5 : 5 + activity * 3,
@@ -155,7 +158,7 @@ struct DashboardCardTiming {
             return
         }
         guard desired != targetActive else {
-            if worker == nil { displayed = presentedActive ? latest : idle }
+            if worker == nil { setDisplayed(presentedActive ? latest : idle) }
             return
         }
         cancel()
@@ -189,9 +192,10 @@ struct DashboardCardTiming {
         }
     }
 
+    private func setDisplayed(_ value: Value) { if displayed != value { displayed = value } }
     func cancel() {
         generation += 1; worker?.cancel(); worker = nil
-        withoutAnimation { angle = 0 }
+        withoutAnimation { if angle != 0 { angle = 0 } }
     }
     func disappear() {
         cancel()

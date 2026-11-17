@@ -14,7 +14,15 @@ enum DashboardTheme {
 
 struct HomeDashboard: View {
     @EnvironmentObject var model: AppModel
-    var body: some View { DashboardContent(monitor: model.dashboard, telemetry: model.telemetry).environmentObject(model).environment(\.colorScheme, .dark) }
+    @Environment(\.dashboardVisibilityOverride) private var visibilityOverride
+    @State private var windowVisible = false
+    var body: some View {
+        DashboardRenderGate(visible: visibilityOverride ?? windowVisible) {
+            DashboardContent(monitor: model.dashboard, telemetry: model.telemetry)
+                .environmentObject(model).environment(\.colorScheme, .dark)
+        }
+        .background(DashboardVisibilityObserver { windowVisible = $0 })
+    }
 }
 
 private struct DashboardContent: View {
