@@ -17,7 +17,7 @@ struct ConnectionDashboard: View {
     let connecting: Bool
     let reconnect: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var windowVisible = false
+    @Environment(\.dashboardMotionEnabled) private var windowVisible
     @State private var discHovered = false
     private var running: Bool { state.active || state == .local }
     private var mode: String {
@@ -61,7 +61,6 @@ struct ConnectionDashboard: View {
                     .frame(height: trendHeight)
             }
         }
-        .background(DashboardWindowVisibility(visible: $windowVisible))
     }
     private func badge(_ title: String, value: String) -> some View {
         HStack(spacing: 7) {
@@ -328,37 +327,5 @@ struct TrafficTrendView: View {
                 .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 3 }
             Text(title).font(AppFont.size(10)).foregroundStyle(DashboardTheme.muted)
         }.fixedSize()
-    }
-}
-
-/// TimelineView is explicitly paused when the window closes, minimizes or is occluded.
-private struct DashboardWindowVisibility: NSViewRepresentable {
-    @Binding var visible: Bool
-    func makeNSView(context: Context) -> Watcher { Watcher { visible = $0 } }
-    func updateNSView(_ view: Watcher, context: Context) {}
-    static func dismantleNSView(_ view: Watcher, coordinator: ()) { view.stop() }
-    final class Watcher: NSView {
-        private let changed: (Bool) -> Void
-        private var observations: [NSObjectProtocol] = []
-        init(changed: @escaping (Bool) -> Void) { self.changed = changed; super.init(frame: .zero) }
-        required init?(coder: NSCoder) { fatalError("init(coder:) unavailable") }
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            stop()
-            guard let window else { return }
-            for name in [NSWindow.didMiniaturizeNotification, NSWindow.didDeminiaturizeNotification,
-                         NSWindow.didChangeOcclusionStateNotification, NSWindow.willCloseNotification] {
-                observations.append(NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] note in
-                    self?.update(closing: note.name == NSWindow.willCloseNotification)
-                })
-            }
-            update()
-        }
-        private func update(closing: Bool = false) {
-            let value = !closing && window?.isVisible == true && window?.isMiniaturized == false && window?.occlusionState.contains(.visible) == true
-            DispatchQueue.main.async { [weak self] in self?.changed(value) }
-        }
-        func stop() { observations.forEach(NotificationCenter.default.removeObserver); observations.removeAll() }
-        deinit { stop() }
     }
 }

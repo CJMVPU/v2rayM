@@ -81,10 +81,11 @@ struct DashboardActivationFlip: ViewModifier {
     let active: Bool
     var kind: DashboardSolidKind = .card
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dashboardFlipsEnabled) private var flipsEnabled
     @State private var activation = 0
     @State private var stopping = 0
     func body(content: Content) -> some View {
-        let reduced = reduceMotion
+        let reduced = reduceMotion || !flipsEnabled
         return content.keyframeAnimator(initialValue: 0.0, trigger: activation) { view, angle in
             DashboardSolidSurface(angle: reduced ? 0 : angle, kind: kind, front: view,
                 back: ZStack {
@@ -108,7 +109,7 @@ struct DashboardActivationFlip: ViewModifier {
             CubicKeyframe(0, duration: 0.38)
         }
         .onChange(of: active) { old, new in
-            guard !reduceMotion else { return }
+            guard !reduceMotion && flipsEnabled else { return }
             if !old && new { activation += 1 }
             else if old && !new { stopping += 1 }
         }
@@ -222,6 +223,7 @@ struct DashboardDataCard<Value: Equatable, Content: View>: View {
     let ready: Bool
     let content: (Value, Bool) -> Content
     @Environment(\.accessibilityReduceMotion) private var reduced
+    @Environment(\.dashboardFlipsEnabled) private var flipsEnabled
     @StateObject private var presentation: DashboardCardPresentation<Value>
     init(value: Value, idle: Value, active: Bool, ready: Bool, slot: Int,
          @ViewBuilder content: @escaping (Value, Bool) -> Content) {
@@ -239,7 +241,7 @@ struct DashboardDataCard<Value: Equatable, Content: View>: View {
                     Text("Xray").font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
                 }
             })
-            .onChange(of: DashboardCardInput(value: value, idle: idle, active: active, ready: ready, reduced: reduced), initial: true) { _, input in
+            .onChange(of: DashboardCardInput(value: value, idle: idle, active: active, ready: ready, reduced: reduced || !flipsEnabled), initial: true) { _, input in
                 presentation.update(value: input.value, idle: input.idle, active: input.active,
                                     ready: input.ready, reduced: input.reduced)
             }
@@ -265,6 +267,8 @@ struct DashboardFlipValue<Value: Equatable, Content: View>: View {
     var slot = 0
     let content: (Value) -> Content
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dashboardFlipsEnabled) private var flipsEnabled
+    @Environment(\.dashboardMotionEnabled) private var motionEnabled
     @State private var displayed: Value
     @State private var displayedIdentity: String
     @State private var pending: Value
@@ -281,17 +285,17 @@ struct DashboardFlipValue<Value: Equatable, Content: View>: View {
     }
     var body: some View {
         DashboardSolidSurface(angle: reduceMotion ? 0 : angle, kind: .row,
-            front: content(displayedIdentity == identity ? value : displayed), back: content(incoming))
+            front: content(displayedIdentity == identity ? value : displayed).contentTransition(.opacity), back: content(incoming))
             .onChange(of: value) { _, _ in enqueue() }
             .onAppear { enqueue() }
             .onDisappear { worker?.cancel(); worker = nil; settle() }
-            .onChange(of: reduceMotion) { _, reduced in
+            .onChange(of: reduceMotion || !flipsEnabled) { _, reduced in
                 if reduced { worker?.cancel(); worker = nil; settle() }
             }
     }
     private func enqueue() {
         pending = value; pendingIdentity = identity
-        guard !reduceMotion else { settle(); return }
+        guard !reduceMotion && flipsEnabled else { worker?.cancel(); worker = nil; settle(); return }
         guard worker == nil else { return }
         guard pendingIdentity != displayedIdentity else { displayed = pending; return }
         worker = Task { @MainActor in
@@ -314,7 +318,8 @@ struct DashboardFlipValue<Value: Equatable, Content: View>: View {
         }
     }
     private func settle() {
-        var transaction = Transaction(); transaction.disablesAnimations = true
+        var transaction = Transaction(animation: motionEnabled && !reduceMotion ? .easeInOut(duration: 0.45) : nil)
+        transaction.disablesAnimations = !motionEnabled || reduceMotion
         withTransaction(transaction) {
             displayed = value; displayedIdentity = identity; pending = value; pendingIdentity = identity
             incoming = value; angle = 0

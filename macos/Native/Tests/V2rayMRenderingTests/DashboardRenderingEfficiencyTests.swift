@@ -5,12 +5,8 @@ import SwiftUI
 
 @MainActor private final class EfficiencyFixture: ObservableObject {
     @Published var angle = 0.0
-    @Published var visible = true
-    @Published var value = 1
     var fronts = 0
     var backs = 0
-    var currentFaces = 0
-    var displayed: [Int] = []
 }
 private struct SurfaceFixture: View {
     @ObservedObject var state: EfficiencyFixture
@@ -20,19 +16,6 @@ private struct SurfaceFixture: View {
                 .onAppear { state.fronts += 1 },
             back: Text("back").frame(width: 200, height: 100)
                 .onAppear { state.backs += 1 })
-    }
-}
-private struct GateFixture: View {
-    @ObservedObject var state: EfficiencyFixture
-    var body: some View {
-        DashboardRenderGate(visible: state.visible) {
-            DashboardDataCard(value: state.value, idle: 0, active: true, ready: true, slot: 0) { value, _ in
-                Text(String(value)).frame(width: 200, height: 100)
-                    .onAppear { state.currentFaces += 1; state.displayed.append(value) }
-                    .onDisappear { state.currentFaces -= 1 }
-                    .onChange(of: value) { _, value in state.displayed.append(value) }
-            }
-        }.frame(width: 200, height: 100)
     }
 }
 final class DashboardRenderingEfficiencyTests: XCTestCase {
@@ -76,26 +59,77 @@ final class DashboardRenderingEfficiencyTests: XCTestCase {
         XCTAssertEqual(state.fronts, 1)
     }
 
-    @MainActor func testHiddenDashboardDropsFacesAndResumesLatestWithoutReplay() async throws {
-        let state = EfficiencyFixture()
-        let host = NSHostingView(rootView: GateFixture(state: state))
-        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false; window.contentView = host; window.orderFront(nil)
-        defer { window.close() }
-        try await Task.sleep(for: .milliseconds(100))
-        XCTAssertEqual(state.currentFaces, 1)
-        state.visible = false
-        try await Task.sleep(for: .milliseconds(100))
-        XCTAssertEqual(state.currentFaces, 0, "Invisible windows must release the animated subtree immediately")
-        let events = state.displayed.count
-        for value in 2...100 { state.value = value }
-        try await Task.sleep(for: .milliseconds(100))
-        XCTAssertEqual(state.displayed.count, events, "Background updates should not instantiate faces or enqueue flips")
-        state.visible = true
-        try await Task.sleep(for: .milliseconds(100))
-        XCTAssertEqual(state.currentFaces, 1)
-        XCTAssertEqual(state.displayed.last, 100, "Resume must show the latest snapshot without replaying intermediate values")
-        try await Task.sleep(for: .milliseconds(350))
-        XCTAssertEqual(state.displayed.last, 100)
+    @MainActor func testOcclusionWaitsAndQuickReturnCancelsPendingPause() async throws {
+        let coordinator = DashboardVisibilityCoordinator(departureDelay: 0.12, returnDelay: 0.05, catchUpDuration: 0.04)
+        let visible = DashboardVisibilityState(windowVisible: true, occluded: false)
+        var occluded = visible; occluded.occluded = true
+        coordinator.update(visible)
+        XCTAssertEqual(coordinator.phase, .live)
+        coordinator.update(occluded)
+        XCTAssertEqual(coordinator.phase, .departing)
+        XCTAssertTrue(coordinator.phase.rendersMotion)
+        XCTAssertFalse(coordinator.phase.acceptsData)
+        try await Task.sleep(for: .milliseconds(30))
+        coordinator.update(visible)
+        XCTAssertEqual(coordinator.phase, .returning)
+        try await Task.sleep(for: .milliseconds(65))
+        XCTAssertEqual(coordinator.phase, .catchingUp)
+        XCTAssertFalse(coordinator.phase.permitsFlips)
+        try await Task.sleep(for: .milliseconds(80))
+        XCTAssertEqual(coordinator.phase, .live, "Cancelled departure must not suspend a restored window")
+        coordinator.update(occluded)
+        try await Task.sleep(for: .milliseconds(150))
+        XCTAssertEqual(coordinator.phase, .suspended)
+        coordinator.stop()
+    }
+
+    @MainActor func testStageManagerThumbnailCanRemainVisibleWhileInactive() async throws {
+        let coordinator = DashboardVisibilityCoordinator(departureDelay: 0.04, returnDelay: 0.02, catchUpDuration: 0.02)
+        var state = DashboardVisibilityState(windowVisible: true, occluded: false)
+        coordinator.update(state)
+        state.appActive = false; coordinator.update(state)
+        XCTAssertEqual(coordinator.phase, .departing)
+        XCTAssertFalse(state.permitsRendering)
+        try await Task.sleep(for: .milliseconds(60))
+        XCTAssertEqual(coordinator.phase, .suspended)
+        state.appActive = true; coordinator.update(state)
+        XCTAssertEqual(coordinator.phase, .returning)
+        try await Task.sleep(for: .milliseconds(60))
+        XCTAssertEqual(coordinator.phase, .live)
+        coordinator.stop()
+    }
+
+    @MainActor func testHardBlockersCancelGraceAndCannotBeOverriddenByLateTasks() async throws {
+        for key in [\DashboardVisibilityState.minimized, \.appHidden, \.locked, \.sleeping] {
+            let coordinator = DashboardVisibilityCoordinator(departureDelay: 0.04, returnDelay: 0.04, catchUpDuration: 0.02)
+            var state = DashboardVisibilityState(windowVisible: true, occluded: false)
+            coordinator.update(state); state.occluded = true; coordinator.update(state)
+            state.occluded = false; coordinator.update(state)
+            state[keyPath: key] = true; coordinator.update(state)
+            XCTAssertEqual(coordinator.phase, .suspended)
+            try await Task.sleep(for: .milliseconds(90))
+            XCTAssertEqual(coordinator.phase, .suspended)
+            coordinator.stop()
+        }
+    }
+
+    @MainActor func testFrozenPresentationIgnoresBackgroundUpdatesAndReadsLatestOnResume() async throws {
+        let model = AppModel()
+        let source = DashboardPresentationSource(model: model)
+        source.setEnabled(true)
+        model.connecting = true
+        try await Task.sleep(for: .milliseconds(30))
+        XCTAssertTrue(source.snapshot.connecting)
+        source.setEnabled(false)
+        let frozenDate = source.snapshot.now
+        for _ in 0..<100 { model.connecting.toggle() }
+        model.connecting = false
+        try await Task.sleep(for: .milliseconds(1100))
+        XCTAssertEqual(source.snapshot.now, frozenDate)
+        XCTAssertTrue(source.snapshot.connecting)
+        source.setEnabled(true)
+        XCTAssertFalse(source.snapshot.connecting)
+        XCTAssertGreaterThan(source.snapshot.now, frozenDate)
+        source.setEnabled(false)
     }
 }

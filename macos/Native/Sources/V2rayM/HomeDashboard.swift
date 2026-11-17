@@ -14,28 +14,45 @@ enum DashboardTheme {
 
 struct HomeDashboard: View {
     @EnvironmentObject var model: AppModel
+    var body: some View { DashboardSession(model: model) }
+}
+
+private struct DashboardSession: View {
     @Environment(\.dashboardVisibilityOverride) private var visibilityOverride
-    @State private var windowVisible = false
+    @Environment(\.accessibilityReduceMotion) private var reduced
+    @StateObject private var visibility = DashboardVisibilityCoordinator()
+    @StateObject private var source: DashboardPresentationSource
+    init(model: AppModel) { _source = StateObject(wrappedValue: DashboardPresentationSource(model: model)) }
+    private var phase: DashboardPresentationPhase {
+        visibilityOverride.map { $0 ? .live : .suspended } ?? visibility.phase
+    }
     var body: some View {
-        DashboardRenderGate(visible: visibilityOverride ?? windowVisible) {
-            DashboardContent(monitor: model.dashboard, telemetry: model.telemetry)
-                .environmentObject(model).environment(\.colorScheme, .dark)
-        }
-        .background(DashboardVisibilityObserver { windowVisible = $0 })
+        DashboardContent(data: source.snapshot, model: source.model).equatable()
+            .environment(\.colorScheme, .dark)
+            .environment(\.dashboardMotionEnabled, phase.rendersMotion)
+            .environment(\.dashboardFlipsEnabled, phase.permitsFlips)
+            .transaction { if !phase.rendersMotion { $0.disablesAnimations = true } }
+            .background(DashboardVisibilityObserver { visibility.update($0) })
+            .onChange(of: phase, initial: true) { _, phase in
+                withAnimation(phase == .catchingUp && !reduced ? .easeInOut(duration: visibility.catchUpDuration) : nil) {
+                    source.setEnabled(phase.acceptsData)
+                }
+            }
+            .onDisappear { source.setEnabled(false); visibility.stop() }
     }
 }
 
-private struct DashboardContent: View {
-    @EnvironmentObject var model: AppModel
-    @ObservedObject var monitor: GlobeMonitor
-    @ObservedObject var telemetry: RuntimeTelemetry
+private struct DashboardContent: View, Equatable {
+    static func == (lhs: Self, rhs: Self) -> Bool { lhs.data == rhs.data && lhs.model === rhs.model }
+    let data: DashboardSnapshot
+    let model: AppModel
     @State private var alpn = ""
     private var node: Profile? {
-        let id = model.status?.coreRunning == true ? model.status?.runningProfileId : model.status?.currentProfileId
-        return model.profiles.first { $0.id == id }
+        let id = data.status?.coreRunning == true ? data.status?.runningProfileId : data.status?.currentProfileId
+        return data.profiles.first { $0.id == id }
     }
     private var nodeName: String {
-        let name = node?.remarks ?? model.status?.runningProfileName ?? model.status?.currentProfileName ?? "尚未选择"
+        let name = node?.remarks ?? data.status?.runningProfileName ?? data.status?.currentProfileName ?? "尚未选择"
         return name.isEmpty ? "未命名节点" : name
     }
     private var protocols: String {
@@ -49,32 +66,32 @@ private struct DashboardContent: View {
         return values.joined(separator: " / ")
     }
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
-            let state = model.displayStatus(at: context.date)
+        Group {
+            let state = data.state
             let live = state.active || state == .local
-            let rates = live && model.status?.trafficEnabled == true ? model.status?.traffic?.rates(at: context.date) : nil
-            let cardsReady = rates != nil && !monitor.connections.isEmpty
+            let rates = live && data.status?.trafficEnabled == true ? data.status?.traffic?.rates(at: data.now) : nil
+            let cardsReady = rates != nil && !data.connections.isEmpty
             VStack(spacing: 0) {
                 GeometryReader { geometry in
                     HStack(spacing: 0) {
-                        ConnectionDashboard(state: state, city: monitor.nodePlace?.displayCity ?? "位置未知",
-                            nodeName: nodeName, node: node, startedAt: model.status?.coreStartedAt,
-                            coreRunning: model.status?.coreRunning == true, rates: rates,
-                            trend: model.trafficTrend, trafficEnabled: model.status?.trafficEnabled,
-                            now: context.date, connecting: model.connecting,
+                        ConnectionDashboard(state: state, city: data.nodePlace?.displayCity ?? "位置未知",
+                            nodeName: nodeName, node: node, startedAt: data.status?.coreStartedAt,
+                            coreRunning: data.status?.coreRunning == true, rates: rates,
+                            trend: data.trend, trafficEnabled: data.status?.trafficEnabled,
+                            now: data.now, connecting: data.connecting,
                             reconnect: { Task { await model.connect() } })
                             .frame(maxWidth: .infinity, maxHeight: .infinity).padding(12)
                         VStack(spacing: 12) {
                             DashboardDataCard(value: state, idle: DashboardStatus.stopped,
-                                active: model.status?.coreRunning == true, ready: cardsReady, slot: 0) { displayed, _ in
+                                active: data.status?.coreRunning == true, ready: cardsReady, slot: 0) { displayed, _ in
                                 nodeCard(state: displayed)
                             }
                             DashboardDataCard(value: rates, idle: Optional<[Double]>.none,
-                                active: model.status?.coreRunning == true, ready: cardsReady, slot: 1) { displayed, _ in
+                                active: data.status?.coreRunning == true, ready: cardsReady, slot: 1) { displayed, _ in
                                 trafficCard(rates: displayed, state: state)
                             }
-                            RecentConnectionsCard(connections: monitor.connections,
-                                coreRunning: model.status?.coreRunning == true, dataReady: cardsReady)
+                            RecentConnectionsCard(connections: data.connections,
+                                coreRunning: data.status?.coreRunning == true, dataReady: cardsReady)
                         }.frame(width: geometry.size.width * 0.325, height: max(0, geometry.size.height - 24))
                             .padding(.trailing, 12).padding(.vertical, 12)
                     }
@@ -95,7 +112,7 @@ private struct DashboardContent: View {
     private func nodeCard(state: DashboardStatus) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 0) {
-                statusIcon("shield.lefthalf.filled", title: "后台服务", enabled: model.ready && model.tun?.helperAvailable == true)
+                statusIcon("shield.lefthalf.filled", title: "后台服务", enabled: data.helperReady)
                 Rectangle().fill(DashboardTheme.line.opacity(0.5)).frame(width: 0.5, height: 32)
                 statusIcon("arrow.left.arrow.right", title: "系统代理", enabled: state == .system)
                 Rectangle().fill(DashboardTheme.line.opacity(0.5)).frame(width: 0.5, height: 32)
@@ -104,14 +121,14 @@ private struct DashboardContent: View {
             rule
             Text("当前节点").font(AppFont.caption).foregroundStyle(DashboardTheme.muted).padding(.top, 11)
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(monitor.nodePlace?.displayCity ?? "位置未知").font(AppFont.size(21)).lineLimit(1).minimumScaleFactor(0.75)
+                Text(data.nodePlace?.displayCity ?? "位置未知").font(AppFont.size(21)).lineLimit(1).minimumScaleFactor(0.75)
                 Text("·").foregroundStyle(DashboardTheme.muted)
                 Text(nodeName).font(AppFont.size(14)).foregroundStyle(DashboardTheme.muted)
                     .lineLimit(1).truncationMode(.tail).frame(maxWidth: .infinity, alignment: .leading).help(nodeName)
             }.padding(.top, 6).padding(.bottom, 8)
             Text(protocols).font(AppFont.size(10.5)).foregroundStyle(DashboardTheme.muted)
                 .lineLimit(1).minimumScaleFactor(0.8).help("节点配置：" + protocols + "。ALPN 是配置值，不代表已协商的协议。")
-            Text("Xray " + (model.status?.installedXrayVersion ?? "版本待读取"))
+            Text("Xray " + (data.status?.installedXrayVersion ?? "版本待读取"))
                 .font(AppFont.size(10))
                 .foregroundStyle(DashboardTheme.muted.opacity(0.75)).lineLimit(1).padding(.top, 7)
         }.padding(12).dashboardPanel()
@@ -144,14 +161,14 @@ private struct DashboardContent: View {
             rule
             Text("节点累计").font(AppFont.size(13))
             HStack(spacing: 10) {
-                trafficMetric("代理累计上传", icon: "arrow.up.right", value: DashboardStatus.amountParts(model.status?.statisticsEnabled == true ? node?.totalUp : nil),
+                trafficMetric("代理累计上传", icon: "arrow.up.right", value: DashboardStatus.amountParts(data.status?.statisticsEnabled == true ? node?.totalUp : nil),
                               color: DashboardTheme.cyan)
                 Rectangle().fill(DashboardTheme.line).frame(width: 0.5, height: 22)
-                trafficMetric("代理累计下载", icon: "arrow.down.left", value: DashboardStatus.amountParts(model.status?.statisticsEnabled == true ? node?.totalDown : nil),
+                trafficMetric("代理累计下载", icon: "arrow.down.left", value: DashboardStatus.amountParts(data.status?.statisticsEnabled == true ? node?.totalDown : nil),
                               color: DashboardTheme.purple)
             }
         }.padding(12).dashboardPanel()
-            .help(DashboardStatus.trafficDescription(state: state, enabled: model.status?.trafficEnabled, hasSample: rates != nil)
+            .help(DashboardStatus.trafficDescription(state: state, enabled: data.status?.trafficEnabled, hasSample: rates != nil)
                 + "；第一行青／紫为代理上传／下载，第二行绿／橙为直连上传／下载。直连仅包含经过 Xray 的流量；节点累计仅统计当前节点的代理流量。")
     }
     private func trafficMetric(_ title: String, icon: String, value: DashboardMetricValue, color: Color) -> some View {

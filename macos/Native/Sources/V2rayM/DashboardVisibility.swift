@@ -7,10 +7,12 @@ struct DashboardVisibilityState: Equatable {
     var minimized = false
     var occluded = true
     var appHidden = false
+    var appActive = true
     var locked = false
     var sleeping = false
     var sessionActive = true
-    var permitsRendering: Bool { windowVisible && !minimized && !occluded && !appHidden && !locked && !sleeping && sessionActive }
+    var requiresImmediatePause: Bool { !windowVisible || minimized || appHidden || locked || sleeping || !sessionActive }
+    var permitsRendering: Bool { !requiresImmediatePause && !occluded && appActive }
 }
 
 /// An override is useful for offline compositor tests; production uses OS events.
@@ -24,18 +26,18 @@ extension EnvironmentValues {
 
 /// Keeps observation alive while the expensive dashboard subtree is suspended.
 struct DashboardVisibilityObserver: NSViewRepresentable {
-    let changed: (Bool) -> Void
+    let changed: (DashboardVisibilityState) -> Void
     func makeNSView(context: Context) -> Watcher { Watcher(changed: changed) }
     func updateNSView(_ view: Watcher, context: Context) { view.changed = changed }
     static func dismantleNSView(_ view: Watcher, coordinator: ()) { view.stop() }
 
     final class Watcher: NSView {
-        var changed: (Bool) -> Void
+        var changed: (DashboardVisibilityState) -> Void
         private var state = DashboardVisibilityState()
         private var observations: [(NotificationCenter, NSObjectProtocol)] = []
         private var distributed: [NSObjectProtocol] = []
-        private var lastValue: Bool?
-        init(changed: @escaping (Bool) -> Void) { self.changed = changed; super.init(frame: .zero) }
+        private var lastValue: DashboardVisibilityState?
+        init(changed: @escaping (DashboardVisibilityState) -> Void) { self.changed = changed; super.init(frame: .zero) }
         required init?(coder: NSCoder) { fatalError("init(coder:) unavailable") }
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow(); stop()
@@ -44,7 +46,8 @@ struct DashboardVisibilityObserver: NSViewRepresentable {
                          NSWindow.didChangeOcclusionStateNotification, NSWindow.willCloseNotification] {
                 observe(.default, name, object: window) { [weak self] note in self?.refresh(closing: note.name == NSWindow.willCloseNotification) }
             }
-            for name in [NSApplication.didHideNotification, NSApplication.didUnhideNotification] {
+            for name in [NSApplication.didHideNotification, NSApplication.didUnhideNotification,
+                         NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification] {
                 observe(.default, name) { [weak self] _ in self?.refresh() }
             }
             let workspace = NSWorkspace.shared.notificationCenter
@@ -74,10 +77,11 @@ struct DashboardVisibilityObserver: NSViewRepresentable {
             state.minimized = window?.isMiniaturized == true
             state.occluded = window?.occlusionState.contains(.visible) != true
             state.appHidden = NSApplication.shared.isHidden
+            state.appActive = NSApplication.shared.isActive
             if queryLock, let session = CGSessionCopyCurrentDictionary() as? [String: Any] {
                 state.locked = session["CGSSessionScreenIsLocked"] as? Bool ?? false
             }
-            let value = state.permitsRendering
+            let value = state
             guard value != lastValue else { return }
             lastValue = value
             DispatchQueue.main.async { [weak self] in
@@ -94,17 +98,69 @@ struct DashboardVisibilityObserver: NSViewRepresentable {
     }
 }
 
-/// Removal cancels animation tasks; insertion starts from the model's newest
-/// snapshot, with an opacity-only transition instead of replaying old updates.
-struct DashboardRenderGate<Content: View>: View {
-    let visible: Bool
-    @ViewBuilder let content: () -> Content
-    @Environment(\.accessibilityReduceMotion) private var reduced
-    var body: some View {
-        ZStack {
-            DashboardTheme.background
-            if visible { content().transition(.opacity) }
+/// Stage Manager thumbnails can remain unoccluded. Observe foreground activity
+/// as well; neither event is a transition-completion signal. Keep the
+/// existing surface through a quiet interval; never remove its content tree.
+enum DashboardPresentationPhase: Equatable {
+    case live, departing, suspended, returning, catchingUp
+    var rendersMotion: Bool { self == .live || self == .departing || self == .catchingUp }
+    var acceptsData: Bool { self == .live || self == .catchingUp }
+    var permitsFlips: Bool { self == .live || self == .departing || self == .returning }
+}
+
+@MainActor final class DashboardVisibilityCoordinator: ObservableObject {
+    @Published private(set) var phase: DashboardPresentationPhase = .suspended
+    private var worker: Task<Void, Never>?
+    private var lastState: DashboardVisibilityState?
+    private var hasPresented = false
+    let departureDelay: TimeInterval
+    let returnDelay: TimeInterval
+    let catchUpDuration: TimeInterval
+    init(departureDelay: TimeInterval = 1.0, returnDelay: TimeInterval = 0.65, catchUpDuration: TimeInterval = 0.45) {
+        self.departureDelay = departureDelay; self.returnDelay = returnDelay; self.catchUpDuration = catchUpDuration
+    }
+    func update(_ state: DashboardVisibilityState) {
+        guard state != lastState else { return }
+        lastState = state
+        worker?.cancel(); worker = nil
+        if state.requiresImmediatePause { phase = .suspended; return }
+        if state.occluded || !state.appActive {
+            guard phase != .suspended else { return }
+            phase = .departing
+            worker = Task { @MainActor [weak self] in
+                guard let self else { return }
+                do { try await Task.sleep(for: .seconds(self.departureDelay)) } catch { return }
+                guard !Task.isCancelled else { return }
+                self.phase = .suspended
+            }
+        } else if !hasPresented {
+            hasPresented = true; phase = .live
+        } else {
+            phase = .returning
+            worker = Task { @MainActor [weak self] in
+                guard let self else { return }
+                do { try await Task.sleep(for: .seconds(self.returnDelay)) } catch { return }
+                guard !Task.isCancelled else { return }
+                self.phase = .catchingUp
+                do { try await Task.sleep(for: .seconds(self.catchUpDuration)) } catch { return }
+                guard !Task.isCancelled else { return }
+                self.phase = .live
+            }
         }
-        .animation(visible && !reduced ? .easeOut(duration: 0.22) : nil, value: visible)
+    }
+    func stop() { worker?.cancel(); worker = nil; lastState = nil; phase = .suspended }
+    deinit { worker?.cancel() }
+}
+
+private struct DashboardMotionEnabledKey: EnvironmentKey { static let defaultValue = true }
+private struct DashboardFlipsEnabledKey: EnvironmentKey { static let defaultValue = true }
+extension EnvironmentValues {
+    var dashboardMotionEnabled: Bool {
+        get { self[DashboardMotionEnabledKey.self] }
+        set { self[DashboardMotionEnabledKey.self] = newValue }
+    }
+    var dashboardFlipsEnabled: Bool {
+        get { self[DashboardFlipsEnabledKey.self] }
+        set { self[DashboardFlipsEnabledKey.self] = newValue }
     }
 }
