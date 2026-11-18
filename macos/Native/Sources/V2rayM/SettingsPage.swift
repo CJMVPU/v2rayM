@@ -37,17 +37,11 @@ struct SettingsPage: View {
                             }.background(SettingsWheelScroll())
                         }
                     }
-                    HStack(spacing: 18) {
-                        RealityLabel(title: "代理端口 " + (model.status?.configuredProxyPort.map(String.init) ?? "—"), asset: .network, color: DashboardTheme.muted)
-                        RealityLabel(title: model.status?.xrayAvailable == true ? "Xray 已安装" : "Xray 未安装", asset: .package, color: DashboardTheme.muted)
-                    }.font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
                 }
                 SettingsCard(title: "网络配置", symbol: .topology) {
                     AdvancedSettingsPanel(select: { pane = $0; navigationLocked = true }).environmentObject(model)
                 }
-                SettingsCard(title: "模块更新", symbol: .sync) {
-                    ModuleUpdatePanel().environmentObject(model)
-                }
+                ModuleUpdatePanel().environmentObject(model)
                 HStack(alignment: .top, spacing: PageLayout.gap) {
                     SettingsCard(title: "TUN 后台服务", symbol: .shieldCheck, fillHeight: true) {
                         LabeledContent("运行状态", value: model.tun?.isRunning == true ? "运行中" : "已关闭")
@@ -57,8 +51,6 @@ struct SettingsPage: View {
                                 .disabled(disabled || model.tun?.helperAvailable == true)
                             Button("后台服务设置") { model.openTunApproval() }.disabled(disabled)
                         }
-                        Text("开启前请先暂停其他软件的 TUN 或 VPN。")
-                            .font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
                     }
                     SettingsCard(title: "日志与数据", symbol: .folder, fillHeight: true) {
                         Text("保留最近 10,000 行日志，切换模式时保留历史。")

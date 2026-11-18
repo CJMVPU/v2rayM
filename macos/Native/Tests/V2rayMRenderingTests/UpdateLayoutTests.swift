@@ -33,9 +33,7 @@ import V2rayMKit
                     from: JSONSerialization.data(withJSONObject: object))]
             }
             let host = NSHostingView(rootView: VStack(spacing: 12) {
-                SettingsCard(title: "模块更新", symbol: .sync) {
-                    ModuleUpdatePanel().environmentObject(model)
-                }
+                ModuleUpdatePanel().environmentObject(model)
                 SettingsCard(title: "下一张卡片") { Text("位置保持不变") }
             }.font(AppFont.body).buttonStyle(HoverButtonStyle()).padding(16).frame(width: 860)
                 .background(DashboardTheme.background).environment(\.colorScheme, .dark))

@@ -39,23 +39,19 @@ struct LoginItemSettings: View {
     }
 }
 
-/// Status changes reuse the existing subtitle and action slot.
+/// Approval and its action share the toggle row.
 struct LoginItemStatusRow: View {
     @Binding var registered: Bool
     let requiresApproval: Bool
     let bundled: Bool
     let updating: Bool
     let openSettings: () -> Void
-    private var subtitle: String {
-        !bundled ? "请运行打包后的 v2rayM.app 来设置开机启动。" :
-            requiresApproval ? "等待系统批准登录项" : "登录 macOS 后自动启动 v2rayM"
-    }
     var body: some View {
         HStack {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("开机启动")
-                Text(subtitle).font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
-                    .lineLimit(1).help(subtitle)
+            Text("开机启动")
+            if requiresApproval {
+                Text("等待系统批准登录项")
+                    .font(AppFont.caption).foregroundStyle(DashboardTheme.muted).lineLimit(1)
             }
             Spacer()
             Button("打开登录项设置", action: openSettings)
@@ -64,6 +60,7 @@ struct LoginItemStatusRow: View {
                 .accessibilityHidden(!requiresApproval)
             Toggle("开机启动", isOn: $registered)
                 .labelsHidden().toggleStyle(RealityToggleStyle(showsLabel: false)).disabled(updating || !bundled)
+                .help(bundled ? "开机启动" : "请运行打包后的 v2rayM.app 来设置开机启动。")
         }
     }
 }

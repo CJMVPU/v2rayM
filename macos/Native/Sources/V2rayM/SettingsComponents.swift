@@ -1,20 +1,35 @@
 import SwiftUI
 
 /// Shared presentation only; settings persistence stays in AppModel's command path.
-struct SettingsCard<Content: View>: View {
+struct SettingsCard<Content: View, HeaderAction: View>: View {
     let title: String
-    var symbol: ControlAsset? = nil
-    var subtitle: String = ""
-    var fillHeight: Bool = false
-    @ViewBuilder var content: Content
+    let symbol: ControlAsset?
+    let subtitle: String
+    let fillHeight: Bool
+    let headerAction: HeaderAction
+    let content: Content
+
+    init(title: String, symbol: ControlAsset? = nil, subtitle: String = "", fillHeight: Bool = false,
+         @ViewBuilder headerAction: () -> HeaderAction = { EmptyView() }, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.symbol = symbol
+        self.subtitle = subtitle
+        self.fillHeight = fillHeight
+        self.headerAction = headerAction()
+        self.content = content()
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
-                Group {
-                    if let symbol { RealityLabel(title: title, asset: symbol, color: DashboardTheme.accent) }
-                    else { Text(title) }
-                }.font(AppFont.body).foregroundStyle(DashboardTheme.accent)
+                HStack {
+                    Group {
+                        if let symbol { RealityLabel(title: title, asset: symbol, color: DashboardTheme.accent) }
+                        else { Text(title) }
+                    }.font(AppFont.body).foregroundStyle(DashboardTheme.accent).fixedSize(horizontal: true, vertical: false)
+                    Spacer(minLength: 0)
+                    headerAction
+                }
                 if !subtitle.isEmpty { Text(subtitle).font(AppFont.caption).foregroundStyle(DashboardTheme.muted) }
             }
             content

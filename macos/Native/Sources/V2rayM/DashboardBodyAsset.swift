@@ -77,7 +77,7 @@ enum DashboardBodyAsset: String, CaseIterable {
                     let u = Double(x)/Double(length-1), v = Double(y)/Double(length-1)
                     let highlight = exp(-3.5 * (pow(u-0.22,2) + pow(v-0.26,2)))
                     let light = 0.70 * highlight + 0.30 * (1 - (u + v)/2)
-                    let graphite = UInt8(24 + 8 * light)
+                    let graphite = UInt8(32 + 10 * light)
                     pixels += [graphite, graphite, graphite, 255]
                 }
             }

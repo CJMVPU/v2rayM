@@ -536,6 +536,11 @@ private struct RealityInteractionView: View {
         let model = AppModel(dataDirectory: data)
         defer { try? FileManager.default.removeItem(at: data) }
         model.ready = true
+        model.routes = try JSONDecoder().decode([RoutingProfile].self, from: Data("""
+        [{"id":"allow","remarks":"白名单","isActive":true},
+         {"id":"deny","remarks":"黑名单","isActive":false},
+         {"id":"all","remarks":"全局代理","isActive":false}]
+        """.utf8))
         model.profiles = try JSONDecoder().decode([Profile].self, from: Data("""
         [{"indexId":"fixture","remarks":"RealityKit · 测试节点","protocol":"vless","address":"example.invalid","port":443,
         "network":"xhttp","streamSecurity":"tls","coreType":"Xray","delay":42,"isCurrent":true,"totalUp":1024,"totalDown":2048,"canTest":true}]
@@ -602,7 +607,7 @@ private struct RealityInteractionView: View {
                 XCTAssertTrue(wheelAnchor.consume(wheelEvent, at: location))
                 XCTAssertEqual(scroll.contentView.bounds.minY, origin)
                 try await Task.sleep(for: .milliseconds(210))
-                XCTAssertEqual(scroll.contentView.bounds.minY, origin + 3 * scroll.verticalLineScroll, accuracy: 1)
+                XCTAssertEqual(scroll.contentView.bounds.minY, min(maxY, origin + 3 * scroll.verticalLineScroll), accuracy: 1)
                 let precise = try XCTUnwrap(CGEvent(scrollWheelEvent2Source: nil, units: .pixel,
                     wheelCount: 1, wheel1: -3, wheel2: 0, wheel3: 0))
                 precise.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)

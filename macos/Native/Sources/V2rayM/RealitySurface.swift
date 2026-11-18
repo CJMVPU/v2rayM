@@ -549,6 +549,8 @@ private struct RealityStage: NSViewRepresentable {
         } else if previous?.style.color != style.color || previous?.style.highlighted != style.highlighted || previous?.style.enabled != style.enabled {
             if case .glyph(let asset) = style.shape {
                 (entity.findEntity(named: asset.rawValue) as? ModelEntity)?.model?.materials = [material(style)]
+            } else if case .cardPanel = style.shape, let satin = DashboardBodyAsset.cardFace {
+                entity.model?.materials = [material(style), satin]
             } else { entity.model?.materials = [material(style)] }
         }
         if case .ring(let fraction) = style.shape, let mesh = entity.model?.mesh {

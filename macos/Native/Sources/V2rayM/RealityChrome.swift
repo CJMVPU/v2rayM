@@ -50,8 +50,8 @@ struct RealityLabel: View {
 extension View {
     /// Track the native viewport independently, so the offset shadow is clipped
     /// together with the card on both axes while settings scroll.
-    func realityCard(radius: CGFloat = 10, depth: Float = 5, level: Float = 10) -> some View {
-        self.realitySurface(.init(shape: .cardPanel(radius), color: NSColor(DashboardTheme.panel),
+    func realityCard(radius: CGFloat = 10, depth: Float = 5, level: Float = 10, edge: Color = DashboardTheme.panel) -> some View {
+        self.realitySurface(.init(shape: .cardPanel(radius), color: NSColor(edge),
                                   depth: depth, level: level))
             .background { RealityContactShadow(radius: radius, level: level - depth/2 - 0.35) }
     }

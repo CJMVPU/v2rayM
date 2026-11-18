@@ -15,27 +15,24 @@ private struct ModuleUpdateContent: View {
     @ObservedObject var observation: ModuleObservation
     @State private var showingError = false
     var body: some View {
-        VStack(alignment: .leading, spacing: PageLayout.gap) {
-            HStack {
-                Text(model.moduleUpdateError ?? "Xray 内核与分流规则数据独立维护")
-                    .font(AppFont.caption).foregroundStyle(model.moduleUpdateError == nil ? DashboardTheme.muted : DashboardTheme.warning)
-                    .lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
-                    .help(model.moduleUpdateError ?? "")
+        SettingsCard(title: "模块更新", symbol: .sync, headerAction: {
+            if let error = model.moduleUpdateError {
+                Text(error).font(AppFont.caption).foregroundStyle(DashboardTheme.warning)
+                    .lineLimit(1).help(error)
                 Button("详情") { showingError = true }
-                    .environment(\.realityContentVisible, model.moduleUpdateError != nil)
-                    .disabled(model.moduleUpdateError == nil)
-                    .opacity(model.moduleUpdateError == nil ? 0 : 1)
-                    .accessibilityHidden(model.moduleUpdateError == nil)
-                    .popover(isPresented: $showingError) { UpdateDetails(text: model.moduleUpdateError ?? "") }
-                Button("更新全部模块") { model.updateModules(.all) }
-                    .disabled(!model.ready || model.busy || model.moduleUpdateActive)
-            }.frame(height: 24)
-            ForEach(model.moduleTargets, id: \.self) { id in
-                ModuleUpdateRow(id: id, progress: observation.progress.first(where: { $0.coreType == id }),
-                    queued: model.moduleUpdateActive && model.moduleScope?.targets.contains(id) == true,
-                    disabled: !model.ready || model.busy || model.moduleUpdateActive) {
-                        model.updateModules(id == "GeoFiles" ? .geo : .xray)
-                    }
+                    .popover(isPresented: $showingError) { UpdateDetails(text: error) }
+            }
+            Button("更新全部模块") { model.updateModules(.all) }
+                .fixedSize().disabled(!model.ready || model.busy || model.moduleUpdateActive)
+        }) {
+            VStack(spacing: PageLayout.gap) {
+                ForEach(model.moduleTargets, id: \.self) { id in
+                    ModuleUpdateRow(id: id, progress: observation.progress.first(where: { $0.coreType == id }),
+                        queued: model.moduleUpdateActive && model.moduleScope?.targets.contains(id) == true,
+                        disabled: !model.ready || model.busy || model.moduleUpdateActive) {
+                            model.updateModules(id == "GeoFiles" ? .geo : .xray)
+                        }
+                }
             }
         }
     }

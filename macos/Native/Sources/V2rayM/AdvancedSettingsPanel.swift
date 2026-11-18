@@ -30,7 +30,7 @@ struct AdvancedSettingsPanel: View {
                         }
                         Spacer(minLength: 0)
                     }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
-                        .realityCard(radius: 7, depth: 3, level: 16)
+                        .realityCard(radius: 7, depth: 4, level: 16, edge: DashboardTheme.cardEdge)
                 }.buttonStyle(HoverButtonStyle(plain: true))
                     .disabled(!model.ready || model.busy || model.moduleUpdateActive)
             }
