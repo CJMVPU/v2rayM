@@ -90,9 +90,13 @@ private struct NativeNumericText: NSViewRepresentable {
     func stop() { freeze(); anchor.detach(); face.reset() }
     private func texturedGlyph(_ character: Character) -> RealityNumberFace.Glyph? {
         if let cached = textures[character] { return cached }
-        guard let source = glyph(character),
-              let result = try? RealityNumberFace.Glyph(images: source.images, width: source.width,
-                      height: source.height, padding: pad) else { return nil }
+        guard let scene else { return nil }
+        let key = RealityWindowScene.GlyphKey(character: character, size: fontSize, scale: scale, tint: tint)
+        guard let result = try? scene.numericGlyphs.value(for: key, make: {
+            guard let source = glyph(character) else { throw CocoaError(.coderInvalidValue) }
+            return try RealityNumberFace.Glyph(images: source.images, width: source.width,
+                                               height: source.height, padding: pad)
+        }) else { return nil }
         textures[character] = result
         return result
     }

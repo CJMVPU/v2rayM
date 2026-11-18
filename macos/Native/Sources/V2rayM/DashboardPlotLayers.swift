@@ -56,7 +56,7 @@ struct DashboardRing: View {
     let animate: Bool
     var body: some View {
         Color.clear
-            .background { RealitySurface(style: .init(shape: .ring(1), color: NSColor(DashboardTheme.line), depth: 5, level: 16)) }
+            .background { RealitySurface(style: .init(shape: .ringTrack, color: NSColor(DashboardTheme.line), depth: 5, level: 16)) }
             .background {
                 RealitySurface(style: .init(shape: .ring(fraction), color: NSColor(color),
                                             depth: 5, level: 20, animatesRing: animate))

@@ -6,11 +6,11 @@ import RealityKit
 /// A single point-aligned RealityKit scene owns the window's visual surfaces.
 /// Native views remain responsible for focus, editing, accessibility and actions.
 /// Rendering never reads AppModel or performs network operations.
-enum RealityShape: Equatable {
+enum RealityShape: Hashable {
     case panel(CGFloat)
     case disc, group
     case well(CGFloat), cardPanel(CGFloat), shadow(CGFloat), glyph(ControlAsset)
-    case ring(Double)
+    case ring(Double), ringTrack
     case dashboard(DashboardBodyAsset)
     case symbol(RealityNavigationSymbol)
 
@@ -293,6 +293,38 @@ private struct RealityStage: NSViewRepresentable {
 }
 
 @MainActor final class RealityWindowScene {
+    struct GlyphKey: Hashable {
+        let character: Character
+        let size: CGFloat
+        let scale: CGFloat
+        let tint: NSColor
+    }
+    private struct MeshKey: Hashable {
+        let shape: RealityShape
+        let size: CGSize
+        let depth: Float
+    }
+    private struct MaterialKey: Hashable {
+        let color: NSColor
+        let highlighted: Bool
+        let enabled: Bool
+        let metallic: Bool
+    }
+    private let surfaceMaterials = WindowResourceCache<MaterialKey, SimpleMaterial>(limit: 128)
+    let numericGlyphs = WindowResourceCache<GlyphKey, RealityNumberFace.Glyph>(limit: 160)
+    private let staticMeshes = WindowResourceCache<MeshKey, MeshResource>(limit: 128)
+
+    private func mesh(for style: RealitySurfaceStyle, size: CGSize) throws -> MeshResource {
+        // Each animated arc owns its visible index range.
+        if case .ring = style.shape {
+            return try RealityGeometry.mesh(shape: style.shape, size: size, depth: style.depth)
+        }
+        let key = MeshKey(shape: style.shape, size: size, depth: style.depth)
+        return try staticMeshes.value(for: key) {
+            try RealityGeometry.mesh(shape: style.shape, size: size, depth: style.depth)
+        }
+    }
+
     private final class WeakAnchor {
         weak var view: RealitySurfaceAnchor?
         init(_ view: RealitySurfaceAnchor) { self.view = view }
@@ -371,6 +403,7 @@ private struct RealityStage: NSViewRepresentable {
     private var motionSubscription: (any Cancellable)?
     private var size = CGSize.zero
     private var layoutSyncQueued = false
+    private var needsScrollAncestorCheck = false
     private(set) var meshBuilds = 0
     var entityCount: Int { items.count }
     var activeNavigationFlips: Int { turnTimes.count }
@@ -416,14 +449,17 @@ private struct RealityStage: NSViewRepresentable {
             else { view.synchronizeGeometry() }
         }
     }
-    func requestLayoutSync() {
+    func requestLayoutSync(recheckScrollAncestors: Bool = true) {
+        needsScrollAncestorCheck = needsScrollAncestorCheck || recheckScrollAncestors
         guard !layoutSyncQueued else { return }
         layoutSyncQueued = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            let checkAncestors = self.needsScrollAncestorCheck
+            self.needsScrollAncestorCheck = false
             self.layoutSyncQueued = false
             self.stage?.window?.contentView?.layoutSubtreeIfNeeded()
-            self.synchronizeAnchors(recheckScrollAncestors: true)
+            self.synchronizeAnchors(recheckScrollAncestors: checkAncestors)
         }
     }
     func resize(_ newSize: CGSize) {
@@ -525,7 +561,7 @@ private struct RealityStage: NSViewRepresentable {
                     entity.isEnabled = false; return
                 }
             } else {
-                guard let mesh = try? RealityGeometry.mesh(shape: style.shape, size: clipped.size, depth: style.depth) else {
+                guard let mesh = try? self.mesh(for: style, size: clipped.size) else {
                     entity.isEnabled = false; return
                 }
                 if style.rowOffset != nil {
@@ -745,10 +781,14 @@ private struct RealityStage: NSViewRepresentable {
     }
 
     private func material(_ style: RealitySurfaceStyle) -> SimpleMaterial {
-        let base = style.color.usingColorSpace(.deviceRGB) ?? style.color
-        let color = style.highlighted && style.enabled ? base.blended(withFraction: 0.22, of: .white)! : base
-        return SimpleMaterial(color: style.enabled ? color : color.blended(withFraction: 0.45, of: .darkGray)!,
-                              roughness: style.highlighted ? 0.65 : 0.78, isMetallic: style.level < 0 || style.shape == .panel(0))
+        let key = MaterialKey(color: style.color, highlighted: style.highlighted, enabled: style.enabled,
+                              metallic: style.level < 0 || style.shape == .panel(0))
+        return surfaceMaterials.value(for: key) {
+            let base = style.color.usingColorSpace(.deviceRGB) ?? style.color
+            let color = style.highlighted && style.enabled ? base.blended(withFraction: 0.22, of: .white)! : base
+            return SimpleMaterial(color: style.enabled ? color : color.blended(withFraction: 0.45, of: .darkGray)!,
+                                  roughness: style.highlighted ? 0.65 : 0.78, isMetallic: key.metallic)
+        }
     }
 
     func setFace(_ image: CGImage, for id: UUID) {
@@ -775,6 +815,25 @@ private struct RealityStage: NSViewRepresentable {
     func attachDrawing(_ entity: Entity, to id: UUID) {
         guard let item = items[id] else { return }
         if entity.parent !== item.entity { item.entity.addChild(entity) }
-        entity.position.z = item.style.depth / 2000 + 0.0002
+        let depth = item.style.depth / 2000 + 0.0002
+        if entity.position.z != depth { entity.position.z = depth }
+    }
+}
+
+/// Immutable rendering resources can outlive a page, up to a per-window limit.
+@MainActor final class WindowResourceCache<Key: Hashable, Value> {
+    private let limit: Int
+    private var values: [Key: Value] = [:]
+    private var order: [Key] = []
+
+    init(limit: Int) { self.limit = limit }
+
+    func value(for key: Key, make: () throws -> Value) rethrows -> Value {
+        if let cached = values[key] { return cached }
+        let result = try make()
+        if order.count == limit { values.removeValue(forKey: order.removeFirst()) }
+        order.append(key)
+        values[key] = result
+        return result
     }
 }

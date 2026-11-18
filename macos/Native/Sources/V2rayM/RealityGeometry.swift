@@ -22,7 +22,7 @@ enum RealityGeometry {
                     return center + SIMD2<Float>(cos(a), sin(a)) * r
                 }
             }
-        case .ring, .symbol, .dashboard, .glyph, .group: return []
+        case .ring, .ringTrack, .symbol, .dashboard, .glyph, .group: return []
         }
     }
     @MainActor static func mesh(shape: RealityShape, size: CGSize, depth: Float) throws -> MeshResource {
@@ -38,6 +38,7 @@ enum RealityGeometry {
         }
         let half = max(0.0001, depth / 2000)
         if case .ring(let fraction) = shape { return try RealityRingMesh.make(size: size, fraction: fraction) }
+        if shape == .ringTrack { return try RealityRingMesh.make(size: size, fraction: 1, segments: 360) }
         let polygon = outline(shape: shape, size: size)
         let bevel = min(0.85, min(size.width, size.height) * 0.1, CGFloat(depth) * 0.28)
         let innerShape: RealityShape

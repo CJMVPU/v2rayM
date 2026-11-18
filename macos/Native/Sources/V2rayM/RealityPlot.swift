@@ -103,6 +103,7 @@ enum RealityPlotGeometry {
         var path: CGPath?
         var width: CGFloat = 0
         var origin: CGFloat = 0
+        var material: UnlitMaterial?
         var color: CGColor?
         var opacity: Float = -1
         var clipped = false
@@ -131,22 +132,30 @@ enum RealityPlotGeometry {
                 .insetBy(dx: -stroke.width/2, dy: -stroke.width/2).offsetBy(dx: stroke.offset, dy: 0))
             let rebuild = resized || item.path != stroke.path || item.width != stroke.width
                 || item.clipped != needsClip || (needsClip && stroke.offset != item.origin)
+            let colorChanged = item.color != stroke.color
+            if colorChanged {
+                let color = NSColor(cgColor: stroke.color) ?? .white
+                var material = UnlitMaterial(color: color.withAlphaComponent(1))
+                material.blending = .transparent(opacity: .init(floatLiteral: Float(color.alphaComponent)))
+                material.faceCulling = .none
+                item.material = material
+                item.color = stroke.color
+            }
             if rebuild {
                 item.origin = stroke.offset
                 item.clipped = needsClip
                 item.path = stroke.path
                 item.width = stroke.width
-                if let mesh = try? RealityPlotGeometry.mesh([stroke], size: size, clipToViewport: needsClip) {
-                    item.entity.model = ModelComponent(mesh: mesh, materials: [])
+                if let material = item.material,
+                   let mesh = try? RealityPlotGeometry.mesh([stroke], size: size, clipToViewport: needsClip) {
+                    item.entity.model = ModelComponent(mesh: mesh, materials: [material])
                 } else { item.entity.model = nil }
-            }
-            if rebuild || item.color != stroke.color || item.opacity != stroke.opacity {
-                let color = NSColor(cgColor: stroke.color) ?? .white
-                var material = UnlitMaterial(color: color.withAlphaComponent(1))
-                material.blending = .transparent(opacity: .init(floatLiteral: Float(color.alphaComponent) * stroke.opacity))
-                material.faceCulling = .none
+            } else if colorChanged, let material = item.material {
                 item.entity.model?.materials = [material]
-                item.color = stroke.color
+            }
+            if item.opacity != stroke.opacity {
+                if stroke.opacity == 1 { item.entity.components.remove(OpacityComponent.self) }
+                else { item.entity.components.set(OpacityComponent(opacity: stroke.opacity)) }
                 item.opacity = stroke.opacity
             }
             let x = Float(stroke.offset-item.origin)/1000

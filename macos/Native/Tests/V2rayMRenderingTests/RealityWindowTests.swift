@@ -322,6 +322,10 @@ private struct RealityInteractionView: View {
         history.opacity = 0.5
         model.update([history], size: size)
         XCTAssertTrue(child.model?.mesh === mesh)
+        XCTAssertEqual(child.components[OpacityComponent.self]?.opacity, 0.5)
+        history.opacity = 1
+        model.update([history], size: size)
+        XCTAssertNil(child.components[OpacityComponent.self])
         XCTAssertEqual(model.entity.children.count, 1)
         model.update([], size: size)
         XCTAssertTrue(model.entity.children.isEmpty)
@@ -475,6 +479,26 @@ private struct RealityInteractionView: View {
         set(0)
         XCTAssertEqual(mesh.parts.first?.indexCount, 0, "The original buffer must reflect the final range")
         XCTAssertEqual(scene.meshBuilds, 1)
+    }
+
+    func testRingTracksShareGeometryButAnimatedRangesAreIndependent() throws {
+        let scene = RealityWindowScene()
+        let frame = CGRect(x: 0, y: 0, width: 280, height: 280)
+        func mesh(_ shape: RealityShape) throws -> MeshResource {
+            let id = UUID()
+            scene.update(id, frame: frame, visible: frame, style: .init(shape: shape))
+            let entity = scene.root.findEntity(named: "surface-" + id.uuidString) as? ModelEntity
+            return try XCTUnwrap(entity?.model?.mesh)
+        }
+        let track = try mesh(.ringTrack)
+        XCTAssertTrue(try mesh(.ringTrack) === track)
+        let arc = try mesh(.ring(1))
+        let otherArc = try mesh(.ring(1))
+        RealityRingMesh.reveal(0, on: arc)
+        for resource in [track, otherArc] {
+            let buffer = try XCTUnwrap(resource.lowLevelMesh)
+            XCTAssertEqual(buffer.parts.first?.indexCount, buffer.indexCapacity)
+        }
     }
 
     func testBundledControlsHaveDepthAndProgressKeepsOneFill() throws {

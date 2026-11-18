@@ -5,36 +5,44 @@ import ServiceManagement
 struct LoginItemSettings: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.scenePhase) private var scenePhase
-    @State private var status = SMAppService.mainApp.status
+    @State private var status: SMAppService.Status?
     @State private var updating = false
+    @State private var changeCount = 0
 
     private var registered: Bool { status == .enabled || status == .requiresApproval }
     private var bundled: Bool { Bundle.main.bundleURL.pathExtension == "app" }
 
     var body: some View {
         LoginItemStatusRow(registered: Binding(get: { registered }, set: setEnabled),
-            requiresApproval: status == .requiresApproval, bundled: bundled, updating: updating,
+            requiresApproval: status == .requiresApproval, bundled: bundled, updating: updating || status == nil,
             openSettings: { SMAppService.openSystemSettingsLoginItems() })
-        .onAppear { status = SMAppService.mainApp.status }
-        .onChange(of: scenePhase) {
-            if scenePhase == .active { status = SMAppService.mainApp.status }
+        .task(id: scenePhase) {
+            guard !updating, status == nil || scenePhase == .active else { return }
+            let generation = changeCount
+            let latest = await Self.readStatus()
+            if !Task.isCancelled && generation == changeCount { status = latest }
         }
     }
 
+    // ServiceManagement can wait for a system process. Keep that wait out of
+    // SwiftUI construction and the frame that introduces the settings page.
+    private static func readStatus() async -> SMAppService.Status {
+        await Task.detached(priority: .userInitiated) { SMAppService.mainApp.status }.value
+    }
+
     private func setEnabled(_ enabled: Bool) {
-        guard !updating, bundled else { return }
+        guard !updating, status != nil, bundled else { return }
+        changeCount += 1
         updating = true
         Task { @MainActor in
-            defer {
-                status = SMAppService.mainApp.status
-                updating = false
-            }
             do {
                 if enabled { try SMAppService.mainApp.register() }
                 else { try await SMAppService.mainApp.unregister() }
             } catch {
                 model.error = "无法修改开机启动：" + error.localizedDescription
             }
+            status = await Self.readStatus()
+            updating = false
         }
     }
 }

@@ -54,7 +54,7 @@ struct PageSlider<Content: View>: View {
                     .allowsHitTesting(slots.count == 1)
                     .accessibilityHidden(slot.id != selection)
                     .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minX } action: { _ in
-                        scene?.requestLayoutSync()
+                        scene?.requestLayoutSync(recheckScrollAncestors: false)
                     }
                     .layoutValue(key: PageSlot.self, value: slot.index)
             }

@@ -5,10 +5,10 @@ import Metal
 /// range changes during a telemetry transition.
 @MainActor enum RealityRingMesh {
     private struct Vertex { var position, normal: SIMD3<Float> }
-    static let segments = 1440
+    nonisolated static let segments = 1440
     private static let sides = 8
 
-    static func make(size: CGSize, fraction: Double) throws -> MeshResource {
+    static func make(size: CGSize, fraction: Double, segments: Int = RealityRingMesh.segments) throws -> MeshResource {
         let outer = max(0.001, Float(min(size.width, size.height)) / 2000)
         let tube = min(0.0025, outer / 2), radius = outer - tube
         let descriptor = LowLevelMesh.Descriptor(vertexCapacity: segments * sides,
@@ -50,20 +50,20 @@ import Metal
                 }
             }
         }
-        mesh.parts.append(.init(indexCount: visibleIndices(fraction), bounds: BoundingBox(
+        mesh.parts.append(.init(indexCount: visibleIndices(fraction, segments: segments), bounds: BoundingBox(
             min: [-outer,-outer,-tube], max: [outer,outer,tube])))
         return try MeshResource(from: mesh)
     }
 
     static func reveal(_ fraction: Double, on resource: MeshResource?) {
         guard let mesh = resource?.lowLevelMesh, var part = mesh.parts.first else { return }
-        let count = visibleIndices(fraction)
+        let count = visibleIndices(fraction, segments: segments)
         guard part.indexCount != count else { return }
         part.indexCount = count
         mesh.parts[0] = part
     }
 
-    private static func visibleIndices(_ fraction: Double) -> Int {
+    private static func visibleIndices(_ fraction: Double, segments: Int) -> Int {
         let amount = fraction.isFinite ? min(1, max(0, fraction)) : 0
         return Int((amount * Double(segments)).rounded()) * sides * 6
     }
