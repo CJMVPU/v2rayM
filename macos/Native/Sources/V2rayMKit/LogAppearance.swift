@@ -27,18 +27,18 @@ public enum LogKind: Equatable {
     }
     public var color: NSColor {
         switch self {
-        case .error: return Self.adaptive("error", light: (0.72, 0.10, 0.14), dark: (1, 0.43, 0.46))
-        case .warning: return Self.adaptive("warning", light: (0.49, 0.28, 0), dark: (1, 0.72, 0.30))
-        case .lifecycle: return Self.adaptive("lifecycle", light: (0.04, 0.40, 0.25), dark: (0.36, 0.85, 0.61))
-        case .debug: return Self.adaptive("debug", light: (0.43, 0.32, 0.56), dark: (0.74, 0.64, 0.89))
-        case .info: return Self.adaptive("info", light: (0.08, 0.35, 0.62), dark: (0.42, 0.72, 1))
-        case .normal: return .labelColor
+        case .error: return Self.adaptive("error", light: (0.72, 0.10, 0.14), dark: InterfacePalette.error)
+        case .warning: return Self.adaptive("warning", light: (0.49, 0.28, 0), dark: InterfacePalette.directDownload)
+        case .lifecycle: return Self.adaptive("lifecycle", light: (0.04, 0.40, 0.25), dark: InterfacePalette.accent)
+        case .debug: return Self.adaptive("debug", light: (0.43, 0.32, 0.56), dark: InterfacePalette.proxyDownload)
+        case .info: return Self.adaptive("info", light: (0.08, 0.35, 0.62), dark: InterfacePalette.proxyUpload)
+        case .normal: return Self.adaptive("normal", light: (0.12, 0.12, 0.12), dark: InterfacePalette.text)
         }
     }
-    private static func adaptive(_ name: String, light: (Double, Double, Double), dark: (Double, Double, Double)) -> NSColor {
+    private static func adaptive(_ name: String, light: (Double, Double, Double), dark: NSColor) -> NSColor {
         NSColor(name: NSColor.Name("v2rayM.log." + name)) { appearance in
-            let components = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light
-            return NSColor(srgbRed: components.0, green: components.1, blue: components.2, alpha: 1)
+            if appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua { return dark }
+            return NSColor(srgbRed: light.0, green: light.1, blue: light.2, alpha: 1)
         }
     }
 }

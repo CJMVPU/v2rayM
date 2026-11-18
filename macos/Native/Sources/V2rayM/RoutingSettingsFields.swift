@@ -35,7 +35,7 @@ struct RoutingSettingsFields: SettingsFields {
             }
             SettingsFormSection(title: "匹配规则", subtitle: "规则按从上到下的顺序匹配，调整顺序后需要保存。") {
                 HStack {
-                    Text("\(rules.count) 条规则").font(AppFont.caption).foregroundStyle(.secondary)
+                    Text("\(rules.count) 条规则").font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
                     Spacer()
                     Button("添加规则") {
                         rules.append(.object(["id": .string(UUID().uuidString), "remarks": .string("新规则"), "enabled": .bool(true), "outboundTag": .string("proxy"), "type": .string("field")]))
@@ -66,7 +66,7 @@ struct RoutingSettingsFields: SettingsFields {
                     multiline("协议（http、tls、quic，每行一个）", rule, "protocol", array: true)
                     multiline("入站标签（tun：原生 TUN；dns-module：DNS；留空匹配全部）", rule, "inboundTag", array: true)
                 } else {
-                    Text("还没有规则，点击“添加规则”开始配置。").font(AppFont.caption).foregroundStyle(.secondary)
+                    Text("还没有规则，点击“添加规则”开始配置。").font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
                         .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 12)
                 }
             }

@@ -75,8 +75,8 @@ struct WindowControlButtons: NSViewRepresentable {
         }
         func updateSurface() {
             let level: CGFloat = isEnabled ? (isHighlighted ? 1 : hoverLevel) : 0
-            let highlight: NSColor = role == .close ? .systemRed : .systemYellow
-            let color = NSColor(calibratedWhite: 0.66, alpha: 1).blended(withFraction: level, of: highlight)!
+            let highlight: NSColor = NSColor(role == .close ? DashboardTheme.error : DashboardTheme.warning)
+            let color = NSColor(DashboardTheme.graphite).blended(withFraction: level, of: highlight)!
             surface.configure(scene: sceneOwner, style: .init(shape: .disc, color: color, depth: 4, level: 90, highlighted: level > 0, enabled: isEnabled))
             let ink = color.blended(withFraction: level, of: NSColor(white: 0.09, alpha: 1)) ?? color
             mark.configure(scene: sceneOwner, style: .init(shape: .glyph(role == .close ? .close : .minimize),

@@ -58,11 +58,16 @@ enum RealityPlotGeometry {
                 CGPoint(x: from.x + upper*dx, y: from.y + upper*dy))
     }
 
-    @MainActor static func mesh(_ strokes: [RealityPlotStroke], size: CGSize) throws -> MeshResource? {
+    @MainActor static func mesh(_ strokes: [RealityPlotStroke], size: CGSize, clipToViewport: Bool = true) throws -> MeshResource? {
         var positions: [SIMD3<Float>] = [], indices: [UInt32] = [], materials: [UInt32] = []
         for (index, stroke) in strokes.enumerated() {
             for (a,b) in segments(stroke.path) {
-                guard let (from,to) = clip(CGPoint(x: a.x + stroke.offset, y: a.y), CGPoint(x: b.x + stroke.offset, y: b.y), size: size) else { continue }
+                var from = CGPoint(x: a.x + stroke.offset, y: a.y)
+                var to = CGPoint(x: b.x + stroke.offset, y: b.y)
+                if clipToViewport {
+                    guard let endpoints = clip(from, to, size: size) else { continue }
+                    (from, to) = endpoints
+                }
                 let delta = SIMD2<Float>(Float(to.x-from.x), Float(to.y-from.y))
                 let length = simd_length(delta)
                 guard length > 0.00001 else { continue }
@@ -89,34 +94,64 @@ enum RealityPlotGeometry {
     }
 }
 
+/// A series owns a mesh in plot coordinates. Scrolling moves its entity, while
+/// new samples, tail reveal and a new vertical scale invalidate only changed paths.
 @MainActor final class RealityPlotModel {
     let entity = ModelEntity()
-    private var lastPaths: [CGPath] = []
-    private var lastOffsets: [CGFloat] = []
-    private var lastSize = CGSize.zero
-    private var lastWidths: [CGFloat] = []
-    private var lastColors: [CGColor] = []
-    private var lastOpacities: [Float] = []
+    @MainActor private struct Series {
+        let entity = ModelEntity()
+        var path: CGPath?
+        var width: CGFloat = 0
+        var origin: CGFloat = 0
+        var color: CGColor?
+        var opacity: Float = -1
+        var clipped = false
+    }
+    private var series: [Series] = []
+    private var size = CGSize.zero
+
     func update(_ strokes: [RealityPlotStroke], size: CGSize) {
-        let paths = strokes.map(\.path), offsets = strokes.map(\.offset)
-        let colors = strokes.map(\.color), opacities = strokes.map(\.opacity)
-        let widths = strokes.map(\.width)
-        let rebuild = paths != lastPaths || widths != lastWidths || offsets != lastOffsets || size != lastSize
-        guard rebuild || colors != lastColors || opacities != lastOpacities else { return }
-        lastPaths = paths; lastWidths = widths; lastOffsets = offsets; lastSize = size
-        lastColors = colors; lastOpacities = opacities
-        let mesh: MeshResource?
-        if rebuild { mesh = try? RealityPlotGeometry.mesh(strokes, size: size) }
-        else { mesh = entity.model?.mesh }
-        guard let mesh else { entity.model = nil; entity.isEnabled = false; return }
-        let materials: [UnlitMaterial] = strokes.map { stroke in
-            let color = NSColor(cgColor: stroke.color) ?? .white
-            var material = UnlitMaterial(color: color.withAlphaComponent(1))
-            material.blending = .transparent(opacity: .init(floatLiteral: Float(color.alphaComponent) * stroke.opacity))
-            material.faceCulling = .none
-            return material
+        let resized = self.size != size
+        if resized {
+            self.size = size
+            let frame = CGRect(origin: .zero, size: size)
+            RealityViewportClip.apply(frame, in: frame, to: entity)
         }
-        entity.model = ModelComponent(mesh: mesh, materials: materials)
-        entity.isEnabled = true
+        while series.count > strokes.count { series.removeLast().entity.removeFromParent() }
+        while series.count < strokes.count {
+            let item = Series()
+            entity.addChild(item.entity)
+            series.append(item)
+        }
+        let viewport = CGRect(origin: .zero, size: size)
+        for (index, stroke) in strokes.enumerated() {
+            var item = series[index]
+            // On earlier systems, only paths crossing the viewport need CPU clipping.
+            let needsClip = !RealityViewportClip.supported && !viewport.contains(stroke.path.boundingBoxOfPath
+                .insetBy(dx: -stroke.width/2, dy: -stroke.width/2).offsetBy(dx: stroke.offset, dy: 0))
+            let rebuild = resized || item.path != stroke.path || item.width != stroke.width
+                || item.clipped != needsClip || (needsClip && stroke.offset != item.origin)
+            if rebuild {
+                item.origin = stroke.offset
+                item.clipped = needsClip
+                item.path = stroke.path
+                item.width = stroke.width
+                if let mesh = try? RealityPlotGeometry.mesh([stroke], size: size, clipToViewport: needsClip) {
+                    item.entity.model = ModelComponent(mesh: mesh, materials: [])
+                } else { item.entity.model = nil }
+            }
+            if rebuild || item.color != stroke.color || item.opacity != stroke.opacity {
+                let color = NSColor(cgColor: stroke.color) ?? .white
+                var material = UnlitMaterial(color: color.withAlphaComponent(1))
+                material.blending = .transparent(opacity: .init(floatLiteral: Float(color.alphaComponent) * stroke.opacity))
+                material.faceCulling = .none
+                item.entity.model?.materials = [material]
+                item.color = stroke.color
+                item.opacity = stroke.opacity
+            }
+            let x = Float(stroke.offset-item.origin)/1000
+            if item.entity.position.x != x { item.entity.position.x = x }
+            series[index] = item
+        }
     }
 }

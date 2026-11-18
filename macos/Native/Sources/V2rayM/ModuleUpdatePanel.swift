@@ -18,7 +18,7 @@ private struct ModuleUpdateContent: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text(model.moduleUpdateError ?? "Xray 内核与分流规则数据独立维护")
-                    .font(AppFont.caption).foregroundStyle(model.moduleUpdateError == nil ? Color.secondary : .orange)
+                    .font(AppFont.caption).foregroundStyle(model.moduleUpdateError == nil ? DashboardTheme.muted : DashboardTheme.warning)
                     .lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
                     .help(model.moduleUpdateError ?? "")
                 Button("详情") { showingError = true }
@@ -58,7 +58,7 @@ struct ModuleUpdateRow: View {
                 RealityLabel(title: id == "GeoFiles" ? "分流规则数据" : "Xray 内核", asset: id == "GeoFiles" ? .globe : .package)
                     .font(AppFont.body).frame(width: 132, alignment: .leading)
                 Text(progress?.phaseLabel ?? (queued ? "等待更新" : "尚未检查"))
-                    .foregroundStyle(progress?.isComplete == true && progress?.success == false ? .orange : .secondary)
+                    .foregroundStyle(progress?.isComplete == true && progress?.success == false ? DashboardTheme.warning : DashboardTheme.muted)
                     .lineLimit(1).frame(maxWidth: .infinity, alignment: .trailing)
                     .help(detail ?? progress?.phaseLabel ?? "")
                 Text(progress?.version ?? "").lineLimit(1).truncationMode(.middle)

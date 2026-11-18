@@ -54,7 +54,7 @@ struct LoginItemStatusRow: View {
         HStack {
             VStack(alignment: .leading, spacing: 3) {
                 Text("开机启动")
-                Text(subtitle).font(AppFont.caption).foregroundStyle(.secondary)
+                Text(subtitle).font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
                     .lineLimit(1).help(subtitle)
             }
             Spacer()

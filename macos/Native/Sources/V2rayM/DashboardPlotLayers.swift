@@ -56,7 +56,7 @@ struct DashboardRing: View {
     let animate: Bool
     var body: some View {
         Color.clear
-            .background { RealitySurface(style: .init(shape: .ring(1), color: NSColor(calibratedWhite: 0.22, alpha: 1), depth: 5, level: 16)) }
+            .background { RealitySurface(style: .init(shape: .ring(1), color: NSColor(DashboardTheme.line), depth: 5, level: 16)) }
             .background { RealityRingArc(fraction: fraction, color: color)
                 .animation(animate ? .easeInOut(duration: 1.2) : nil, value: fraction) }
     }
@@ -224,7 +224,7 @@ struct DashboardTrendPlot: NSViewRepresentable {
         sceneOwner = scene
         grid.isHidden = scene != nil; baseline.isHidden = scene != nil; clip.isHidden = scene != nil
         realityAnchor.frame = bounds
-        realityAnchor.configure(scene: scene, style: .init(shape: .panel(0), color: NSColor(calibratedWhite: 0.12, alpha: 1), depth: 0.1, level: 5))
+        realityAnchor.configure(scene: scene, style: .init(shape: .panel(0), color: NSColor(DashboardTheme.background), depth: 0.1, level: 5))
         scene?.attachDrawing(realityPlot.entity, to: realityAnchor.surfaceID)
     }
     func configure(_ configuration: TrendFrameConfiguration) {
@@ -324,7 +324,7 @@ struct DashboardTrendPlot: NSViewRepresentable {
     private(set) var projections = 0
     private(set) var tailBuilds = 0
     init() {
-        let colors = [DashboardTheme.cyan, DashboardTheme.purple, DashboardTheme.directUpload, DashboardTheme.directDownload]
+        let colors = [DashboardTheme.proxyUpload, DashboardTheme.proxyDownload, DashboardTheme.directUpload, DashboardTheme.directDownload]
         for index in 0..<4 {
             for shape in [lines[index], tails[index], dots[index]] {
                 shape.contentsScale = 2

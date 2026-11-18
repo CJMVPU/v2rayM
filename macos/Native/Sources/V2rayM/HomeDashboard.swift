@@ -1,17 +1,6 @@
 import SwiftUI
 import V2rayMKit
 
-enum DashboardTheme {
-    static let background = Color(white: 0.12)
-    static let panel = Color(white: 0.19)
-    static let line = Color(red: 0.16, green: 0.26, blue: 0.36)
-    static let muted = Color(red: 0.57, green: 0.65, blue: 0.77)
-    static let cyan = Color(red: 0.02, green: 0.83, blue: 0.96)
-    static let directUpload = Color(red: 0.22, green: 0.79, blue: 0.48)
-    static let directDownload = Color(red: 1.0, green: 0.65, blue: 0.24)
-    static let purple = Color(red: 0.72, green: 0.35, blue: 0.98)
-}
-
 struct HomeDashboard: View {
     @EnvironmentObject var model: AppModel
     var body: some View { DashboardSession(model: model) }
@@ -94,6 +83,8 @@ private struct DashboardContent: View, Equatable {
             let cardsReady = rates != nil && !data.connections.isEmpty
             VStack(spacing: 0) {
                 GeometryReader { geometry in
+                    // Reserve the same card slots through idle, loading and live telemetry.
+                    let cardSpace = max(0, geometry.size.height - 24 - 2 * 12)
                     HStack(spacing: 0) {
                         ConnectionDashboard(state: state, city: data.nodePlace?.displayCity ?? "位置未知",
                             nodeName: nodeName, node: node, startedAt: data.status?.coreStartedAt,
@@ -105,14 +96,15 @@ private struct DashboardContent: View, Equatable {
                         VStack(spacing: 12) {
                             DashboardDataCard(value: state, idle: DashboardStatus.stopped,
                                 active: data.status?.coreRunning == true, ready: cardsReady, slot: 0) { displayed, _ in
-                                nodeCard(state: displayed)
-                            }
+                                nodeCard(state: displayed).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                            }.frame(height: cardSpace * 0.344)
                             DashboardDataCard(value: rates, idle: Optional<[Double]>.none,
                                 active: data.status?.coreRunning == true, ready: cardsReady, slot: 1) { displayed, _ in
-                                trafficCard(rates: displayed, state: state)
-                            }
+                                trafficCard(rates: displayed, state: state).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                            }.frame(height: cardSpace * 0.304)
                             RecentConnectionsCard(connections: data.connections,
                                 coreRunning: data.status?.coreRunning == true, dataReady: cardsReady)
+                                .frame(height: cardSpace * 0.352)
                         }.frame(width: geometry.size.width * 0.325, height: max(0, geometry.size.height - 24))
                             .padding(.trailing, 12).padding(.vertical, 12)
                     }
@@ -156,9 +148,9 @@ private struct DashboardContent: View, Equatable {
     }
     private func statusIcon(_ icon: ControlAsset, title: String, enabled: Bool) -> some View {
         VStack(spacing: 6) {
-            RealityGlyph(asset: icon, size: 21, color: enabled ? .green : DashboardTheme.muted).frame(height: 28)
+            RealityGlyph(asset: icon, size: 21, color: enabled ? DashboardTheme.accent : DashboardTheme.muted).frame(height: 28)
             Text(title).font(AppFont.caption).frame(height: 16)
-        }.foregroundStyle(enabled ? Color.green : DashboardTheme.muted)
+        }.foregroundStyle(enabled ? DashboardTheme.accent : DashboardTheme.muted)
             .frame(maxWidth: .infinity)
             .accessibilityElement(children: .ignore).accessibilityLabel(title + (enabled ? "已就绪" : "未开启"))
     }
@@ -168,12 +160,12 @@ private struct DashboardContent: View, Equatable {
             Text("实时流量").font(AppFont.size(13))
             HStack(spacing: 10) {
                 VStack(spacing: 8) {
-                    trafficMetric("代理上传", icon: .upload, value: DashboardStatus.rateParts(rates?[0]), color: DashboardTheme.cyan)
+                    trafficMetric("代理上传", icon: .upload, value: DashboardStatus.rateParts(rates?[0]), color: DashboardTheme.proxyUpload)
                     trafficMetric("直连上传", icon: .upload, value: DashboardStatus.rateParts(rates?[2]), color: DashboardTheme.directUpload)
                 }
                 Rectangle().fill(DashboardTheme.line).frame(width: 0.5, height: 42)
                 VStack(spacing: 8) {
-                    trafficMetric("代理下载", icon: .download, value: DashboardStatus.rateParts(rates?[1]), color: DashboardTheme.purple)
+                    trafficMetric("代理下载", icon: .download, value: DashboardStatus.rateParts(rates?[1]), color: DashboardTheme.proxyDownload)
                     trafficMetric("直连下载", icon: .download, value: DashboardStatus.rateParts(rates?[3]), color: DashboardTheme.directDownload)
                 }
             }
@@ -181,10 +173,10 @@ private struct DashboardContent: View, Equatable {
             Text("节点累计").font(AppFont.size(13))
             HStack(spacing: 10) {
                 trafficMetric("代理累计上传", icon: .upload, value: DashboardStatus.amountParts(data.status?.statisticsEnabled == true ? node?.totalUp : nil),
-                              color: DashboardTheme.cyan)
+                              color: DashboardTheme.proxyUpload)
                 Rectangle().fill(DashboardTheme.line).frame(width: 0.5, height: 22)
                 trafficMetric("代理累计下载", icon: .download, value: DashboardStatus.amountParts(data.status?.statisticsEnabled == true ? node?.totalDown : nil),
-                              color: DashboardTheme.purple)
+                              color: DashboardTheme.proxyDownload)
             }
         }.padding(12).dashboardPanel()
             .help(DashboardStatus.trafficDescription(state: state, enabled: data.status?.trafficEnabled, hasSample: rates != nil)
@@ -204,11 +196,11 @@ struct DashboardTrafficMetric: View {
         HStack(spacing: 6) {
             RealityGlyph(asset: icon, size: 14, color: color)
                 .frame(width: 14, height: 20)
-            DashboardNumericText(text: value.number, size: 14, color: color)
+            DashboardNumericText(text: value.number, size: 14, color: DashboardTheme.text)
                 .frame(maxWidth: .infinity, alignment: .trailing)
             Text(value.unit).frame(width: 43, alignment: .trailing)
         }.font(AppFont.size(14)).monospacedDigit().lineLimit(1)
-            .foregroundStyle(color).frame(maxWidth: .infinity).frame(height: 22)
+            .foregroundStyle(DashboardTheme.muted).frame(maxWidth: .infinity).frame(height: 22)
             .accessibilityElement(children: .ignore).accessibilityLabel(title + " " + value.text)
             .help(title + "：" + value.text)
     }

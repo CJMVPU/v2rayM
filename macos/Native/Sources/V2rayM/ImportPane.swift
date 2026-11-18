@@ -18,14 +18,14 @@ struct ImportPane: View {
                 Text("导入节点").font(AppFont.title)
                 Spacer()
             }
-            Text("粘贴分享链接或兼容的配置内容，可一次导入多个节点。").foregroundStyle(.secondary)
+            Text("粘贴分享链接或兼容的配置内容，可一次导入多个节点。").foregroundStyle(DashboardTheme.muted)
             TextEditor(text: $draft.content).font(AppFont.body).scrollIndicators(.never).scrollContentBackground(.hidden)
                 .padding(10).frame(maxHeight: .infinity)
                 .modifier(RealityEditorSurface())
                 .accessibilityLabel("节点分享链接或配置").disabled(draft.saving)
             HStack {
                 Text(draft.error ?? (draft.saving ? "正在导入…" : ""))
-                    .font(AppFont.caption).foregroundStyle(.orange).lineLimit(2)
+                    .font(AppFont.caption).foregroundStyle(DashboardTheme.warning).lineLimit(2)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 InlineActivityIndicator(active: draft.saving)
                 Button("取消", action: requestClose).keyboardShortcut(.cancelAction).disabled(draft.saving)

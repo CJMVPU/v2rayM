@@ -15,7 +15,7 @@ struct ParameterSettingsFields: SettingsFields {
                 SettingsFormSection(title: "监听与嗅探", subtitle: "管理本地连接入口和流量识别。") {
                     let inbound = value($settings, "inbound")
                     number("本地代理端口", inbound, "localPort", range: 1024...65533).disabled(model.proxyRunning)
-                    Text("关闭代理后可修改监听端口。").font(AppFont.caption).foregroundStyle(.secondary)
+                    Text("关闭代理后可修改监听端口。").font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
                         .opacity(model.proxyRunning ? 1 : 0).accessibilityHidden(!model.proxyRunning)
                     toggle("启用 UDP", inbound, "udpEnabled")
                     toggle("启用附加监听端口", inbound, "secondLocalPortEnabled")
@@ -24,7 +24,7 @@ struct ParameterSettingsFields: SettingsFields {
                     let lanAuth = inbound.wrappedValue["allowLANConn"].flag && inbound.wrappedValue["newPort4LAN"].flag
                     field("局域网用户名", inbound, "user").disabled(!lanAuth)
                     SettingsFieldRow(title: "局域网密码") { SecureField("", text: text(inbound, "pass")).textFieldStyle(RealityTextFieldStyle()).accessibilityLabel("局域网密码") }.disabled(!lanAuth)
-                    Text("用户名与密码仅用于独立局域网端口，需同时填写。").font(AppFont.caption).foregroundStyle(.secondary)
+                    Text("用户名与密码仅用于独立局域网端口，需同时填写。").font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
                     Divider()
                     toggle("启用流量嗅探", inbound, "sniffingEnabled")
                     toggle("本地代理嗅探仅用于路由", inbound, "routeOnly").disabled(!inbound.wrappedValue["sniffingEnabled"].flag)
@@ -37,13 +37,13 @@ struct ParameterSettingsFields: SettingsFields {
                             })).toggleStyle(RealityToggleStyle())
                         }
                     }
-                    Text("原生 TUN 共用嗅探协议，但固定仅用于路由；虚拟网卡、路由和 DNS 恢复由后台管理。").font(AppFont.caption).foregroundStyle(.secondary)
+                    Text("原生 TUN 共用嗅探协议，但固定仅用于路由；虚拟网卡、路由和 DNS 恢复由后台管理。").font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
                 }
             } else if parameterGroup == groups[1] {
                 SettingsFormSection(title: "Xray 参数", subtitle: "日志、默认出口行为与连接复用。") {
                     let core = value($settings, "core")
                     choice("全局默认域名策略", $settings, "domainStrategy", ["AsIs", "IPIfNonMatch", "IPOnDemand"])
-                    Text("路由方案未指定域名策略时使用此值；方案指定的策略优先生效。").font(AppFont.caption).foregroundStyle(.secondary)
+                    Text("路由方案未指定域名策略时使用此值；方案指定的策略优先生效。").font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
                     toggle("记录内核日志", core, "logEnabled")
                     choice("日志等级", core, "loglevel", ["debug", "info", "warning", "error", "none"]).disabled(!core.wrappedValue["logEnabled"].flag)
                     field("默认 TLS 指纹", core, "defFingerprint")
@@ -67,7 +67,7 @@ struct ParameterSettingsFields: SettingsFields {
                     let speed = value($settings, "speedTest")
                     toggle("保存节点累计流量", app, "enableStatistics")
                     toggle("采集实时流量", app, "displayRealTimeSpeed")
-                    Text("任一开启即采集流量；累计统计与实时显示用途不同。").font(AppFont.caption).foregroundStyle(.secondary)
+                    Text("任一开启即采集流量；累计统计与实时显示用途不同。").font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
                     number("规则数据更新间隔（小时）", app, "geoAutoUpdateInterval", range: 0...720)
                     choice("根证书来源", app, "rootCertProvider", settings["options"]["rootCertProviders"].items.map(\.text))
                     field("规则数据来源", app, "geoSourceUrl")
@@ -82,7 +82,7 @@ struct ParameterSettingsFields: SettingsFields {
                     SettingsFieldRow(title: "MTU 预设") {
                         ForEach([1280, 1408, 1500, 4064, 9000, 65535], id: \.self) { mtu in
                             Button(String(mtu)) { tunSettings["mtu"] = .number(Double(mtu)); dirty = true }
-                                .foregroundStyle(tunSettings["mtu"].text == String(mtu) ? DashboardTheme.cyan : Color.primary)
+                                .foregroundStyle(tunSettings["mtu"].text == String(mtu) ? DashboardTheme.accent : DashboardTheme.text)
                                 .accessibilityAddTraits(tunSettings["mtu"].text == String(mtu) ? .isSelected : [])
                         }
                         Spacer(minLength: 0)
@@ -91,12 +91,12 @@ struct ParameterSettingsFields: SettingsFields {
                         TextField("1280–65535", value: Binding<Int>(get: { Int(tunSettings["mtu"].text) ?? 1500 },
                             set: { tunSettings["mtu"] = .number(Double($0)); dirty = true }), format: .number.grouping(.never))
                             .textFieldStyle(RealityTextFieldStyle()).frame(width: 110).accessibilityLabel("自定义 MTU")
-                        Text("有效范围 1280–65535").font(AppFont.caption).foregroundStyle(.secondary)
+                        Text("有效范围 1280–65535").font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
                         Spacer(minLength: 0)
                     }
                     toggle("为虚拟网卡配置 IPv6", $tunSettings, "enableIPv6Address")
                     multiline("排除接管的网段（CIDR，每行一个）", $tunSettings, "routeExcludeAddress", array: true)
-                    Text("虚拟网卡名称和 DNS 网关自动分配。排除的网段通过原有网络连接访问；关闭 TUN 后自动恢复网络。").font(AppFont.caption).foregroundStyle(.secondary)
+                    Text("虚拟网卡名称和 DNS 网关自动分配。排除的网段通过原有网络连接访问；关闭 TUN 后自动恢复网络。").font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
                 }
             }
         }

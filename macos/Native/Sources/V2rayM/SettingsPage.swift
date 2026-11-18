@@ -22,10 +22,10 @@ struct SettingsPage: View {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .firstTextBaseline) {
                     Text("设置").font(AppFont.title)
-                    Text("连接偏好、网络规则与维护").font(AppFont.caption).foregroundStyle(.secondary)
+                    Text("连接偏好、网络规则与维护").font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
                     Spacer()
                     Text(versionLabel)
-                        .font(AppFont.caption).foregroundStyle(.secondary)
+                        .font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
                 }.padding(.horizontal, 2)
                 SettingsCard(title: "通用与代理", symbol: .sliders) {
                     LoginItemSettings().environmentObject(model)
@@ -39,9 +39,9 @@ struct SettingsPage: View {
                                         guard !route.isActive else { return }
                                         model.run { try await $0.perform("/api/settings/routing-profiles/\(route.id)/activate") }
                                     } label: {
-                                        RealityLabel(title: settingsRouteLabel(route.remarks), asset: route.isActive ? .current : .circle, color: route.isActive ? DashboardTheme.cyan : .secondary)
+                                        RealityLabel(title: settingsRouteLabel(route.remarks), asset: route.isActive ? .current : .circle, color: route.isActive ? DashboardTheme.accent : DashboardTheme.muted)
                                             .lineLimit(1).fixedSize()
-                                            .foregroundStyle(route.isActive ? DashboardTheme.cyan : Color.primary)
+                                            .foregroundStyle(route.isActive ? DashboardTheme.accent : DashboardTheme.text)
                                             .padding(.vertical, 3)
                                     }.disabled(disabled)
                                         .accessibilityAddTraits(route.isActive ? [.isSelected] : [])
@@ -50,9 +50,9 @@ struct SettingsPage: View {
                         }
                     }
                     HStack(spacing: 18) {
-                        RealityLabel(title: "代理端口 " + (model.status?.configuredProxyPort.map(String.init) ?? "—"), asset: .network, color: .secondary)
-                        RealityLabel(title: model.status?.xrayAvailable == true ? "Xray 已安装" : "Xray 未安装", asset: .package, color: .secondary)
-                    }.font(AppFont.caption).foregroundStyle(.secondary)
+                        RealityLabel(title: "代理端口 " + (model.status?.configuredProxyPort.map(String.init) ?? "—"), asset: .network, color: DashboardTheme.muted)
+                        RealityLabel(title: model.status?.xrayAvailable == true ? "Xray 已安装" : "Xray 未安装", asset: .package, color: DashboardTheme.muted)
+                    }.font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
                 }
                 SettingsCard(title: "网络配置", symbol: .topology) {
                     AdvancedSettingsPanel(select: { pane = $0; navigationLocked = true }).environmentObject(model)
@@ -70,12 +70,12 @@ struct SettingsPage: View {
                             Button("后台服务设置") { model.openTunApproval() }.disabled(disabled)
                         }
                         Text("开启前请先暂停其他软件的 TUN 或 VPN。")
-                            .font(AppFont.caption).foregroundStyle(.secondary)
+                            .font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
                     }
                     SettingsCard(title: "日志与数据", symbol: .folder, fillHeight: true) {
                         Text("保留最近 10,000 行日志，切换模式时保留历史。")
-                            .font(AppFont.caption).foregroundStyle(.secondary)
-                        Text(model.dataDirectory.path).font(AppFont.caption).foregroundStyle(.secondary)
+                            .font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
+                        Text(model.dataDirectory.path).font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
                             .lineLimit(2).textSelection(.enabled)
                         Button("在访达中打开") { NSWorkspace.shared.open(model.dataDirectory) }
                     }

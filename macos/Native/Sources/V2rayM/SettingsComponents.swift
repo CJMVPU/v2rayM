@@ -12,10 +12,10 @@ struct SettingsCard<Content: View>: View {
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 Group {
-                    if let symbol { RealityLabel(title: title, asset: symbol, color: DashboardTheme.cyan) }
+                    if let symbol { RealityLabel(title: title, asset: symbol, color: DashboardTheme.accent) }
                     else { Text(title) }
-                }.font(AppFont.body).foregroundStyle(DashboardTheme.cyan)
-                if !subtitle.isEmpty { Text(subtitle).font(AppFont.caption).foregroundStyle(.secondary) }
+                }.font(AppFont.body).foregroundStyle(DashboardTheme.accent)
+                if !subtitle.isEmpty { Text(subtitle).font(AppFont.caption).foregroundStyle(DashboardTheme.muted) }
             }
             content
         }

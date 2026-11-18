@@ -9,7 +9,7 @@ import Accelerate
 struct DashboardNumericText: View {
     let text: String
     let size: CGFloat
-    var color: Color = .primary
+    var color: Color = DashboardTheme.text
     @Environment(\.accessibilityReduceMotion) private var reduced
     @Environment(\.dashboardMotionEnabled) private var motion
     @Environment(\.realityParentSurface) private var parent
@@ -54,7 +54,7 @@ private struct NativeNumericText: NSViewRepresentable {
     private var outgoing: [CALayer] = []
     private var text = ""
     private var fontSize: CGFloat = 14
-    private var tint = NSColor.labelColor
+    private var tint = NSColor(DashboardTheme.text)
     private var scale: CGFloat = 2
     private var layoutSize = CGSize.zero
     private var recover = false

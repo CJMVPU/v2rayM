@@ -45,7 +45,7 @@ import AppKit
             ContentView().environmentObject(model)
                 .font(AppFont.body)
                 .preferredColorScheme(.dark)
-                .tint(DashboardTheme.cyan)
+                .tint(DashboardTheme.accent)
                 .buttonStyle(HoverButtonStyle())
                 .background(WindowTracker { delegate.mainWindow = $0 })
                 .task { delegate.model = model; await model.connect() }

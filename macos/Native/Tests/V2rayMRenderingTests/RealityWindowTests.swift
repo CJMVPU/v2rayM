@@ -243,6 +243,90 @@ private struct RealityInteractionView: View {
         XCTAssertEqual(clipped.0.x, 0, accuracy: 0.0001); XCTAssertEqual(clipped.1.x, 100, accuracy: 0.0001)
         XCTAssertNil(RealityPlotGeometry.clip(CGPoint(x: -20, y: 30), CGPoint(x: 120, y: 30), size: CGSize(width: 100, height: 20)))
     }
+    func testRetainedSolidsReprojectOnResizeAndIgnoreConversionNoise() throws {
+        let scene = RealityWindowScene()
+        let frame = CGRect(x: 83, y: 114, width: 149, height: 122)
+        scene.resize(CGSize(width: 640, height: 420))
+        for body in [DashboardBodyAsset.dial, .card] {
+            let id = UUID()
+            let style = RealitySurfaceStyle(shape: .dashboard(body))
+            scene.update(id, frame: frame, visible: frame, style: style)
+            let entity = try XCTUnwrap(scene.root.findEntity(named: "surface-" + id.uuidString))
+            let initialBuilds = scene.meshBuilds
+            for size in [CGSize(width: 860, height: 600), CGSize(width: 640, height: 420)] {
+                scene.resize(size)
+                let expected = RealityWindowScene.position(frame, viewport: size, level: style.level)
+                XCTAssertEqual(entity.position, expected)
+                var noisy = frame
+                noisy.size.height += 1e-12
+                scene.update(id, frame: noisy, visible: noisy, style: style)
+                XCTAssertEqual(scene.meshBuilds, initialBuilds)
+                XCTAssertEqual(entity.position, expected)
+            }
+        }
+    }
+
+    func testReplacingAnAnchorKeepsTheNewOwnerOfItsSolid() {
+        let scene = RealityWindowScene(), id = UUID()
+        let old = RealitySurfaceAnchor(id: id), replacement = RealitySurfaceAnchor(id: id)
+        old.configure(scene: scene, style: .init())
+        replacement.configure(scene: scene, style: .init())
+        old.detach()
+        XCTAssertTrue(scene.isRegistered(replacement))
+        replacement.detach()
+        XCTAssertFalse(scene.isRegistered(replacement))
+    }
+
+    func testBackgroundScrollRendersUntilIdleAndHonorsSuspension() async throws {
+        let stage = RealityStageView(owner: RealityWindowScene())
+        let window = NSWindow(contentRect: CGRect(x: 100, y: 100, width: 300, height: 180),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = stage
+        window.orderFrontRegardless()
+        defer { stage.stop(); window.close() }
+        try await Task.sleep(for: .milliseconds(150))
+        stage.suspend()
+        stage.nativeScrollDidChange()
+        XCTAssertTrue(stage.suspended)
+        stage.allowBackgroundScroll(true)
+        stage.nativeScrollDidChange()
+        XCTAssertFalse(stage.suspended)
+        try await Task.sleep(for: .milliseconds(450))
+        XCTAssertTrue(stage.suspended)
+        stage.nativeScrollDidChange()
+        stage.allowBackgroundScroll(false)
+        stage.resume()
+        try await Task.sleep(for: .milliseconds(450))
+        XCTAssertFalse(stage.suspended)
+    }
+
+    func testPlotPanReusesHistoryWhileTailAndOpacityChange() throws {
+        let model = RealityPlotModel()
+        let size = CGSize(width: 120, height: 50)
+        func stroke(_ x: CGFloat) -> RealityPlotStroke {
+            let path = CGMutablePath()
+            path.move(to: CGPoint(x: 10, y: 12))
+            path.addLine(to: CGPoint(x: x, y: 20))
+            return RealityPlotStroke(path: path, color: NSColor.white.cgColor)
+        }
+        var history = stroke(70), tail = stroke(90)
+        model.update([history, tail], size: size)
+        let child = try XCTUnwrap(model.entity.children.first as? ModelEntity)
+        let mesh = try XCTUnwrap(child.model?.mesh)
+        history.offset = -2
+        tail = stroke(96)
+        model.update([history, tail], size: size)
+        XCTAssertTrue(child.model?.mesh === mesh)
+        XCTAssertEqual(child.position.x, -0.002, accuracy: 0.000001)
+        history.opacity = 0.5
+        model.update([history], size: size)
+        XCTAssertTrue(child.model?.mesh === mesh)
+        XCTAssertEqual(model.entity.children.count, 1)
+        model.update([], size: size)
+        XCTAssertTrue(model.entity.children.isEmpty)
+    }
+
     func testFullyClippedSurfacesDoNotLeaveOrphanEntities() {
         let scene = RealityWindowScene(), id = UUID()
         scene.resize(CGSize(width: 400, height: 200))
@@ -403,6 +487,7 @@ private struct RealityInteractionView: View {
         defer { window.close() }
         for page in Page.allCases {
             let host = NSHostingView(rootView: ContentView(initialPage: page).environmentObject(model)
+                .environment(\.dashboardVisibilityOverride, true)
                 .font(AppFont.body).buttonStyle(HoverButtonStyle()).environment(\.colorScheme, .dark)
                 .background(WindowTracker { _ in }))
             window.contentView = host
@@ -464,7 +549,16 @@ private struct RealityInteractionView: View {
                         }
                         guard anchor.style.parentID == nil else { continue }
                         let entity = try XCTUnwrap(existing)
-                        let expected = RealityWindowScene.position(rect, viewport: renderer.bounds.size, level: anchor.style.level)
+                        let fullFrame = anchor.convert(anchor.bounds, to: renderer)
+                        let usesClip = RealityViewportClip.supported && anchor.style.viewportID != nil
+                        let expected = RealityWindowScene.position(usesClip ? fullFrame : rect, viewport: renderer.bounds.size, level: anchor.style.level)
+                        #if compiler(>=6.4)
+                        if #available(macOS 27, *), usesClip, rect != fullFrame {
+                            let clipping = try XCTUnwrap(entity.components[ClippingComponent.self])
+                            XCTAssertEqual(clipping.bounds.max.y, Float(fullFrame.midY-rect.minY)/1000, accuracy: 0.00001)
+                            XCTAssertEqual(clipping.bounds.min.y, Float(fullFrame.midY-rect.maxY)/1000, accuracy: 0.00001)
+                        }
+                        #endif
                         XCTAssertEqual(entity.position.x, expected.x, accuracy: 0.00001)
                         XCTAssertEqual(entity.position.y, expected.y, accuracy: 0.00001, "Card background must follow native text at scroll offset \(offset)")
                     }

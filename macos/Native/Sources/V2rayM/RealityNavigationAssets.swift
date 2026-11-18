@@ -16,29 +16,31 @@ enum RealityNavigationSymbol: String, CaseIterable {
             throw CocoaError(.fileNoSuchFile)
         }
         let template = try Entity.load(contentsOf: url)
-        if !selected { darken(template) }
+        tint(template, selected: selected)
         templates[symbol, default: [:]][selected] = template
         return template.clone(recursive: true)
     }
-    private static func darken(_ entity: Entity) {
+    private static func tint(_ entity: Entity, selected: Bool) {
         if let model = entity as? ModelEntity, var component = model.model {
             component.materials = component.materials.map { material in
-                func graphite(_ color: NSColor) -> NSColor {
-                    (color.usingColorSpace(.sRGB) ?? color).blended(withFraction: 0.35, of: .black) ?? color
+                func tone(_ color: NSColor) -> NSColor {
+                    let base = NSColor(selected ? DashboardTheme.accent : DashboardTheme.graphite)
+                    let value = color.usingColorSpace(.sRGB)?.redComponent ?? 1
+                    return base.blended(withFraction: 1 - value, of: .black) ?? base
                 }
                 if var simple = material as? SimpleMaterial {
-                    simple.color.tint = graphite(simple.color.tint)
+                    simple.color.tint = tone(simple.color.tint)
                     return simple
                 }
                 if var pbr = material as? PhysicallyBasedMaterial {
-                    pbr.baseColor.tint = graphite(pbr.baseColor.tint)
+                    pbr.baseColor.tint = tone(pbr.baseColor.tint)
                     return pbr
                 }
                 return material
             }
             model.model = component
         }
-        for child in entity.children { darken(child) }
+        for child in entity.children { tint(child, selected: selected) }
     }
     #endif
     static func build(_ symbol: RealityNavigationSymbol) throws -> Entity {

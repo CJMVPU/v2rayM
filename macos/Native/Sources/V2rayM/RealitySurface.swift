@@ -27,7 +27,7 @@ enum RealityShape: Equatable {
 
 struct RealitySurfaceStyle: Equatable {
     var shape: RealityShape = .panel(10)
-    var color = NSColor(calibratedWhite: 0.19, alpha: 1)
+    var color = NSColor(DashboardTheme.panel)
     var depth: Float = 6
     var level: Float = 10
     var highlighted = false
@@ -37,6 +37,7 @@ struct RealitySurfaceStyle: Equatable {
     var tilt: Double = 0
     var viewportID: UUID? = nil
     var parentID: UUID? = nil
+    var layoutFrame: CGRect?
     var facePoint: CGPoint?
     var rowOffset: CGFloat? = nil
     var visible = true
@@ -74,6 +75,7 @@ struct RealityWindow<Content: View>: View {
     @ViewBuilder var content: Content
     var body: some View {
         content
+            .coordinateSpace(name: ObjectIdentifier(scene))
             .environment(\.realityScene, scene)
             .environment(\.dashboardMotionEnabled, visibilityOverride ?? visibility.phase.rendersMotion)
             .background { RealityStage(scene: scene).allowsHitTesting(false).accessibilityHidden(true) }
@@ -83,6 +85,7 @@ struct RealityWindow<Content: View>: View {
                         if visibilityOverride { scene.stage?.resume() } else { scene.stage?.suspend() }
                         return
                     }
+                    scene.stage?.allowBackgroundScroll(!state.appActive && !state.requiresImmediatePause && !state.occluded)
                     if !state.permitsRendering { scene.stage?.suspend() }
                     visibility.update(state)
                     if state.permitsRendering && visibility.phase.rendersMotion { scene.stage?.resume() }
@@ -157,7 +160,10 @@ struct RealitySurface: NSViewRepresentable {
             clip.postsBoundsChangedNotifications = true
             return NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification,
                 object: clip, queue: .main) { [weak self] _ in
-                    MainActor.assumeIsolated { self?.synchronize() }
+                    MainActor.assumeIsolated {
+                        self?.owner?.stage?.nativeScrollDidChange()
+                        self?.synchronize()
+                    }
                 }
         }
     }
@@ -166,7 +172,7 @@ struct RealitySurface: NSViewRepresentable {
         // scroll view. Discover again after layout/window attachment, and watch
         // every clip so nested horizontal controls also follow vertical scroll.
         observeScrollAncestors()
-        guard let owner, let stage = owner.stage, window != nil, stage.window === window else { return }
+        guard let owner, owner.isRegistered(self), let stage = owner.stage, window != nil, stage.window === window else { return }
         defer { if let drawing { owner.attachDrawing(drawing, to: surfaceID) } }
         if let point = style.facePoint, style.parentID != nil {
             let local = CGRect(x: point.x-bounds.width/2, y: point.y-bounds.height/2, width: bounds.width, height: bounds.height)
@@ -183,13 +189,13 @@ struct RealitySurface: NSViewRepresentable {
             if let textureImage { owner.setFace(textureImage, for: surfaceID) }
             return
         }
-        let rect = convert(bounds, to: stage)
-        let visible = convert(visibleRect, to: stage).intersection(stage.bounds)
+        let rect = style.layoutFrame ?? convert(bounds, to: stage)
+        let visible = (style.layoutFrame ?? convert(visibleRect, to: stage)).intersection(stage.bounds)
         owner.update(surfaceID, frame: rect, visible: visible, style: style)
         if let textureImage { owner.setFace(textureImage, for: surfaceID) }
     }
     func detach() {
-        owner?.remove(surfaceID); owner = nil
+        if let owner, owner.isRegistered(self) { owner.remove(surfaceID) }; owner = nil
         scrollObservations.forEach { NotificationCenter.default.removeObserver($0) }
         scrollObservations.removeAll(); observedClipIDs.removeAll()
     }
@@ -209,12 +215,15 @@ private struct RealityStage: NSViewRepresentable {
     private let frozenImage = NSImageView()
     private var suspensionGeneration = 0
     private(set) var suspended = false
+    private var backgroundScrollAllowed = false
+    private var scrollDeadline = 0.0
+    private var scrollIdleTimer: Timer?
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     init(owner: RealityWindowScene) {
         self.owner = owner
         super.init(frame: .zero)
-        renderer.environment.background = .color(NSColor(calibratedWhite: 0.105, alpha: 1))
+        renderer.environment.background = .color(NSColor(DashboardTheme.background))
         frozenImage.imageScaling = .scaleAxesIndependently
         addSubview(frozenImage)
         addSubview(renderer)
@@ -232,6 +241,28 @@ private struct RealityStage: NSViewRepresentable {
         resume()
     }
     func synchronize() { owner.resize(bounds.size); owner.synchronizeAnchors() }
+    func allowBackgroundScroll(_ allowed: Bool) {
+        backgroundScrollAllowed = allowed
+        if !allowed { scrollIdleTimer?.invalidate(); scrollIdleTimer = nil }
+    }
+
+    // macOS scrolls a visible window under the pointer without activating it.
+    // Allow that native gesture to update the 3D surfaces, then freeze again.
+    func nativeScrollDidChange() {
+        guard backgroundScrollAllowed, window != nil else { return }
+        scrollDeadline = ProcessInfo.processInfo.systemUptime + 0.18
+        if suspended { resume() }
+        guard scrollIdleTimer == nil else { return }
+        let timer = Timer(timeInterval: 0.18, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, ProcessInfo.processInfo.systemUptime >= self.scrollDeadline else { return }
+                self.scrollIdleTimer?.invalidate(); self.scrollIdleTimer = nil
+                if self.backgroundScrollAllowed { self.suspend() }
+            }
+        }
+        scrollIdleTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
     func suspend() {
         guard !suspended else { return }
         suspended = true
@@ -253,6 +284,7 @@ private struct RealityStage: NSViewRepresentable {
         synchronize()
     }
     func stop() {
+        allowBackgroundScroll(false)
         suspend(); owner.detach(self)
         renderer.removeFromSuperview(); frozenImage.image = nil
     }
@@ -272,6 +304,7 @@ private struct RealityStage: NSViewRepresentable {
     func removeViewport(_ id: UUID) { viewports.removeValue(forKey: id) }
     private struct Item {
         var frame: CGRect
+        var localClip: CGRect?
         var style: RealitySurfaceStyle
         let entity: ModelEntity
     }
@@ -280,6 +313,7 @@ private struct RealityStage: NSViewRepresentable {
     let camera = Entity()
     private var anchors: [UUID: WeakAnchor] = [:]
     private var items: [UUID: Item] = [:]
+    private var childIDs: [UUID: Set<UUID>] = [:]
     private var faces: [UUID: (CGImage, ModelEntity, CGSize)] = [:]
     private var turnTimes: [UUID: Double] = [:]
     private struct Slide {
@@ -315,12 +349,19 @@ private struct RealityStage: NSViewRepresentable {
         stage.renderer.scene.removeAnchor(root); self.stage = nil
     }
     func register(_ view: RealitySurfaceAnchor) { anchors[view.surfaceID] = WeakAnchor(view) }
+    func isRegistered(_ view: RealitySurfaceAnchor) -> Bool { anchors[view.surfaceID]?.view === view }
     func remove(_ id: UUID) {
         turnTimes.removeValue(forKey: id)
         slides.removeValue(forKey: id)
         retireClockIfIdle()
+        if let parent = items[id]?.style.parentID { unlink(id, from: parent) }
         items.removeValue(forKey: id)?.entity.removeFromParent(); anchors.removeValue(forKey: id); faces.removeValue(forKey: id)
     }
+    private func unlink(_ child: UUID, from parent: UUID) {
+        childIDs[parent]?.remove(child)
+        if childIDs[parent]?.isEmpty == true { childIDs.removeValue(forKey: parent) }
+    }
+
     func synchronizeAnchors() {
         for (id, anchor) in anchors {
             if let view = anchor.view { view.synchronize() } else { remove(id) }
@@ -345,12 +386,19 @@ private struct RealityStage: NSViewRepresentable {
         lens.scaleDirection = .vertical
         lens.near = 0.01; lens.far = 10
         camera.components.set(lens)
+        // Retained native frames are in points. A new camera origin must reposition
+        // them even when AppKit sends no new frame during window restoration.
+        for id in items.keys { place(id) }
     }
     static func position(_ frame: CGRect, viewport: CGSize, level: Float) -> SIMD3<Float> {
         [Float(frame.midX - viewport.width / 2) / 1000,
          Float(viewport.height / 2 - frame.midY) / 1000, level / 1000]
     }
     func update(_ id: UUID, frame: CGRect, visible: CGRect, style: RealitySurfaceStyle) {
+        var frame = frame
+        // AppKit conversions introduce sub-ULP extent changes during translation.
+        // Preserve true subpixel positions and compare sizes at the renderer's precision.
+        frame.size = CGSize(width: CGFloat(Float(frame.width)), height: CGFloat(Float(frame.height)))
         var visible = visible
         if let viewportID = style.viewportID {
             guard let viewport = viewports[viewportID]?.view, let stage, viewport.window === stage.window else {
@@ -362,17 +410,28 @@ private struct RealityStage: NSViewRepresentable {
               !visible.isNull, visible.width > 0, visible.height > 0 else {
             items[id]?.entity.isEnabled = false; return
         }
-        // Panels in scroll views are clipped to their native visible region.
-        // Rings and turning solids are not resized during their animation.
-        let clipped = style.angle == 0 && style.tilt == 0 ? frame.intersection(visible) : frame
-        guard !clipped.isNull, !clipped.isEmpty, clipped.width.isFinite, clipped.height.isFinite else {
-            items[id]?.entity.isEnabled = false; return
-        }
+        let intersection = frame.intersection(visible)
+        guard !intersection.isEmpty else { items[id]?.entity.isEnabled = false; return }
+        let useLocalClip = RealityViewportClip.supported && style.viewportID != nil && style.parentID == nil
+        var clipped = useLocalClip || style.angle != 0 || style.tilt != 0 ? frame : intersection
+        clipped.size = CGSize(width: CGFloat(Float(clipped.width)), height: CGFloat(Float(clipped.height)))
+        let localClip = useLocalClip && intersection != frame
+            ? intersection.offsetBy(dx: -frame.minX, dy: -frame.minY) : nil
         let previous = items[id]
         let entity = previous?.entity ?? ModelEntity()
-        if previous?.frame == clipped, previous?.style == style {
+        if localClip != previous?.localClip {
+            if let localClip {
+                RealityViewportClip.apply(localClip, in: CGRect(origin: .zero, size: frame.size), to: entity)
+            } else { RealityViewportClip.clear(entity) }
+        }
+        if var existing = previous, existing.frame.size == clipped.size, existing.style == style {
+            let moved = existing.frame.origin != clipped.origin
+            existing.frame = clipped
+            existing.localClip = localClip
+            if moved || previous?.localClip != localClip { items[id] = existing }
             entity.isEnabled = style.visible
-            if style.parentID != nil { place(id) }
+            if moved || style.parentID != nil { place(id) }
+            if moved { placeChildren(of: id) }
             return
         }
         if previous == nil { entity.name = "surface-" + id.uuidString }
@@ -432,6 +491,8 @@ private struct RealityStage: NSViewRepresentable {
                         var shadow = UnlitMaterial(color: .black)
                         shadow.blending = .transparent(opacity: .init(floatLiteral: 0.24))
                         entity.model = ModelComponent(mesh: mesh, materials: [shadow])
+                    } else if style.level < 0 || style.shape == .panel(0) {
+                        entity.model = ModelComponent(mesh: mesh, materials: [Self.flatMaterial(style.color)])
                     } else { entity.model = ModelComponent(mesh: mesh, materials: [material(style)]) }
                 }
             }
@@ -445,10 +506,10 @@ private struct RealityStage: NSViewRepresentable {
         if style.shape == .dashboard(.titleBar),
            geometryChanged || selectionChanged || previous?.style.highlighted != style.highlighted,
            let shell = entity.findEntity(named: "dashboard-shell") {
-            let tone: CGFloat = style.selected ? 0.36 : style.highlighted ? 0.28 : 0.20
+            let tone = style.selected ? DashboardTheme.selectedPanel : style.highlighted ? DashboardTheme.line : DashboardTheme.raised
             func applyFace(_ part: Entity) {
                 if let model = part as? ModelEntity, var component = model.model, component.materials.count >= 5 {
-                    component.materials[4] = SimpleMaterial(color: NSColor(white: tone, alpha: 1), roughness: 0.78, isMetallic: false)
+                    component.materials[4] = Self.flatMaterial(NSColor(tone))
                     model.model = component
                 }
                 for child in part.children { applyFace(child) }
@@ -467,13 +528,17 @@ private struct RealityStage: NSViewRepresentable {
             retireClockIfIdle()
         }
         if turnTimes[id] == nil && style.rowOffset == nil { entity.orientation = Self.orientation(style) }
-        items[id] = Item(frame: clipped, style: style, entity: entity)
+        if previous?.style.parentID != style.parentID {
+            if let parent = previous?.style.parentID { unlink(id, from: parent) }
+            if let parent = style.parentID { childIDs[parent, default: []].insert(id) }
+        }
+        items[id] = Item(frame: clipped, localClip: localClip, style: style, entity: entity)
         place(id)
         if let fraction = style.progress { entity.updateProgress(width: clipped.width, fraction: fraction, offset: style.progressOffset) }
         if let on = style.switchOn {
             updateSwitch(id, on: on, previous: previous?.style.switchOn, animated: style.allowsFlip)
         }
-        for (childID, child) in items where child.style.parentID == id { place(childID) }
+        placeChildren(of: id)
         if case .symbol = style.shape {
             tintNavigation(entity, style: style)
             if previous != nil, previous?.style.flipToken != style.flipToken, style.allowsFlip, style.enabled {
@@ -548,7 +613,7 @@ private struct RealityStage: NSViewRepresentable {
         let target: Float = on ? 1 : 0
         if item.entity.findEntity(named: "switch-thumb") == nil {
             guard let thumb = try? ControlAsset.switchThumb.instance(size: CGSize(width: 14, height: 14), depth: 2.6,
-                material: SimpleMaterial(color: .white, roughness: 0.75, isMetallic: false)) else { return }
+                material: SimpleMaterial(color: NSColor(DashboardTheme.text), roughness: 0.75, isMetallic: false)) else { return }
             thumb.name = "switch-thumb"
             thumb.position.z = 0.003
             item.entity.addChild(thumb)
@@ -571,10 +636,15 @@ private struct RealityStage: NSViewRepresentable {
     private func drawSwitch(_ id: UUID, progress: Float) {
         guard let item = items[id] else { return }
         item.entity.findEntity(named: "switch-thumb")?.position.x = -0.006 + 0.012 * progress
-        let off = NSColor(calibratedWhite: 0.26, alpha: 1)
+        let off = NSColor(DashboardTheme.line)
         var style = item.style
-        style.color = off.blended(withFraction: CGFloat(progress), of: NSColor(DashboardTheme.cyan)) ?? off
+        style.color = off.blended(withFraction: CGFloat(progress), of: NSColor(DashboardTheme.accent)) ?? off
         (item.entity.findEntity(named: ControlAsset.switchTrack.rawValue) as? ModelEntity)?.model?.materials = [material(style)]
+    }
+
+    private func placeChildren(of parent: UUID) {
+        guard let children = childIDs[parent] else { return }
+        for child in children { place(child) }
     }
 
     private func place(_ id: UUID) {
@@ -599,6 +669,12 @@ private struct RealityStage: NSViewRepresentable {
             if item.entity.parent !== root { root.addChild(item.entity) }
         }
     }
+    private static func flatMaterial(_ color: NSColor) -> UnlitMaterial {
+        var material = UnlitMaterial(applyPostProcessToneMap: false)
+        material.color = .init(tint: color)
+        return material
+    }
+
     private func material(_ style: RealitySurfaceStyle) -> SimpleMaterial {
         let base = style.color.usingColorSpace(.deviceRGB) ?? style.color
         let color = style.highlighted && style.enabled ? base.blended(withFraction: 0.22, of: .white)! : base

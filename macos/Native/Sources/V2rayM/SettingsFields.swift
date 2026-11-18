@@ -42,7 +42,7 @@ extension SettingsFields {
             binding.wrappedValue = array ? .array($0.components(separatedBy: .newlines).filter { !$0.isEmpty }.map(SettingsValue.string)) : .string($0)
         })
         return VStack(alignment: .leading, spacing: 4) {
-            Text(title).foregroundStyle(.secondary)
+            Text(title).foregroundStyle(DashboardTheme.muted)
             TextEditor(text: content).font(AppFont.caption).scrollIndicators(.never)
                 .scrollContentBackground(.hidden).padding(6).frame(height: 96)
                 .modifier(RealityEditorSurface())

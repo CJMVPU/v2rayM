@@ -31,8 +31,8 @@ struct ConnectionDashboard: View {
         }
     }
     private var statusColor: Color {
-        if running { return .green }
-        return [.recovering, .faulted, .stale, .changing, .updating].contains(state) ? .orange : DashboardTheme.muted
+        if running { return DashboardTheme.accent }
+        return [.recovering, .faulted, .stale, .changing, .updating].contains(state) ? DashboardTheme.warning : DashboardTheme.muted
     }
     var body: some View {
         GeometryReader { geometry in
@@ -66,7 +66,7 @@ struct ConnectionDashboard: View {
     private func badge(_ title: String, value: String) -> some View {
         HStack(spacing: 7) {
             Text(title).foregroundStyle(DashboardTheme.muted)
-            Text(value).foregroundStyle(.primary)
+            Text(value).foregroundStyle(DashboardTheme.text)
         }.font(AppFont.caption).padding(.horizontal, 10).padding(.vertical, 6)
             .realitySurface(.init(shape: .panel(7), depth: 3, level: 15))
     }
@@ -81,8 +81,8 @@ struct ConnectionDashboard: View {
             ZStack {
                 ring(diameter: diameter, color: DashboardTheme.directUpload, fraction: fractions[2])
                 ring(diameter: max(0, diameter - 22), color: DashboardTheme.directDownload, fraction: fractions[3])
-                ring(diameter: max(0, diameter - 44), color: DashboardTheme.cyan, fraction: fractions[0])
-                ring(diameter: max(0, diameter - 66), color: DashboardTheme.purple, fraction: fractions[1])
+                ring(diameter: max(0, diameter - 44), color: DashboardTheme.proxyUpload, fraction: fractions[0])
+                ring(diameter: max(0, diameter - 66), color: DashboardTheme.proxyDownload, fraction: fractions[1])
             }
             .accessibilityHidden(true)
             ZStack {
@@ -137,7 +137,7 @@ struct DashboardDiscSurface: View {
     var body: some View {
         Color.clear.background {
             if !inside {
-                RealitySurface(style: .init(shape: .disc, color: NSColor(calibratedWhite: 0.23, alpha: 1),
+                RealitySurface(style: .init(shape: .disc, color: NSColor(DashboardTheme.panel),
                                             depth: 10, level: 20, highlighted: hovered))
             }
         }
@@ -179,14 +179,14 @@ struct TrafficTrendView: View {
                 Text("峰值 " + peakLabel)
                     .font(AppFont.size(10)).monospacedDigit().foregroundStyle(DashboardTheme.muted)
                 Spacer(minLength: 0)
-                legend("代理 ↑", color: DashboardTheme.cyan)
-                legend("代理 ↓", color: DashboardTheme.purple)
+                legend("代理 ↑", color: DashboardTheme.proxyUpload)
+                legend("代理 ↓", color: DashboardTheme.proxyDownload)
                 legend("直连 ↑", color: DashboardTheme.directUpload)
                 legend("直连 ↓", color: DashboardTheme.directDownload)
             }
             plot(points: points, maximum: maximum)
         }.padding(.top, 7)
-            .overlay(alignment: .top) { Rectangle().fill(Color.primary.opacity(0.1)).frame(height: 0.5) }
+            .overlay(alignment: .top) { Rectangle().fill(DashboardTheme.text.opacity(0.1)).frame(height: 0.5) }
             .onAppear { scaleFrom = maximum; scaleTo = maximum }
             .onChange(of: maximum) { _, value in
                 let date = Date()
@@ -239,7 +239,7 @@ struct TrafficTrendView: View {
                             HStack(spacing: 4) {
                                 Spacer(minLength: 0)
                                 ForEach(0..<4) { index in
-                                    legendDot([DashboardTheme.cyan, DashboardTheme.purple,
+                                    legendDot([DashboardTheme.proxyUpload, DashboardTheme.proxyDownload,
                                                DashboardTheme.directUpload, DashboardTheme.directDownload][index])
                                 }
                             }

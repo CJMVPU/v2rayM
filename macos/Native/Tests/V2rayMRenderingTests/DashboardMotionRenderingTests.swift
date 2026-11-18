@@ -1,4 +1,5 @@
 import XCTest
+import RealityKit
 import AppKit
 import SwiftUI
 @testable import V2rayM
@@ -45,8 +46,26 @@ final class DashboardMotionRenderingTests: XCTestCase {
         window.appearance = NSAppearance(named: .darkAqua)
         window.orderFront(nil)
         defer { window.close() }
+        var centers: [DashboardBodyAsset: SIMD3<Float>] = [:]
+        func checkSolidPositions(_ view: NSView) throws {
+            if let anchor = view as? RealitySurfaceAnchor,
+               case .dashboard(let body) = anchor.style.shape, body != .titleBar,
+               let part = anchor.owner?.root.findEntity(named: "surface-" + anchor.surfaceID.uuidString) {
+                if let center = centers[body] {
+                    XCTAssertLessThan(simd_distance(part.position, center), 0.0001,
+                                      "Solid center moved during activation, replacement or shutdown")
+                } else {
+                    centers[body] = part.position
+                }
+            }
+            for child in view.subviews { try checkSolidPositions(child) }
+        }
         @discardableResult func capture(_ name: String) throws -> URL {
-            host.layoutSubtreeIfNeeded()
+            if let activeHost = window.contentView {
+                activeHost.layoutSubtreeIfNeeded()
+                try checkSolidPositions(activeHost)
+                XCTAssertEqual(centers.count, 2)
+            }
             let capture = Process()
             capture.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
             let url = URL(fileURLWithPath: directory).appendingPathComponent(name + "-screen.png")

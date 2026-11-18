@@ -5,9 +5,9 @@ enum MenuBarIcon {
     @MainActor static func image(for mode: MenuBarMode) -> NSImage {
         let color: NSColor = switch mode {
         case .inactive: .black
-        case .system: .systemBlue
-        case .tun: .systemGreen
-        case .recovering, .attention: .systemOrange
+        case .system: InterfacePalette.proxyUpload
+        case .tun: InterfacePalette.accent
+        case .recovering, .attention: InterfacePalette.directDownload
         }
         let image = NSImage(size: NSSize(width: 18, height: 18), flipped: true) { _ in
             if mode == .recovering {

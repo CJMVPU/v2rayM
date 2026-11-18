@@ -24,9 +24,9 @@ struct ProfileEditor: View {
                 }.disabled(saving)
                 Divider().frame(height: 20)
                 Text("配置节点").font(AppFont.title)
-                Text(profile.remarks).font(AppFont.caption).foregroundStyle(.secondary).lineLimit(1)
+                Text(profile.remarks).font(AppFont.caption).foregroundStyle(DashboardTheme.muted).lineLimit(1)
                 Spacer()
-                Text(dirty ? "未保存" : "").font(AppFont.caption).foregroundStyle(.orange).frame(width: 56)
+                Text(dirty ? "未保存" : "").font(AppFont.caption).foregroundStyle(DashboardTheme.warning).frame(width: 56)
             }
             Divider()
             if loaded {
@@ -56,7 +56,7 @@ struct ProfileEditor: View {
                                 extraField("Authority", key: "GrpcAuthority")
                             }
                             Text("传输方式例如 raw、xhttp、ws、grpc；更多参数在扩展配置中修改。")
-                                .font(AppFont.caption).foregroundStyle(.secondary)
+                                .font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
                             field("安全类型", "streamSecurity")
                             field("SNI", "sni")
                             field("ALPN", "alpn")
@@ -65,9 +65,9 @@ struct ProfileEditor: View {
                             field("Short ID", "shortId")
                             Toggle("允许不安全证书", isOn: Binding(get: { value["allowInsecure"].text == "true" }, set: { value["allowInsecure"] = .string($0 ? "true" : "false") })).toggleStyle(RealityToggleStyle())
                         } else {
-                            Text("协议扩展（JSON）").foregroundStyle(.secondary)
+                            Text("协议扩展（JSON）").foregroundStyle(DashboardTheme.muted)
                             TextEditor(text: binding("protoExtra")).scrollIndicators(.never).scrollContentBackground(.hidden).padding(5).modifier(RealityEditorSurface()).frame(height: 115)
-                            Text("传输扩展（JSON，包括 XHTTP 模式、路径、Host 和 extra）").foregroundStyle(.secondary)
+                            Text("传输扩展（JSON，包括 XHTTP 模式、路径、Host 和 extra）").foregroundStyle(DashboardTheme.muted)
                             TextEditor(text: binding("transportExtra")).scrollIndicators(.never).scrollContentBackground(.hidden).padding(5).modifier(RealityEditorSurface()).frame(height: 145)
                         }
                     }.textFieldStyle(RealityTextFieldStyle()).padding(2)
@@ -80,7 +80,7 @@ struct ProfileEditor: View {
             Spacer(minLength: 0)
             Divider()
             HStack {
-                Text(result).font(AppFont.caption).foregroundStyle(failed ? Color.orange : Color.secondary)
+                Text(result).font(AppFont.caption).foregroundStyle(failed ? DashboardTheme.warning : DashboardTheme.muted)
                     .lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
                 InlineActivityIndicator(active: saving)
                 Button("保存节点") { Task { await save() } }

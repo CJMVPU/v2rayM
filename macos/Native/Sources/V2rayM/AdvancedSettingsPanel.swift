@@ -20,12 +20,12 @@ struct AdvancedSettingsPanel: View {
             ForEach(SettingsPane.allCases) { item in
                 Button { select(item) } label: {
                     HStack(alignment: .top, spacing: 10) {
-                        RealityGlyph(asset: item.symbol, size: 20, color: DashboardTheme.cyan)
+                        RealityGlyph(asset: item.symbol, size: 20, color: DashboardTheme.accent)
                             .frame(width: 34, height: 34)
 
                         VStack(alignment: .leading, spacing: 5) {
                             Text(item.rawValue).font(AppFont.body)
-                            Text(item.detail).font(AppFont.caption).foregroundStyle(.secondary)
+                            Text(item.detail).font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
                                 .lineLimit(2).frame(height: 30, alignment: .topLeading)
                         }
                         Spacer(minLength: 0)
@@ -62,10 +62,10 @@ struct SettingsEditor: View {
                 Divider().frame(height: 20)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(pane.rawValue).font(AppFont.title)
-                    Text(pane.detail).font(AppFont.caption).foregroundStyle(.secondary)
+                    Text(pane.detail).font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
                 }
                 Spacer()
-                Text(dirty ? "未保存" : "").font(AppFont.caption).foregroundStyle(.orange)
+                Text(dirty ? "未保存" : "").font(AppFont.caption).foregroundStyle(DashboardTheme.warning)
                     .frame(width: 56)
             }
             Divider()
@@ -104,7 +104,7 @@ struct SettingsEditor: View {
             }
             Divider()
             HStack {
-                Text(!model.ready ? "后台服务未就绪，草稿已保留" : result.isEmpty ? (working ? "正在处理…" : "修改后保存，设置将自动应用") : result).font(AppFont.caption).foregroundStyle(failed ? Color.orange : Color.secondary)
+                Text(!model.ready ? "后台服务未就绪，草稿已保留" : result.isEmpty ? (working ? "正在处理…" : "修改后保存，设置将自动应用") : result).font(AppFont.caption).foregroundStyle(failed ? DashboardTheme.warning : DashboardTheme.muted)
                     .lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
                 InlineActivityIndicator(active: working)
                 Button("重新连接服务") { Task { await model.connect() } }

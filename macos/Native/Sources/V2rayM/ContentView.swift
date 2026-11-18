@@ -49,8 +49,9 @@ struct ContentView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .scrollIndicators(.never)
+            .foregroundStyle(DashboardTheme.text)
             .background(HiddenScrollbars())
-            .realitySurface(.init(shape: .panel(14), color: NSColor(calibratedWhite: 0.12, alpha: 1), depth: 10, level: -20))
+            .realitySurface(.init(shape: .panel(14), color: NSColor(DashboardTheme.background), depth: 10, level: -20))
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay(alignment: .bottomTrailing) {
                 Group {
@@ -101,7 +102,7 @@ struct ContentView: View {
             .overlay {
                 Text("powered by cj")
                     .font(.custom("SnellRoundhand-Bold", size: 17))
-                    .foregroundStyle(Color(red: 0.2, green: 0.29, blue: 0.4))
+                    .foregroundStyle(DashboardTheme.graphite)
                     .shadow(color: .black.opacity(0.95), radius: 0.5, x: 0, y: -1)
                     .shadow(color: .white.opacity(0.16), radius: 0.4, x: 0, y: 1)
                     .allowsHitTesting(false).accessibilityLabel("powered by cj")
@@ -118,7 +119,7 @@ struct ContentView: View {
 
     private func notice(_ text: String, error: Bool) -> some View {
         HStack(alignment: .top, spacing: 10) {
-            RealityGlyph(asset: error ? .warning : .notice, color: error ? .orange : .blue, level: 107)
+            RealityGlyph(asset: error ? .warning : .notice, color: error ? DashboardTheme.error : DashboardTheme.accent, level: 107)
             Text(text).font(AppFont.body).textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -145,11 +146,11 @@ struct ContentView: View {
 
             }
             HStack {
-                Text("\(model.profiles.count) 个节点").font(AppFont.caption).foregroundStyle(.secondary)
+                Text("\(model.profiles.count) 个节点").font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
                 Button("导入节点") { importing = true }.disabled(controlsDisabled)
                 Spacer()
                 let item = model.profiles.first(where: { $0.id == selectedProfile })
-                Text(item?.coreType ?? "").font(AppFont.caption).foregroundStyle(.secondary)
+                Text(item?.coreType ?? "").font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
                     .frame(width: 44, alignment: .trailing)
                 Button("配置节点") { editingProfile = item }
                     .disabled(item == nil || controlsDisabled)

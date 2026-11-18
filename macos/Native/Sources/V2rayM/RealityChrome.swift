@@ -20,7 +20,7 @@ import SwiftUI
 struct RealityGlyph: View {
     let asset: ControlAsset
     var size: CGFloat = 14
-    var color: Color = .primary
+    var color: Color = DashboardTheme.text
     var level: Float = 82
     @Environment(\.isEnabled) private var enabled
     @Environment(\.realityParentSurface) private var parent
@@ -38,7 +38,7 @@ struct RealityGlyph: View {
 struct RealityLabel: View {
     let title: String
     let asset: ControlAsset
-    var color: Color = .primary
+    var color: Color = DashboardTheme.text
     var body: some View {
         HStack(spacing: 6) {
             RealityGlyph(asset: asset, color: color)
@@ -51,12 +51,12 @@ extension View {
     /// Track the native viewport independently, so the offset shadow is clipped
     /// together with the card on both axes while settings scroll.
     func realityCard(radius: CGFloat = 10, depth: Float = 5, level: Float = 10) -> some View {
-        self.realitySurface(.init(shape: .cardPanel(radius), color: NSColor(white: 0.19, alpha: 1),
+        self.realitySurface(.init(shape: .cardPanel(radius), color: NSColor(DashboardTheme.panel),
                                   depth: depth, level: level))
             .background { RealityContactShadow(radius: radius, level: level - depth/2 - 0.35) }
     }
     func realityField(highlighted: Bool = false) -> some View {
-        realitySurface(.init(shape: .well(5), color: NSColor(white: 0.125, alpha: 1), depth: 2, level: 22, highlighted: highlighted))
+        realitySurface(.init(shape: .well(5), color: NSColor(DashboardTheme.well), depth: 2, level: 22, highlighted: highlighted))
     }
 }
 
@@ -156,7 +156,7 @@ struct RealitySegments: View {
             ForEach(options, id: \.self) { option in
                 Button { selection = option } label: {
                     Text(option).frame(maxWidth: .infinity).padding(.vertical, 3)
-                        .realitySurface(.init(shape: .panel(4), color: NSColor(white: selection == option ? 0.35 : 0.17, alpha: 1),
+                        .realitySurface(.init(shape: .panel(4), color: NSColor(selection == option ? DashboardTheme.selectedPanel : DashboardTheme.panel),
                                               depth: 2, level: 26))
                 }.buttonStyle(HoverButtonStyle(plain: true))
                     .accessibilityAddTraits(selection == option ? .isSelected : [])
@@ -178,7 +178,7 @@ struct RealityProgressTrack: View {
     var body: some View {
         TimelineView(.animation(minimumInterval: 1/30, paused: fraction != nil || reduced || !motion)) { timeline in
             let phase = reduced || !motion ? 0.5 : 0.5 - 0.5*cos(timeline.date.timeIntervalSinceReferenceDate * 3)
-            Color.clear.realitySurface(.init(shape: .well(3), color: NSColor(white: 0.135, alpha: 1),
+            Color.clear.realitySurface(.init(shape: .well(3), color: NSColor(DashboardTheme.well),
                 depth: 1.5, level: 24, progress: fraction ?? 0.22, progressOffset: fraction == nil ? phase : 0))
         }.frame(height: 6)
         .accessibilityElement(children: .ignore).accessibilityLabel("更新进度")
@@ -198,7 +198,7 @@ struct RealityBusyIndicator: View {
         let fill: ModelEntity
         if let existing = findEntity(named: ControlAsset.progressFill.rawValue) as? ModelEntity { fill = existing }
         else {
-            let material = SimpleMaterial(color: NSColor(DashboardTheme.cyan), roughness: 0.72, isMetallic: false)
+            let material = SimpleMaterial(color: NSColor(DashboardTheme.accent), roughness: 0.72, isMetallic: false)
             guard let part = try? ControlAsset.progressFill.instance(size: CGSize(width: 24, height: 3),
                     depth: 1.2, material: material) else { return }
             fill = part

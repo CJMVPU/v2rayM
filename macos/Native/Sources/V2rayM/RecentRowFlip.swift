@@ -10,7 +10,7 @@ struct RecentRowFace: Equatable {
     init(_ connection: GlobeConnection) {
         host = connection.host; route = connection.route; title = connection.routeTitle
     }
-    var color: NSColor { NSColor(route == "proxy" ? DashboardTheme.cyan : route == "direct" ? .green : .orange) }
+    var color: NSColor { NSColor(route == "proxy" ? DashboardTheme.proxyUpload : route == "direct" ? DashboardTheme.directUpload : DashboardTheme.warning) }
 }
 
 fileprivate struct RowBitmapKey: Equatable {
@@ -169,7 +169,7 @@ struct CachedRecentRow: NSViewRepresentable {
     private func synchronizeSurface() {
         surface.frame = bounds
         surface.configure(scene: sceneOwner, style: .init(shape: .panel(5),
-            color: NSColor(calibratedWhite: 0.17, alpha: 1), depth: 1.4, level: 30, parentID: parentID, rowOffset: rowOffset))
+            color: NSColor(DashboardTheme.well), depth: 1.4, level: 30, parentID: parentID, rowOffset: rowOffset))
         if !turning, let displayed, let bitmap = image(displayed) { surface.textureImage = bitmap }
     }
     override func layout() {
@@ -268,7 +268,7 @@ struct CachedRecentRow: NSViewRepresentable {
             (face.title as NSString).draw(in: CGRect(x: bounds.width - 8 - routeWidth, y: y, width: routeWidth, height: textHeight), withAttributes: routeAttributes)
             let paragraph = NSMutableParagraphStyle(); paragraph.lineBreakMode = .byTruncatingMiddle
             (face.host as NSString).draw(in: CGRect(x: 8, y: y, width: max(0, bounds.width - 28 - routeWidth), height: textHeight),
-                withAttributes: [.font: font, .foregroundColor: NSColor.labelColor, .paragraphStyle: paragraph])
+                withAttributes: [.font: font, .foregroundColor: NSColor(DashboardTheme.text), .paragraphStyle: paragraph])
         }
         NSGraphicsContext.restoreGraphicsState()
         guard let result = bitmap.cgImage else { return nil }

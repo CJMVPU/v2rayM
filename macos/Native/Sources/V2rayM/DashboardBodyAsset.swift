@@ -64,8 +64,8 @@ enum DashboardBodyAsset: String, CaseIterable {
         var mesh = MeshDescriptor(name: rawValue)
         mesh.textureCoordinates = .init(vertices.map { [$0.x + 0.5, $0.y + 0.5] })
         mesh.positions = .init(vertices); mesh.primitives = .triangles(indices); mesh.materials = .perFace(surfaces)
-        let tones: [CGFloat] = [0.11, 0.15, 0.22, 0.26, 0.20]
-        var materials = tones.map { SimpleMaterial(color: NSColor(white: $0, alpha: 1), roughness: 0.78, isMetallic: false) }
+        let tones: [CGFloat] = [0.055, 0.085, 0.13, 0.16, 0.12]
+        var materials: [any Material] = tones.map { SimpleMaterial(color: NSColor(white: $0, alpha: 1), roughness: 0.78, isMetallic: false) }
         if self != .titleBar {
             // Bake broad reflected light across the front. UVs are continuous
             // across the triangle fan and do not stretch with the bevel depth.
@@ -77,7 +77,8 @@ enum DashboardBodyAsset: String, CaseIterable {
                     let u = Double(x)/Double(length-1), v = Double(y)/Double(length-1)
                     let highlight = exp(-3.5 * (pow(u-0.22,2) + pow(v-0.26,2)))
                     let light = 0.70 * highlight + 0.30 * (1 - (u + v)/2)
-                    pixels += [UInt8(31 + 33 * light), UInt8(31 + 33 * light), UInt8(32 + 33 * light), 255]
+                    let graphite = UInt8(24 + 8 * light)
+                    pixels += [graphite, graphite, graphite, 255]
                 }
             }
             guard let provider = CGDataProvider(data: Data(pixels) as CFData),
@@ -86,7 +87,9 @@ enum DashboardBodyAsset: String, CaseIterable {
                     bytesPerRow: length*4, space: space, bitmapInfo: .init(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue),
                     provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent) else { throw CocoaError(.coderInvalidValue) }
             let texture = try TextureResource.generate(from: image, options: .init(semantic: .color))
-            materials[4].color = .init(tint: .white, texture: .init(texture))
+            var face = UnlitMaterial(applyPostProcessToneMap: false)
+            face.color = .init(tint: .white, texture: .init(texture))
+            materials[4] = face
         }
         return ModelEntity(mesh: try MeshResource.generate(from: [mesh]), materials: materials)
     }
