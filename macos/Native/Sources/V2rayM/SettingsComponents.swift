@@ -20,7 +20,7 @@ struct SettingsCard<Content: View, HeaderAction: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Group {
@@ -34,7 +34,8 @@ struct SettingsCard<Content: View, HeaderAction: View>: View {
             }
             content
         }
-        .padding(14).frame(maxWidth: .infinity, maxHeight: fillHeight ? .infinity : nil, alignment: .topLeading)
+        .padding(.horizontal, 14).padding(.vertical, 12)
+        .frame(maxWidth: .infinity, maxHeight: fillHeight ? .infinity : nil, alignment: .topLeading)
         .realityCard()
     }
 }

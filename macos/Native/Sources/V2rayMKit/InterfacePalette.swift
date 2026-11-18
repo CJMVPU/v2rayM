@@ -12,11 +12,11 @@ public enum InterfacePalette {
     public static let selectedPanel = rgb(0x494949)
     public static let text = rgb(0xEEEEE9)
     public static let secondary = rgb(0xBEBEBA)
-    public static let accent = rgb(0x98C7B6)
-    public static let proxyUpload = rgb(0x82B7BE)
-    public static let proxyDownload = rgb(0xB19DBB)
-    public static let directUpload = rgb(0x9CB699)
-    public static let directDownload = rgb(0xCFAC81)
+    public static let proxyUpload = NSColor(srgbRed: 0.02, green: 0.83, blue: 0.96, alpha: 1)
+    public static let proxyDownload = NSColor(srgbRed: 0.72, green: 0.35, blue: 0.98, alpha: 1)
+    public static let directUpload = NSColor(srgbRed: 0.22, green: 0.79, blue: 0.48, alpha: 1)
+    public static let directDownload = NSColor(srgbRed: 1, green: 0.65, blue: 0.24, alpha: 1)
+    public static let accent = proxyUpload
     public static let error = rgb(0xD99389)
 
     private static func rgb(_ value: UInt32) -> NSColor {

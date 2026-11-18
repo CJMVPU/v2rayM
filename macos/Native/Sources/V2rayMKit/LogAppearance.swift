@@ -29,7 +29,7 @@ public enum LogKind: Equatable {
         switch self {
         case .error: return Self.adaptive("error", light: (0.72, 0.10, 0.14), dark: InterfacePalette.error)
         case .warning: return Self.adaptive("warning", light: (0.49, 0.28, 0), dark: InterfacePalette.directDownload)
-        case .lifecycle: return Self.adaptive("lifecycle", light: (0.04, 0.40, 0.25), dark: InterfacePalette.accent)
+        case .lifecycle: return Self.adaptive("lifecycle", light: (0.04, 0.40, 0.25), dark: InterfacePalette.directUpload)
         case .debug: return Self.adaptive("debug", light: (0.43, 0.32, 0.56), dark: InterfacePalette.proxyDownload)
         case .info: return Self.adaptive("info", light: (0.08, 0.35, 0.62), dark: InterfacePalette.proxyUpload)
         case .normal: return Self.adaptive("normal", light: (0.12, 0.12, 0.12), dark: InterfacePalette.text)

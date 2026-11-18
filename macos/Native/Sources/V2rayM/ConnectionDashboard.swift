@@ -31,7 +31,7 @@ struct ConnectionDashboard: View {
         }
     }
     private var statusColor: Color {
-        if running { return DashboardTheme.accent }
+        if running { return Color.green }
         return [.recovering, .faulted, .stale, .changing, .updating].contains(state) ? DashboardTheme.warning : DashboardTheme.muted
     }
     var body: some View {

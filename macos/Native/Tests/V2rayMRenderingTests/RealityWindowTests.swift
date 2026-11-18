@@ -569,10 +569,14 @@ private struct RealityInteractionView: View {
         window.appearance = NSAppearance(named: .darkAqua)
         defer { window.close() }
         for page in Page.allCases {
-            let host = NSHostingView(rootView: ContentView(initialPage: page).environmentObject(model)
-                .environment(\.dashboardVisibilityOverride, true)
-                .font(AppFont.body).buttonStyle(HoverButtonStyle()).environment(\.colorScheme, .dark)
-                .background(WindowTracker { _ in }))
+            func content(bottomInset: CGFloat) -> some View {
+                ContentView(initialPage: page).environmentObject(model)
+                    .environment(\.dashboardVisibilityOverride, true)
+                    .font(AppFont.body).buttonStyle(HoverButtonStyle()).environment(\.colorScheme, .dark)
+                    .padding(.bottom, bottomInset)
+                    .background(WindowTracker { _ in })
+            }
+            let host = NSHostingView(rootView: content(bottomInset: 0))
             window.contentView = host
             for kind in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] { window.standardWindowButton(kind)?.isHidden = true }
             window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
@@ -594,10 +598,23 @@ private struct RealityInteractionView: View {
             try capture.run(); capture.waitUntilExit(); XCTAssertEqual(capture.terminationStatus, 0)
             if page == .settings {
                 func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
-                let scroll = try XCTUnwrap(descendants(host).compactMap { $0 as? NSScrollView }
-                    .first { ($0.documentView?.bounds.height ?? 0) > $0.contentView.bounds.height + 20 })
+                func settingsScroll() -> NSScrollView? {
+                    descendants(host).compactMap { $0 as? SettingsWheelScroll.Anchor }
+                        .compactMap { $0.enclosingScrollView }.first { ($0.documentView?.bounds.height ?? 0) > 400 }
+                }
+                let overview = try XCTUnwrap(settingsScroll())
+                let overviewHeight = try XCTUnwrap(overview.documentView).bounds.height
+                XCTAssertLessThanOrEqual(overviewHeight, overview.contentView.bounds.height + 1,
+                                         "Both footer cards should fit in the standard window")
+                // Keep the full-size snapshot above. Exercise wheel motion and
+                // RealityKit clipping in a deliberately shorter viewport.
+                host.rootView = content(bottomInset: 96)
+                host.layoutSubtreeIfNeeded()
+                try await Task.sleep(for: .milliseconds(150))
+                let scroll = try XCTUnwrap(settingsScroll())
                 let document = try XCTUnwrap(scroll.documentView)
                 let maxY = document.bounds.height - scroll.contentView.bounds.height
+                XCTAssertGreaterThan(maxY, 30)
                 let wheelAnchor = try XCTUnwrap(descendants(document).compactMap { $0 as? SettingsWheelScroll.Anchor }.first { $0.enclosingScrollView === scroll })
                 let nativeWheel = try XCTUnwrap(CGEvent(scrollWheelEvent2Source: nil, units: .line,
                     wheelCount: 1, wheel1: -3, wheel2: 0, wheel3: 0))

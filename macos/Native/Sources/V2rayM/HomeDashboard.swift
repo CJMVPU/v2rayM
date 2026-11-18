@@ -148,9 +148,9 @@ private struct DashboardContent: View, Equatable {
     }
     private func statusIcon(_ icon: ControlAsset, title: String, enabled: Bool) -> some View {
         VStack(spacing: 6) {
-            RealityGlyph(asset: icon, size: 21, color: enabled ? DashboardTheme.accent : DashboardTheme.muted).frame(height: 28)
+            RealityGlyph(asset: icon, size: 21, color: enabled ? Color.green : DashboardTheme.muted).frame(height: 28)
             Text(title).font(AppFont.caption).frame(height: 16)
-        }.foregroundStyle(enabled ? DashboardTheme.accent : DashboardTheme.muted)
+        }.foregroundStyle(enabled ? Color.green : DashboardTheme.muted)
             .frame(maxWidth: .infinity)
             .accessibilityElement(children: .ignore).accessibilityLabel(title + (enabled ? "已就绪" : "未开启"))
     }

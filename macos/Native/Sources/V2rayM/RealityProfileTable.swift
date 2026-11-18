@@ -61,7 +61,7 @@ private struct RealityProfileRow: View {
         Button(action: action) {
             HStack(spacing: 14) {
                 HStack(spacing: 8) {
-                    RealityGlyph(asset: profile.isCurrent ? .current : .circle, color: profile.isCurrent ? DashboardTheme.accent : DashboardTheme.muted)
+                    RealityGlyph(asset: profile.isCurrent ? .current : .circle, color: profile.isCurrent ? Color.green : DashboardTheme.muted)
                     Text(profile.remarks.isEmpty ? profile.address : profile.remarks).lineLimit(1)
                         .help(profile.remarks.isEmpty ? profile.address : profile.remarks)
                 }.frame(width: 304, alignment: .leading)

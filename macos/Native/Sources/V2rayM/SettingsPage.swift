@@ -43,23 +43,27 @@ struct SettingsPage: View {
                 }
                 ModuleUpdatePanel().environmentObject(model)
                 HStack(alignment: .top, spacing: PageLayout.gap) {
-                    SettingsCard(title: "TUN 后台服务", symbol: .shieldCheck, fillHeight: true) {
+                    SettingsCard(title: "TUN 后台服务", symbol: .shieldCheck, fillHeight: true, headerAction: {
+                        Button("安装并授权") { model.authorizeTun() }
+                            .disabled(disabled || model.tun?.helperAvailable == true)
+                        Button("后台服务设置") { model.openTunApproval() }.disabled(disabled)
+                    }) {
                         LabeledContent("运行状态", value: model.tun?.isRunning == true ? "运行中" : "已关闭")
+                            .frame(minHeight: 20, alignment: .leading)
                         LabeledContent("后台服务", value: model.tun?.helperDescription ?? "正在检查")
-                        HStack {
-                            Button("安装并授权") { model.authorizeTun() }
-                                .disabled(disabled || model.tun?.helperAvailable == true)
-                            Button("后台服务设置") { model.openTunApproval() }.disabled(disabled)
-                        }
+                            .frame(minHeight: 20, alignment: .topLeading)
                     }
-                    SettingsCard(title: "日志与数据", symbol: .folder, fillHeight: true) {
-                        Text("保留最近 10,000 行日志，切换模式时保留历史。")
-                            .font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
-                        Text(model.dataDirectory.path).font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
-                            .lineLimit(2).textSelection(.enabled)
+                    SettingsCard(title: "日志与数据", symbol: .folder, fillHeight: true, headerAction: {
                         Button("在访达中打开") { NSWorkspace.shared.open(model.dataDirectory) }
+                    }) {
+                        Text("保留最近 10,000 行日志，切换模式时保留历史。")
+                            .foregroundStyle(DashboardTheme.muted)
+                            .frame(minHeight: 20, alignment: .leading)
+                        Text(model.dataDirectory.path).foregroundStyle(DashboardTheme.muted)
+                            .lineLimit(2).textSelection(.enabled)
+                            .frame(minHeight: 20, alignment: .topLeading)
                     }
-                }.fixedSize(horizontal: false, vertical: true)
+                }.font(AppFont.body).fixedSize(horizontal: false, vertical: true)
             }.padding(.horizontal, PageLayout.gap).background(SettingsWheelScroll())
         }.scrollIndicators(.never).realityClipped().padding(.vertical, PageLayout.gap)
     }
