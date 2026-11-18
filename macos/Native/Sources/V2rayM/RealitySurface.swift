@@ -367,6 +367,9 @@ private struct RealityStage: NSViewRepresentable {
                 do {
                     let asset = try RealityNavigationAssets.load(symbol, selected: style.selected)
                     asset.scale = SIMD3<Float>(repeating: Float(min(clipped.width,clipped.height)) / 2000)
+                    // Center the model itself. Book pages and recessed details
+                    // need not have their authored origin at the visual midpoint.
+                    asset.position -= asset.visualBounds(relativeTo: nil).center
                     entity.addChild(asset)
                 } catch {
                     // This is a packaging fault, not a silent flat-icon fallback.

@@ -16,7 +16,6 @@ struct RealityNavigationIcon: View {
             .background {
                 RealitySurface(style: .init(shape: .symbol(symbol),
                     depth: 3, level: 70, highlighted: enabled && hovered, selected: selected, enabled: enabled,
-                    angle: -16, tilt: 12,
                     flipToken: flipToken, allowsFlip: !reduced && enabled))
             }
             .frame(width: 40, height: 24).contentShape(Rectangle())

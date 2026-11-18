@@ -22,7 +22,7 @@ Older documents describing multi-core support are historical, not requirements.
 - Fixed compact window; LXGWWenKaiMono Medium; dark appearance only; no sidebar or subscription page.
 - Reuse the main window content for settings, node editing and import; do not add
   separate editor windows or sheets. Preserve unsaved-edit confirmation on return.
-- Title-bar navigation uses rounded RealityKit assets in neutral graphite, with only the selected icon bright (solid house with doorway, five signal bars, smiling log book, eight-tooth gear), with no icon background plates or outlines. Hover and newly selected pages flip once, respecting disabled state, Reduce Motion and window suspension.
+- Title-bar navigation uses rounded RealityKit assets in neutral graphite, with only the selected icon bright (solid house with doorway, five signal bars, smiling log book, eight-tooth gear), with no icon background plates or outlines. Models rest front-facing and visually centered on their native buttons. Hover and newly selected pages flip once, respecting disabled state, Reduce Motion and window suspension.
 - The compact title bar has a bevelled 3D card body. Home defaults to a house icon. Navigation and mutually exclusive system proxy and TUN controls stay in the
   title bar; node import stays on the Nodes page. No separate connect button.
 - All buttons have disabled-aware hover feedback without layout shifts.

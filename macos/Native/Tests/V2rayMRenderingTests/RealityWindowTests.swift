@@ -97,6 +97,14 @@ private struct RealityInteractionView: View {
             XCTAssertGreaterThan(stage.owner.activeNavigationFlips, 0, label)
             try await Task.sleep(for: .milliseconds(450))
             XCTAssertEqual(stage.owner.activeNavigationFlips, 0)
+            let anchors = all(host).compactMap { $0 as? RealitySurfaceAnchor }.filter { $0.style.shape.isNavigationSymbol }
+            XCTAssertEqual(anchors.count, 4)
+            for anchor in anchors {
+                let entity = try XCTUnwrap(stage.owner.root.findEntity(named: "surface-" + anchor.surfaceID.uuidString))
+                let faceNormal = entity.orientation.act(SIMD3<Float>(0, 0, 1))
+                XCTAssertLessThan(simd_distance(faceNormal, [0, 0, 1]), 0.00001)
+                XCTAssertLessThan(simd_length(entity.visualBounds(relativeTo: entity).center), 0.00001)
+            }
         }
     }
 
@@ -162,7 +170,7 @@ private struct RealityInteractionView: View {
             for (i,symbol) in RealityNavigationSymbol.allCases.enumerated() {
                 let rect = CGRect(x: 30+i*200, y: 40, width: 140, height: 140)
                 owner.update(ids[i], frame: rect, visible: rect, style: .init(shape: .symbol(symbol),
-                    level: 70, selected: i == 0, enabled: enabled, angle: -16, tilt: 12,
+                    level: 70, selected: i == 0, enabled: enabled,
                     flipToken: token, allowsFlip: motion))
             }
         }
