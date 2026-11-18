@@ -207,6 +207,7 @@ struct CachedRecentRow: NSViewRepresentable {
             self.sceneOwner?.turn(self.surface.surfaceID, degrees: 0, duration: duration / 2)
             do { try await Task.sleep(for: .seconds(duration / 2)) } catch { return }
             guard self.token == ticket, !self.frozen else { return }
+            self.sceneOwner?.turn(self.surface.surfaceID, degrees: 0, duration: 0)
             self.displayed = self.preparedFace; self.preparedFace = nil; self.turning = false; self.worker = nil
             self.scheduler?.finished(self); self.scheduler?.enqueue(self)
         }

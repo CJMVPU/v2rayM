@@ -9,22 +9,43 @@ enum RealityNavigationSymbol: String, CaseIterable {
 
 @MainActor enum RealityNavigationAssets {
     #if SWIFT_PACKAGE
-    private static var templates: [RealityNavigationSymbol: Entity] = [:]
-    static func load(_ symbol: RealityNavigationSymbol) throws -> Entity {
-        if let template = templates[symbol] { return template.clone(recursive: true) }
+    private static var templates: [RealityNavigationSymbol: [Bool: Entity]] = [:]
+    static func load(_ symbol: RealityNavigationSymbol, selected: Bool = true) throws -> Entity {
+        if let template = templates[symbol]?[selected] { return template.clone(recursive: true) }
         guard let url = Bundle.module.url(forResource: symbol.rawValue, withExtension: "reality", subdirectory: "Navigation") else {
             throw CocoaError(.fileNoSuchFile)
         }
         let template = try Entity.load(contentsOf: url)
-        templates[symbol] = template
+        if !selected { darken(template) }
+        templates[symbol, default: [:]][selected] = template
         return template.clone(recursive: true)
+    }
+    private static func darken(_ entity: Entity) {
+        if let model = entity as? ModelEntity, var component = model.model {
+            component.materials = component.materials.map { material in
+                func graphite(_ color: NSColor) -> NSColor {
+                    (color.usingColorSpace(.sRGB) ?? color).blended(withFraction: 0.35, of: .black) ?? color
+                }
+                if var simple = material as? SimpleMaterial {
+                    simple.color.tint = graphite(simple.color.tint)
+                    return simple
+                }
+                if var pbr = material as? PhysicallyBasedMaterial {
+                    pbr.baseColor.tint = graphite(pbr.baseColor.tint)
+                    return pbr
+                }
+                return material
+            }
+            model.model = component
+        }
+        for child in entity.children { darken(child) }
     }
     #endif
     static func build(_ symbol: RealityNavigationSymbol) throws -> Entity {
         let root = Entity(); root.name = "navigation-" + symbol.rawValue
-        let ivory = SimpleMaterial(color: NSColor(red: 0.89, green: 0.94, blue: 0.98, alpha: 1), roughness: 0.86, isMetallic: false)
-        let mist = SimpleMaterial(color: NSColor(red: 0.52, green: 0.68, blue: 0.81, alpha: 1), roughness: 0.84, isMetallic: false)
-        let ink = SimpleMaterial(color: NSColor(red: 0.065, green: 0.13, blue: 0.21, alpha: 1), roughness: 0.83, isMetallic: false)
+        let ivory = SimpleMaterial(color: NSColor(white: 0.94, alpha: 1), roughness: 0.86, isMetallic: false)
+        let mist = SimpleMaterial(color: NSColor(white: 0.78, alpha: 1), roughness: 0.84, isMetallic: false)
+        let ink = SimpleMaterial(color: NSColor(white: 0.12, alpha: 1), roughness: 0.83, isMetallic: false)
         @discardableResult func part(_ name: String, _ mesh: MeshResource, _ material: SimpleMaterial, at position: SIMD3<Float>) -> ModelEntity {
             let entity = ModelEntity(mesh: mesh, materials: [material]); entity.name = name; entity.position = position
             root.addChild(entity); return entity
@@ -79,7 +100,7 @@ enum RealityNavigationSymbol: String, CaseIterable {
         for _ in 0..<(size * size) {
             seed = seed &* 1664525 &+ 1013904223
             let grain = Int(seed >> 27) - 15
-            pixels += [UInt8(86 + grain),UInt8(133 + grain),UInt8(174 + grain),255]
+            pixels += [UInt8(170 + grain),UInt8(170 + grain),UInt8(170 + grain),255]
         }
         let provider = CGDataProvider(data: Data(pixels) as CFData)!
         let bitmap = CGImage(width: size, height: size, bitsPerComponent: 8, bitsPerPixel: 32,

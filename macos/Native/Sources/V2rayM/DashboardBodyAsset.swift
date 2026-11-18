@@ -5,6 +5,7 @@ enum TitleBarGeometry {
     static let sideMargin: CGFloat = 8
     static let topMargin: CGFloat = 5
     static let height: CGFloat = 26
+    static let cornerRadius: CGFloat = 6
     static let width: Float = 860 - 2 * Float(sideMargin)
 }
 
@@ -13,6 +14,8 @@ enum DashboardBodyAsset: String, CaseIterable {
     case dial, card, titleBar
 
     @MainActor func build() throws -> ModelEntity {
+        let radiusInPoints = Float(TitleBarGeometry.cornerRadius)
+        let stripRadius = SIMD2(radiusInPoints / TitleBarGeometry.width, radiusInPoints / Float(TitleBarGeometry.height))
         let contour: [SIMD2<Float>]
         switch self {
         case .dial:
@@ -21,7 +24,7 @@ enum DashboardBodyAsset: String, CaseIterable {
                 return SIMD2(cos(angle), sin(angle)) * 0.5
             }
         case .card, .titleBar:
-            let radius = self == .titleBar ? SIMD2<Float>(13 / TitleBarGeometry.width, 0.5) : SIMD2<Float>(0.04, 0.075)
+            let radius = self == .titleBar ? stripRadius : SIMD2<Float>(0.04, 0.075)
             contour = (0..<4).flatMap { corner in
                 let sign: SIMD2<Float> = [[1,1],[-1,1],[-1,-1],[1,-1]][corner]
                 return (0...10).map { step in
@@ -30,23 +33,19 @@ enum DashboardBodyAsset: String, CaseIterable {
                 }
             }
         }
-        // A recessed plinth, dark sidewall and sloped lip remain visible
-        // through the orthographic camera even when the front faces the viewer.
-        let rings: [(Float, Float, Float)] = [(0.96,-0.016,-0.5),(1,0,-0.30),(0.99,0.008,0.18),(0.961,0.013,0.42),(0.946,0.013,0.50)]
+        // A continuous sidewall and narrow bevel meet the face on the same outline.
+        let rings: [(scale: Float, depth: Float)] = [(0.993,-0.5),(1,-0.36),(1,0.30),(0.997,0.45),(0.991,0.50)]
         var vertices: [SIMD3<Float>] = [], indices: [UInt32] = [], surfaces: [UInt32] = []
         func point(_ index: Int, _ layer: Int) -> SIMD3<Float> {
-            let (scale, lift, depth) = rings[layer], v = contour[index] * scale
+            let ring = rings[layer]
+            var xy = contour[index] * ring.scale
             if self == .titleBar {
-                // Inset in points on the floating title strip. A uniform XY
-                // scale would consume the left and right ends of a wide card.
-                let inset: [Float] = [0.65,0,0.25,0.55,0.85]
-                let side = contour[index].x < 0 ? Float(-1) : 1
-                let centre = side * (0.5 - 13 / TitleBarGeometry.width)
-                let radiusScale = 1 - inset[layer]/13
-                return [centre + (contour[index].x - centre) * radiusScale,
-                        contour[index].y * radiusScale, depth]
+                let inset: [Float] = [0.55, 0, 0, 0.25, 0.65]
+                let corner = SIMD2<Float>(contour[index].x < 0 ? -1 : 1, contour[index].y < 0 ? -1 : 1)
+                let centre = corner * (0.5 - stripRadius)
+                xy = centre + (contour[index] - centre) * (1 - inset[layer] / radiusInPoints)
             }
-            return [v.x, v.y + lift, depth]
+            return [xy.x, xy.y, ring.depth]
         }
         func triangle(_ a: SIMD3<Float>, _ b: SIMD3<Float>, _ c: SIMD3<Float>, _ material: UInt32) {
             guard simd_length_squared(simd_cross(b-a,c-a)) > 1e-20 else { return }
@@ -65,8 +64,8 @@ enum DashboardBodyAsset: String, CaseIterable {
         var mesh = MeshDescriptor(name: rawValue)
         mesh.textureCoordinates = .init(vertices.map { [$0.x + 0.5, $0.y + 0.5] })
         mesh.positions = .init(vertices); mesh.primitives = .triangles(indices); mesh.materials = .perFace(surfaces)
-        let colours: [NSColor] = [.init(white: 0.095, alpha: 1), .init(red: 0.16,green: 0.21,blue: 0.25,alpha: 1), .init(red: 0.30,green: 0.38,blue: 0.44,alpha: 1), .init(red: 0.23,green: 0.29,blue: 0.34,alpha: 1), .init(red: 0.15,green: 0.18,blue: 0.21,alpha: 1)]
-        var materials = colours.map { SimpleMaterial(color: $0, roughness: 0.72, isMetallic: false) }
+        let tones: [CGFloat] = [0.11, 0.15, 0.22, 0.26, 0.20]
+        var materials = tones.map { SimpleMaterial(color: NSColor(white: $0, alpha: 1), roughness: 0.78, isMetallic: false) }
         if self != .titleBar {
             // Bake broad reflected light across the front. UVs are continuous
             // across the triangle fan and do not stretch with the bevel depth.
@@ -78,7 +77,7 @@ enum DashboardBodyAsset: String, CaseIterable {
                     let u = Double(x)/Double(length-1), v = Double(y)/Double(length-1)
                     let highlight = exp(-3.5 * (pow(u-0.22,2) + pow(v-0.26,2)))
                     let light = 0.70 * highlight + 0.30 * (1 - (u + v)/2)
-                    pixels += [UInt8(27 + 44 * light), UInt8(38 + 51 * light), UInt8(47 + 58 * light), 255]
+                    pixels += [UInt8(31 + 33 * light), UInt8(31 + 33 * light), UInt8(32 + 33 * light), 255]
                 }
             }
             guard let provider = CGDataProvider(data: Data(pixels) as CFData),

@@ -46,7 +46,7 @@ struct SettingsPage: View {
                                     }.disabled(disabled)
                                         .accessibilityAddTraits(route.isActive ? [.isSelected] : [])
                                 }
-                            }
+                            }.background(SettingsWheelScroll())
                         }
                     }
                     HStack(spacing: 18) {
@@ -80,7 +80,7 @@ struct SettingsPage: View {
                         Button("在访达中打开") { NSWorkspace.shared.open(model.dataDirectory) }
                     }
                 }.fixedSize(horizontal: false, vertical: true)
-            }.padding(16)
+            }.padding(16).background(SettingsWheelScroll())
         }.scrollIndicators(.never).realityClipped()
     }
 }

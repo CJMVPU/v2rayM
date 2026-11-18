@@ -3,15 +3,21 @@ import Foundation
 
 /// User gestures interrupt tail animation before AppKit moves the viewport.
 @MainActor private final class LogScrollView: NSScrollView {
+    let wheel = SmoothWheelScroll()
     var willScrollManually: (() -> Void)?
     override func scrollWheel(with event: NSEvent) {
         willScrollManually?()
-        super.scrollWheel(with: event)
+        if !wheel.handle(event, in: self) { super.scrollWheel(with: event) }
+    }
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil { wheel.cancel() }
     }
 }
 
 @MainActor public final class NativeLogDocument {
-    public let scrollView: NSScrollView
+    private let logScrollView: LogScrollView
+    public var scrollView: NSScrollView { logScrollView }
     private struct TailAnimation {
         let started: TimeInterval
         let from: CGFloat
@@ -49,7 +55,7 @@ import Foundation
         text.backgroundColor = .textBackgroundColor
         text.setAccessibilityLabel("代理日志")
         scroll.documentView = text
-        scrollView = scroll
+        logScrollView = scroll
         scroll.contentView.postsBoundsChangedNotifications = true
         scroll.willScrollManually = { [weak self] in self?.stopFollowingAnimation() }
         boundsObserver = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification,
@@ -113,7 +119,7 @@ import Foundation
         let clip = scroll.contentView
         let origin = clip.bounds.origin
         let initial = ids.isEmpty
-        let followsTail = initial || animation != nil || clip.bounds.maxY >= text.bounds.maxY - 1
+        let followsTail = initial || (!logScrollView.wheel.isMoving && (animation != nil || clip.bounds.maxY >= text.bounds.maxY - 1))
         stopFollowingAnimation()
         // Layout may constrain the clip bounds while deleting old lines. Those
         // changes are ours, not a user request to stop following the tail.
@@ -135,6 +141,7 @@ import Foundation
             let glyph = layout.glyphIndexForCharacter(at: cut)
             removedHeight = layout.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil).minY
         } else { removedHeight = cut > 0 ? layout.usedRect(for: container).height : 0 }
+        if removedHeight > 0 { logScrollView.wheel.cancel() }
         let incoming = entries.dropFirst(shared)
         let added = incoming.map { $0.displayMessage + "\n" }
         let paragraph = NSMutableParagraphStyle()

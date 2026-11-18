@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import RealityKit
 @testable import V2rayMKit
 @testable import V2rayM
 
@@ -24,6 +25,37 @@ import AppKit
         window.orderFront(nil)
         return (window, scheduler, rows)
     }
+    func testRenderedRowSettlesFaceForwardAfterRelayoutAndSuspension() async throws {
+        let (window, _, rows) = try fixture(count: 1)
+        let row = rows[0], host = try XCTUnwrap(window.contentView)
+        let scene = RealityWindowScene(), stage = RealityStageView(owner: scene)
+        stage.frame = host.bounds
+        host.addSubview(stage, positioned: .below, relativeTo: row)
+        defer { row.stop(); stage.stop(); window.close() }
+        let card = UUID()
+        scene.update(card, frame: host.bounds, visible: host.bounds, style: .init(shape: .dashboard(.card), depth: 12))
+        row.setScene(scene, parent: card)
+        let pivot = try XCTUnwrap(scene.root.findEntity(named: "row-pivot"))
+        let anchor = try XCTUnwrap(pivot.parent)
+        XCTAssertGreaterThan(anchor.position.z, 0.006 + Float(row.bounds.height) / 2000)
+        row.update(try face(2), motion: true, flips: true, reduced: false)
+        row.startFlip(duration: 0.20)
+        for _ in 0..<15 {
+            scene.synchronizeAnchors()
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertFalse(row.turning)
+        XCTAssertEqual(row.displayed, try face(2))
+        XCTAssertEqual(pivot.orientation.angle, 0, accuracy: 0.0001)
+        let id = try XCTUnwrap(UUID(uuidString: String(anchor.name.dropFirst("surface-".count))))
+        scene.turn(id, degrees: 80, duration: 0)
+        stage.suspend()
+        row.freeze()
+        XCTAssertEqual(pivot.orientation.angle, 0, accuracy: 0.0001)
+        stage.resume()
+        XCTAssertEqual(pivot.orientation.angle, 0, accuracy: 0.0001)
+    }
+
     func testUnchangedFacesReuseBitmapAndScheduleNothing() throws {
         let (window, scheduler, rows) = try fixture(count: 1)
         defer { rows.forEach { $0.stop() }; window.close() }

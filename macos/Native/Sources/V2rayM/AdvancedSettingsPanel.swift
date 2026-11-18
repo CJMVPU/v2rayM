@@ -97,7 +97,7 @@ struct SettingsEditor: View {
                                     dnsDraft.savedCustomDNS = dnsDraft.dns
                                 } })
                         }
-                    }.frame(maxWidth: .infinity, alignment: .leading).padding(.trailing, 2)
+                    }.frame(maxWidth: .infinity, alignment: .leading).padding(.trailing, 2).background(SettingsWheelScroll())
                 }.scrollIndicators(.never).disabled(working)
             } else {
                 Spacer()

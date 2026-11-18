@@ -15,8 +15,7 @@ struct RealityNavigationIcon: View {
         Color.clear.frame(width: 22, height: 22)
             .background {
                 RealitySurface(style: .init(shape: .symbol(symbol),
-                    color: NSColor(selected ? DashboardTheme.cyan : DashboardTheme.muted),
-                    depth: 3, level: 70, highlighted: enabled && (hovered || selected), enabled: enabled,
+                    depth: 3, level: 70, highlighted: enabled && hovered, selected: selected, enabled: enabled,
                     angle: -16, tilt: 12,
                     flipToken: flipToken, allowsFlip: !reduced && enabled))
             }

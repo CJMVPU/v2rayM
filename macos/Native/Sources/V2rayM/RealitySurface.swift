@@ -12,6 +12,11 @@ enum RealityShape: Equatable {
     case ring(Double)
     case dashboard(DashboardBodyAsset)
     case symbol(RealityNavigationSymbol)
+
+    var isNavigationSymbol: Bool {
+        if case .symbol = self { return true }
+        return false
+    }
 }
 
 struct RealitySurfaceStyle: Equatable {
@@ -20,6 +25,7 @@ struct RealitySurfaceStyle: Equatable {
     var depth: Float = 6
     var level: Float = 10
     var highlighted = false
+    var selected = false
     var enabled = true
     var angle: Double = 0
     var tilt: Double = 0
@@ -353,12 +359,13 @@ private struct RealityStage: NSViewRepresentable {
         }
         if previous == nil { entity.name = "surface-" + id.uuidString }
         let geometryChanged = previous?.frame.size != clipped.size || previous?.style.shape != style.shape || previous?.style.depth != style.depth
-        if geometryChanged {
+        let selectionChanged = previous?.style.selected != style.selected
+        if geometryChanged || (selectionChanged && style.shape.isNavigationSymbol) {
             if case .symbol(let symbol) = style.shape {
                 entity.model = nil
                 entity.children.removeAll()
                 do {
-                    let asset = try RealityNavigationAssets.load(symbol)
+                    let asset = try RealityNavigationAssets.load(symbol, selected: style.selected)
                     asset.scale = SIMD3<Float>(repeating: Float(min(clipped.width,clipped.height)) / 2000)
                     entity.addChild(asset)
                 } catch {
@@ -381,13 +388,32 @@ private struct RealityStage: NSViewRepresentable {
                 guard let mesh = try? RealityGeometry.mesh(shape: style.shape, size: clipped.size, depth: style.depth) else {
                     entity.isEnabled = false; return
                 }
-                entity.model = ModelComponent(mesh: mesh, materials: [material(style)])
+                if style.rowOffset != nil {
+                    let pivot = (entity.findEntity(named: "row-pivot") as? ModelEntity) ?? ModelEntity()
+                    pivot.name = "row-pivot"
+                    pivot.model = ModelComponent(mesh: mesh, materials: [material(style)])
+                    if pivot.parent == nil { entity.addChild(pivot) }
+                } else {
+                    entity.model = ModelComponent(mesh: mesh, materials: [material(style)])
+                }
             }
             meshBuilds += 1
         } else if previous?.style.color != style.color || previous?.style.highlighted != style.highlighted || previous?.style.enabled != style.enabled {
             entity.model?.materials = [material(style)]
         }
-        if case .dashboard = style.shape, geometryChanged || previous?.style.highlighted != style.highlighted,
+        if style.shape == .dashboard(.titleBar),
+           geometryChanged || selectionChanged || previous?.style.highlighted != style.highlighted,
+           let shell = entity.findEntity(named: "dashboard-shell") {
+            let tone: CGFloat = style.selected ? 0.36 : style.highlighted ? 0.28 : 0.20
+            func applyFace(_ part: Entity) {
+                if let model = part as? ModelEntity, var component = model.model, component.materials.count >= 5 {
+                    component.materials[4] = SimpleMaterial(color: NSColor(white: tone, alpha: 1), roughness: 0.78, isMetallic: false)
+                    model.model = component
+                }
+                for child in part.children { applyFace(child) }
+            }
+            applyFace(shell)
+        } else if case .dashboard = style.shape, geometryChanged || previous?.style.highlighted != style.highlighted,
            let shell = entity.findEntity(named: "dashboard-shell") {
             // Lift the bevel into the light on hover, keeping content and hit regions stable.
             shell.orientation = simd_quatf(angle: style.highlighted ? 0.045 : 0, axis: [1, 0, 0])
@@ -513,7 +539,7 @@ private struct RealityStage: NSViewRepresentable {
         let world = Self.position(item.frame, viewport: size, level: item.style.level)
         if let parentID = item.style.parentID, parentID != id, let parent = items[parentID] {
             if item.style.rowOffset != nil {
-                item.entity.position = [0, -Float(item.frame.midY)/1000, parent.style.depth/2000 + 0.001]
+                item.entity.position = [0, -Float(item.frame.midY)/1000, (parent.style.depth + Float(item.frame.height) + item.style.depth)/2000 + 0.0002]
                 item.entity.isEnabled = item.style.visible && cos(parent.style.angle * .pi/180) >= 0
             } else {
                 item.entity.position = world - Self.position(parent.frame, viewport: size, level: parent.style.level)
@@ -544,15 +570,15 @@ private struct RealityStage: NSViewRepresentable {
         face.model = ModelComponent(mesh: .generatePlane(width: Float(item.frame.width) / 1000,
                                                          height: Float(item.frame.height) / 1000), materials: [material])
         face.position.z = item.style.depth / 2000 + 0.0001
-        if face.parent == nil { item.entity.addChild(face) }
+        if face.parent == nil { (item.entity.findEntity(named: "row-pivot") ?? item.entity).addChild(face) }
         faces[id] = (image, face, item.frame.size)
     }
     func turn(_ id: UUID, degrees: Float, duration: Double) {
-        guard let item = items[id], stage?.suspended != true else { return }
-        var target = item.entity.transform
+        guard let pivot = items[id]?.entity.findEntity(named: "row-pivot"), duration == 0 || stage?.suspended != true else { return }
+        var target = pivot.transform
         target.rotation = simd_quatf(angle: degrees * .pi / 180, axis: [1, 0, 0])
-        if duration == 0 { item.entity.stopAllAnimations(recursive: true); item.entity.transform = target }
-        else { item.entity.move(to: target, relativeTo: item.entity.parent, duration: duration, timingFunction: .easeInOut) }
+        if duration == 0 { pivot.stopAllAnimations(); pivot.orientation = target.rotation }
+        else { pivot.move(to: target, relativeTo: pivot.parent, duration: duration, timingFunction: .easeInOut) }
     }
     func attachDrawing(_ entity: Entity, to id: UUID) {
         guard let item = items[id] else { return }

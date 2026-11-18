@@ -17,6 +17,26 @@ final class NativeLogDocumentTests: XCTestCase {
         try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
             .write(to: directory.appendingPathComponent(name + ".png"))
     }
+    @MainActor func testWheelAccumulatesBothAxesAndClampsAtDocumentEdge() {
+        let document = NativeLogDocument()
+        let scroll = document.scrollView
+        scroll.frame = CGRect(x: 0, y: 0, width: 500, height: 120)
+        document.update(rows(1...80))
+        let wheel = SmoothWheelScroll(), clip = scroll.contentView
+        clip.scroll(to: CGPoint(x: 10, y: 150))
+        XCTAssertTrue(wheel.move(in: scroll, by: CGPoint(x: 40, y: 70), at: 1))
+        wheel.advance(at: 1.04)
+        XCTAssertGreaterThan(clip.bounds.minY, 150)
+        XCTAssertLessThan(clip.bounds.minY, 220)
+        XCTAssertTrue(wheel.move(in: scroll, by: CGPoint(x: 25, y: 30), at: 1.04))
+        wheel.advance(at: 1.3)
+        XCTAssertEqual(clip.bounds.origin, CGPoint(x: 75, y: 250))
+        XCTAssertFalse(wheel.isMoving)
+        wheel.move(in: scroll, by: CGPoint(x: -500, y: -900), at: 2)
+        wheel.advance(at: 3)
+        XCTAssertEqual(clip.bounds.origin, .zero)
+    }
+
     @MainActor func testAutomaticRunLoopAnimationCompletes() async throws {
         let document = NativeLogDocument(now: { ProcessInfo.processInfo.systemUptime }, reduceMotion: { false })
         document.scrollView.frame = NSRect(x: 0, y: 0, width: 600, height: 140)

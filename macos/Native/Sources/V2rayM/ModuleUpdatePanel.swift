@@ -91,7 +91,7 @@ private struct UpdateDetails: View {
     var body: some View {
         ScrollView {
             Text(text).font(AppFont.body).textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading).padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading).padding(14).background(SettingsWheelScroll())
         }.frame(width: 390, height: 180)
     }
 }

@@ -162,7 +162,7 @@ private struct RealityInteractionView: View {
             for (i,symbol) in RealityNavigationSymbol.allCases.enumerated() {
                 let rect = CGRect(x: 30+i*200, y: 40, width: 140, height: 140)
                 owner.update(ids[i], frame: rect, visible: rect, style: .init(shape: .symbol(symbol),
-                    level: 70, highlighted: i == 0, enabled: enabled, angle: -16, tilt: 12,
+                    level: 70, selected: i == 0, enabled: enabled, angle: -16, tilt: 12,
                     flipToken: token, allowsFlip: motion))
             }
         }
@@ -358,6 +358,20 @@ private struct RealityInteractionView: View {
                     .first { ($0.documentView?.bounds.height ?? 0) > $0.contentView.bounds.height + 20 })
                 let document = try XCTUnwrap(scroll.documentView)
                 let maxY = document.bounds.height - scroll.contentView.bounds.height
+                let wheelAnchor = try XCTUnwrap(descendants(document).compactMap { $0 as? SettingsWheelScroll.Anchor }.first { $0.enclosingScrollView === scroll })
+                let nativeWheel = try XCTUnwrap(CGEvent(scrollWheelEvent2Source: nil, units: .line,
+                    wheelCount: 1, wheel1: -3, wheel2: 0, wheel3: 0))
+                let wheelEvent = try XCTUnwrap(NSEvent(cgEvent: nativeWheel))
+                let location = scroll.convert(CGPoint(x: scroll.bounds.midX, y: scroll.bounds.midY), to: nil)
+                let origin = scroll.contentView.bounds.minY
+                XCTAssertTrue(wheelAnchor.consume(wheelEvent, at: location))
+                XCTAssertEqual(scroll.contentView.bounds.minY, origin)
+                try await Task.sleep(for: .milliseconds(210))
+                XCTAssertEqual(scroll.contentView.bounds.minY, origin + 3 * scroll.verticalLineScroll, accuracy: 1)
+                let precise = try XCTUnwrap(CGEvent(scrollWheelEvent2Source: nil, units: .pixel,
+                    wheelCount: 1, wheel1: -3, wheel2: 0, wheel3: 0))
+                precise.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+                XCTAssertFalse(wheelAnchor.consume(try XCTUnwrap(NSEvent(cgEvent: precise)), at: location))
                 for (index, offset) in [min(90, maxY), maxY, 0].enumerated() {
                     scroll.contentView.scroll(to: CGPoint(x: 0, y: offset))
                     scroll.reflectScrolledClipView(scroll.contentView)

@@ -107,7 +107,7 @@ struct ContentView: View {
             }
             .realitySurface(.init(shape: .dashboard(.titleBar), depth: 4, level: 50))
             .background {
-                RealitySurface(style: .init(shape: .panel(13), color: NSColor(white: 0.075, alpha: 1),
+                RealitySurface(style: .init(shape: .panel(TitleBarGeometry.cornerRadius), color: NSColor(white: 0.075, alpha: 1),
                                             depth: 1, level: 44))
                     .offset(y: 1.25).allowsHitTesting(false).accessibilityHidden(true)
             }
@@ -144,7 +144,6 @@ struct ContentView: View {
                     .padding(.top, 3)
 
             }
-            Divider()
             HStack {
                 Text("\(model.profiles.count) 个节点").font(AppFont.caption).foregroundStyle(.secondary)
                 Button("导入节点") { importing = true }.disabled(controlsDisabled)
@@ -159,9 +158,11 @@ struct ContentView: View {
                     .disabled(item == nil || model.busy || model.moduleUpdateActive)
                     .opacity(item == nil ? 0 : 1)
                     .accessibilityHidden(item == nil)
-            }.padding(.horizontal, 12).frame(height: 27)
-                .realitySurface(.init(shape: .panel(0), depth: 4, level: 18))
+            }.padding(.horizontal, 12).frame(height: TitleBarGeometry.height)
+                .realitySurface(.init(shape: .dashboard(.titleBar), depth: 3, level: 18))
         }
+        .padding(.horizontal, TitleBarGeometry.sideMargin)
+        .padding(.bottom, 4)
     }
 
     private var homePage: some View {

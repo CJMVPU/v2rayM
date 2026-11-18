@@ -22,8 +22,8 @@ struct RealityProfileTable: View {
                     Text(column.0).frame(width: column.1, alignment: .leading)
                 }
             }.font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
-                .padding(.horizontal, 12).frame(maxWidth: .infinity, alignment: .leading).frame(height: 30)
-                .realitySurface(.init(shape: .panel(0), depth: 3, level: 12))
+                .padding(.horizontal, 12).frame(maxWidth: .infinity, alignment: .leading).frame(height: TitleBarGeometry.height)
+                .realitySurface(.init(shape: .dashboard(.titleBar), depth: 3, level: 12))
             ScrollViewReader { proxy in
                 ScrollView(showsIndicators: false) {
                     LazyVStack(spacing: 2) {
@@ -43,6 +43,7 @@ struct RealityProfileTable: View {
                         }
                     }.padding(.vertical, 4)
                 }
+                .realityClipped()
                 .focusable().focused($focused).focusEffectDisabled()
                 .onKeyPress(.downArrow) { move(1); if let selection { proxy.scrollTo(selection) }; return .handled }
                 .onKeyPress(.upArrow) { move(-1); if let selection { proxy.scrollTo(selection) }; return .handled }
@@ -80,11 +81,10 @@ private struct RealityProfileRow: View {
                 cell((profile.streamSecurity ?? "").isEmpty ? "—" : profile.streamSecurity!.uppercased(), width: 64)
                 cell("\(profile.address):\(profile.port)", width: 170)
                 cell(profile.delay > 0 ? "\(profile.delay) ms" : "—", width: 75)
-            }.padding(.horizontal, 12).frame(maxWidth: .infinity, alignment: .leading).frame(height: 26)
+            }.padding(.horizontal, 12).frame(maxWidth: .infinity, alignment: .leading).frame(height: TitleBarGeometry.height)
                 .contentShape(Rectangle())
-                .realitySurface(.init(shape: .panel(5),
-                    color: selected ? NSColor(DashboardTheme.cyan).blended(withFraction: 0.8, of: .darkGray)! : NSColor(calibratedWhite: 0.145, alpha: 1),
-                    depth: 2, level: 15, highlighted: hovering || selected))
+                .realitySurface(.init(shape: .dashboard(.titleBar),
+                    depth: 3, level: 15, highlighted: hovering, selected: selected))
         }.buttonStyle(.plain).onHover { hovering = $0 }
             .accessibilityAddTraits(selected ? [.isSelected] : [])
     }
