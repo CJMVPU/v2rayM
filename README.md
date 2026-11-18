@@ -1,6 +1,6 @@
 # v2rayM
 
-基于 [v2rayN](https://github.com/2dust/v2rayN) 的原生 macOS 代理客户端，采用 **SwiftUI/AppKit + RealityKit + Xray**，保留上游 fork 和提交历史。当前版本 **0.6.7**，要求 macOS 15 或以上。
+基于 [v2rayN](https://github.com/2dust/v2rayN) 的原生 macOS 代理客户端，采用 **SwiftUI/AppKit + RealityKit + Xray**，保留上游 fork 和提交历史。当前版本 **0.6.8**，要求 macOS 15 或以上。
 
 ## 使用
 

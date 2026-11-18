@@ -105,7 +105,7 @@ struct ContentView: View {
                     .shadow(color: .white.opacity(0.16), radius: 0.4, x: 0, y: 1)
                     .allowsHitTesting(false).accessibilityLabel("powered by cj")
             }
-            .realitySurface(.init(shape: .panel(7), color: NSColor(calibratedWhite: 0.23, alpha: 1), depth: 7, level: 50))
+            .realitySurface(.init(shape: .dashboard(.titleBar), depth: 7, level: 50))
     }
 
     private func notice(_ text: String, error: Bool) -> some View {

@@ -399,18 +399,9 @@ private struct RealityStage: NSViewRepresentable {
     }
     private func tintNavigation(_ entity: Entity, style: RealitySurfaceStyle) {
         entity.components.set(OpacityComponent(opacity: style.enabled ? 1 : 0.4))
-        let accent = SimpleMaterial(color: style.highlighted ? NSColor(red: 0.02, green: 0.85, blue: 0.98, alpha: 1)
-            : NSColor(red: 0.53, green: 0.65, blue: 0.74, alpha: 1), roughness: 0.85, isMetallic: false)
-        func visit(_ node: Entity) {
-            if let model = node as? ModelEntity {
-                if node.name.hasPrefix("accent-") { model.model?.materials = [accent] }
-                else if node.name == "navigation-gear", var materials = model.model?.materials, materials.count == 3 {
-                    materials[2] = accent; model.model?.materials = materials
-                }
-            }
-            for child in node.children { visit(child) }
-        }
-        for child in entity.children { visit(child) }
+        // Preserve the authored colours, including the book's textured cover.
+        let size: Float = style.highlighted && style.enabled ? 1.07 : 1
+        entity.scale = SIMD3(repeating: size)
     }
     func cancelNavigationAnimations() {
         for (id, worker) in navigationWorkers {

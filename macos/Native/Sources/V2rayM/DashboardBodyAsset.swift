@@ -3,7 +3,7 @@ import RealityKit
 
 /// Normalized, bevelled shells. Scaling the mesh leaves child content in points.
 enum DashboardBodyAsset: String, CaseIterable {
-    case dial, card
+    case dial, card, titleBar
 
     @MainActor func build() throws -> ModelEntity {
         let contour: [SIMD2<Float>]
@@ -13,8 +13,8 @@ enum DashboardBodyAsset: String, CaseIterable {
                 let angle = Float($0) * 2 * .pi / 128
                 return SIMD2(cos(angle), sin(angle)) * 0.5
             }
-        case .card:
-            let radius = SIMD2<Float>(0.04, 0.075)
+        case .card, .titleBar:
+            let radius = self == .titleBar ? SIMD2<Float>(9/860.0, 9/26.0) : SIMD2<Float>(0.04, 0.075)
             contour = (0..<4).flatMap { corner in
                 let sign: SIMD2<Float> = [[1,1],[-1,1],[-1,-1],[1,-1]][corner]
                 return (0...10).map { step in
@@ -29,6 +29,14 @@ enum DashboardBodyAsset: String, CaseIterable {
         var vertices: [SIMD3<Float>] = [], indices: [UInt32] = [], surfaces: [UInt32] = []
         func point(_ index: Int, _ layer: Int) -> SIMD3<Float> {
             let (scale, lift, depth) = rings[layer], v = contour[index] * scale
+            if self == .titleBar {
+                // Inset in points on the 860 × 26 title strip. A uniform XY
+                // scale would consume the left and right ends of a wide card.
+                let inset: [Float] = [1.2,0,0.6,1.25,1.8]
+                let topLift: [Float] = [-0.75,0,0.25,0.75,1.0]
+                return [contour[index].x * (1 - 2*inset[layer]/860),
+                        contour[index].y * (1 - 2*inset[layer]/26) + topLift[layer]/26, depth]
+            }
             return [v.x, v.y + lift, depth]
         }
         func triangle(_ a: SIMD3<Float>, _ b: SIMD3<Float>, _ c: SIMD3<Float>, _ material: UInt32) {
