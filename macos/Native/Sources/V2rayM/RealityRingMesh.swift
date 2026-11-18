@@ -5,7 +5,7 @@ import Metal
 /// range changes during a telemetry transition.
 @MainActor enum RealityRingMesh {
     private struct Vertex { var position, normal: SIMD3<Float> }
-    static let segments = 360
+    static let segments = 1440
     private static let sides = 8
 
     static func make(size: CGSize, fraction: Double) throws -> MeshResource {
@@ -17,6 +17,10 @@ import Metal
             vertexLayouts: [.init(bufferIndex: 0, bufferStride: MemoryLayout<Vertex>.stride)],
             indexCapacity: segments * sides * 6, indexType: .uint16)
         let mesh = try LowLevelMesh(descriptor: descriptor)
+        let crossSection = (0..<sides).map { index in
+            let angle = Float(index) * 2 * .pi / Float(sides)
+            return (cos(angle), sin(angle))
+        }
         mesh.withUnsafeMutableBytes(bufferIndex: 0) { bytes in
             let vertices = bytes.bindMemory(to: Vertex.self)
             for i in 0..<segments {
@@ -24,8 +28,8 @@ import Metal
                 // RealityKit's positive Y points up. Advance clockwise from six o'clock.
                 let radial = SIMD3<Float>(-sin(theta), -cos(theta), 0)
                 for j in 0..<sides {
-                    let phi = Float(j) * 2 * .pi / Float(sides)
-                    let normal = radial * cos(phi) + SIMD3<Float>(0, 0, sin(phi))
+                    let (radialWeight, height) = crossSection[j]
+                    let normal = radial * radialWeight + SIMD3<Float>(0, 0, height)
                     vertices[i*sides+j] = Vertex(position: radial * radius + normal * tube, normal: normal)
                 }
             }
@@ -36,7 +40,13 @@ import Metal
                 for j in 0..<sides {
                     let next = (i+1) % segments, k = (j+1) % sides
                     let a = i*sides+j, b = next*sides+j, c = next*sides+k, d = i*sides+k
-                    for (offset, index) in [a,c,b,a,d,c].enumerated() { indices[a*6+offset] = UInt16(index) }
+                    let base = a * 6
+                    indices[base] = UInt16(a)
+                    indices[base+1] = UInt16(c)
+                    indices[base+2] = UInt16(b)
+                    indices[base+3] = UInt16(a)
+                    indices[base+4] = UInt16(d)
+                    indices[base+5] = UInt16(c)
                 }
             }
         }

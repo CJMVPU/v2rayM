@@ -15,7 +15,7 @@ private struct ModuleUpdateContent: View {
     @ObservedObject var observation: ModuleObservation
     @State private var showingError = false
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: PageLayout.gap) {
             HStack {
                 Text(model.moduleUpdateError ?? "Xray 内核与分流规则数据独立维护")
                     .font(AppFont.caption).foregroundStyle(model.moduleUpdateError == nil ? DashboardTheme.muted : DashboardTheme.warning)

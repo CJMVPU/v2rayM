@@ -46,6 +46,7 @@ struct RealitySurfaceStyle: Equatable {
     var switchOn: Bool? = nil
     var progress: Double? = nil
     var progressOffset: Double = 0
+    var animatesRing = false
 }
 
 private struct RealitySceneKey: EnvironmentKey {
@@ -127,7 +128,6 @@ struct RealitySurface: NSViewRepresentable {
     var style = RealitySurfaceStyle()
     var drawing: Entity?
     var textureImage: CGImage? { didSet { synchronize() } }
-    private var scrollObservations: [NSObjectProtocol] = []
     private var observedClipIDs: [ObjectIdentifier] = []
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
@@ -154,24 +154,19 @@ struct RealitySurface: NSViewRepresentable {
         }
         let ids = clips.map(ObjectIdentifier.init)
         guard ids != observedClipIDs else { return }
-        scrollObservations.forEach { NotificationCenter.default.removeObserver($0) }
+        guard let owner else { return }
+        owner.stopObservingScroll(for: self, clips: observedClipIDs)
         observedClipIDs = ids
-        scrollObservations = clips.map { clip in
-            clip.postsBoundsChangedNotifications = true
-            return NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification,
-                object: clip, queue: .main) { [weak self] _ in
-                    MainActor.assumeIsolated {
-                        self?.owner?.stage?.nativeScrollDidChange()
-                        self?.synchronize()
-                    }
-                }
-        }
+        for clip in clips { owner.observeScroll(clip, for: self) }
     }
     func synchronize() {
         // SwiftUI can attach the anchor before its hosting ancestors enter a
         // scroll view. Discover again after layout/window attachment, and watch
         // every clip so nested horizontal controls also follow vertical scroll.
         observeScrollAncestors()
+        synchronizeGeometry()
+    }
+    fileprivate func synchronizeGeometry() {
         guard let owner, owner.isRegistered(self), let stage = owner.stage, window != nil, stage.window === window else { return }
         defer { if let drawing { owner.attachDrawing(drawing, to: surfaceID) } }
         if let point = style.facePoint, style.parentID != nil {
@@ -190,16 +185,23 @@ struct RealitySurface: NSViewRepresentable {
             return
         }
         let rect = style.layoutFrame ?? convert(bounds, to: stage)
-        let visible = (style.layoutFrame ?? convert(visibleRect, to: stage)).intersection(stage.bounds)
+        var visible = (style.layoutFrame ?? convert(visibleRect, to: stage)).intersection(stage.bounds)
+        // The renderer already crops at the window edges. Keep the complete
+        // mesh when a sliding page crosses either edge, including a wide ring.
+        if (rect.minX < stage.bounds.minX || rect.maxX > stage.bounds.maxX), !visible.isEmpty {
+            let left = visible.minX <= stage.bounds.minX ? min(rect.minX, visible.minX) : visible.minX
+            let right = visible.maxX >= stage.bounds.maxX ? max(rect.maxX, visible.maxX) : visible.maxX
+            visible = CGRect(x: left, y: visible.minY, width: right - left, height: visible.height)
+        }
         owner.update(surfaceID, frame: rect, visible: visible, style: style)
         if let textureImage { owner.setFace(textureImage, for: surfaceID) }
     }
     func detach() {
-        if let owner, owner.isRegistered(self) { owner.remove(surfaceID) }; owner = nil
-        scrollObservations.forEach { NotificationCenter.default.removeObserver($0) }
-        scrollObservations.removeAll(); observedClipIDs.removeAll()
+        owner?.stopObservingScroll(for: self, clips: observedClipIDs)
+        observedClipIDs.removeAll()
+        if let owner, owner.isRegistered(self) { owner.remove(surfaceID) }
+        owner = nil
     }
-    deinit { scrollObservations.forEach { NotificationCenter.default.removeObserver($0) } }
 }
 
 private struct RealityStage: NSViewRepresentable {
@@ -302,6 +304,39 @@ private struct RealityStage: NSViewRepresentable {
     private var viewports: [UUID: WeakViewport] = [:]
     func registerViewport(_ view: RealityViewportAnchor) { viewports[view.id] = WeakViewport(view) }
     func removeViewport(_ id: UUID) { viewports.removeValue(forKey: id) }
+    // One callback per native clip, independent of the number of controls in
+    // a settings card. Nested clips keep their own membership.
+    private final class ScrollObservation {
+        let anchors = NSHashTable<RealitySurfaceAnchor>.weakObjects()
+        var token: NSObjectProtocol?
+        deinit { if let token { NotificationCenter.default.removeObserver(token) } }
+    }
+    private var scrolling: [ObjectIdentifier: ScrollObservation] = [:]
+    fileprivate func observeScroll(_ clip: NSClipView, for anchor: RealitySurfaceAnchor) {
+        let id = ObjectIdentifier(clip)
+        if let existing = scrolling[id] {
+            existing.anchors.add(anchor)
+            return
+        }
+        let observation = ScrollObservation()
+        scrolling[id] = observation
+        observation.anchors.add(anchor)
+        clip.postsBoundsChangedNotifications = true
+        observation.token = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification,
+            object: clip, queue: .main) { [weak self, weak observation] _ in
+                MainActor.assumeIsolated {
+                    self?.stage?.nativeScrollDidChange()
+                    for anchor in observation?.anchors.allObjects ?? [] { anchor.synchronizeGeometry() }
+                }
+            }
+    }
+    fileprivate func stopObservingScroll(for anchor: RealitySurfaceAnchor, clips: [ObjectIdentifier]) {
+        for id in clips {
+            guard let observation = scrolling[id] else { continue }
+            observation.anchors.remove(anchor)
+            if observation.anchors.count == 0 { scrolling.removeValue(forKey: id) }
+        }
+    }
     private struct Item {
         var frame: CGRect
         var localClip: CGRect?
@@ -322,6 +357,17 @@ private struct RealityStage: NSViewRepresentable {
         var elapsed: Double = 0
     }
     private var slides: [UUID: Slide] = [:]
+    private struct RingMotion {
+        let mesh: MeshResource
+        let from: Double
+        let to: Double
+        var elapsed = 0.0
+        var fraction: Double {
+            let t = min(1, elapsed / 1.2)
+            return from + (to - from) * t * t * (3 - 2 * t)
+        }
+    }
+    private var rings: [UUID: RingMotion] = [:]
     private var motionSubscription: (any Cancellable)?
     private var size = CGSize.zero
     private var layoutSyncQueued = false
@@ -352,6 +398,7 @@ private struct RealityStage: NSViewRepresentable {
     func isRegistered(_ view: RealitySurfaceAnchor) -> Bool { anchors[view.surfaceID]?.view === view }
     func remove(_ id: UUID) {
         turnTimes.removeValue(forKey: id)
+        rings.removeValue(forKey: id)
         slides.removeValue(forKey: id)
         retireClockIfIdle()
         if let parent = items[id]?.style.parentID { unlink(id, from: parent) }
@@ -362,9 +409,11 @@ private struct RealityStage: NSViewRepresentable {
         if childIDs[parent]?.isEmpty == true { childIDs.removeValue(forKey: parent) }
     }
 
-    func synchronizeAnchors() {
+    func synchronizeAnchors(recheckScrollAncestors: Bool = false) {
         for (id, anchor) in anchors {
-            if let view = anchor.view { view.synchronize() } else { remove(id) }
+            guard let view = anchor.view else { remove(id); continue }
+            if recheckScrollAncestors { view.synchronize() }
+            else { view.synchronizeGeometry() }
         }
     }
     func requestLayoutSync() {
@@ -374,7 +423,7 @@ private struct RealityStage: NSViewRepresentable {
             guard let self else { return }
             self.layoutSyncQueued = false
             self.stage?.window?.contentView?.layoutSubtreeIfNeeded()
-            self.synchronizeAnchors()
+            self.synchronizeAnchors(recheckScrollAncestors: true)
         }
     }
     func resize(_ newSize: CGSize) {
@@ -502,7 +551,17 @@ private struct RealityStage: NSViewRepresentable {
                 (entity.findEntity(named: asset.rawValue) as? ModelEntity)?.model?.materials = [material(style)]
             } else { entity.model?.materials = [material(style)] }
         }
-        if case .ring(let fraction) = style.shape { RealityRingMesh.reveal(fraction, on: entity.model?.mesh) }
+        if case .ring(let fraction) = style.shape, let mesh = entity.model?.mesh {
+            if style.animatesRing, !geometryChanged, stage?.suspended == false,
+               case .ring(let oldFraction) = previous?.style.shape, oldFraction != fraction {
+                rings[id] = RingMotion(mesh: mesh, from: rings[id]?.fraction ?? oldFraction, to: fraction)
+                startMotionClock()
+            } else if geometryChanged || !style.animatesRing || stage?.suspended != false {
+                rings.removeValue(forKey: id)
+                RealityRingMesh.reveal(fraction, on: mesh)
+                retireClockIfIdle()
+            }
+        }
         if style.shape == .dashboard(.titleBar),
            geometryChanged || selectionChanged || previous?.style.highlighted != style.highlighted,
            let shell = entity.findEntity(named: "dashboard-shell") {
@@ -560,6 +619,8 @@ private struct RealityStage: NSViewRepresentable {
             if let item = items[id] { item.entity.orientation = Self.orientation(item.style) }
         }
         for (id, slide) in slides { drawSwitch(id, progress: slide.to) }
+        for ring in rings.values { RealityRingMesh.reveal(ring.to, on: ring.mesh) }
+        rings.removeAll()
         slides.removeAll()
         turnTimes.removeAll()
         retireClockIfIdle()
@@ -579,7 +640,7 @@ private struct RealityStage: NSViewRepresentable {
     }
 
     private func retireClockIfIdle() {
-        if turnTimes.isEmpty && slides.isEmpty {
+        if turnTimes.isEmpty && slides.isEmpty && rings.isEmpty {
             motionSubscription?.cancel()
             motionSubscription = nil
         }
@@ -589,6 +650,12 @@ private struct RealityStage: NSViewRepresentable {
     /// must not consume the entire animation before the next pose is drawn.
     func advanceMotion(by delta: Double) {
         let step = min(1.0/30.0, max(0, delta))
+        for (id, var ring) in rings {
+            ring.elapsed += max(0, delta)
+            RealityRingMesh.reveal(ring.fraction, on: ring.mesh)
+            if ring.elapsed >= 1.2 { rings.removeValue(forKey: id) }
+            else { rings[id] = ring }
+        }
         for (id, elapsed) in turnTimes {
             guard let item = items[id] else { continue }
             let next = elapsed + step

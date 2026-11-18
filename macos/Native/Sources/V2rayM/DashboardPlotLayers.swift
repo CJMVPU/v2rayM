@@ -57,20 +57,10 @@ struct DashboardRing: View {
     var body: some View {
         Color.clear
             .background { RealitySurface(style: .init(shape: .ring(1), color: NSColor(DashboardTheme.line), depth: 5, level: 16)) }
-            .background { RealityRingArc(fraction: fraction, color: color)
-                .animation(animate ? .easeInOut(duration: 1.2) : nil, value: fraction) }
-    }
-}
-
-private struct RealityRingArc: View, Animatable {
-    var fraction: Double
-    let color: Color
-    var animatableData: Double {
-        get { fraction }
-        set { fraction = newValue }
-    }
-    var body: some View {
-        RealitySurface(style: .init(shape: .ring(fraction), color: NSColor(color), depth: 5, level: 20))
+            .background {
+                RealitySurface(style: .init(shape: .ring(fraction), color: NSColor(color),
+                                            depth: 5, level: 20, animatesRing: animate))
+            }
     }
 }
 

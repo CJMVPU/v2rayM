@@ -6,11 +6,6 @@ struct SettingsPage: View {
     @EnvironmentObject var model: AppModel
     @Binding var navigationLocked: Bool
     @State private var pane: SettingsPane?
-    private var versionLabel: String {
-        guard Bundle.main.bundleIdentifier == "io.github.CJMVPU.v2rayM",
-              let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String else { return "开发构建" }
-        return "v" + version
-    }
     private var disabled: Bool { !model.ready || model.busy || model.moduleUpdateActive }
     var body: some View {
         if let pane {
@@ -19,14 +14,7 @@ struct SettingsPage: View {
     }
     private var overview: some View {
         ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text("设置").font(AppFont.title)
-                    Text("连接偏好、网络规则与维护").font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
-                    Spacer()
-                    Text(versionLabel)
-                        .font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
-                }.padding(.horizontal, 2)
+            VStack(alignment: .leading, spacing: PageLayout.gap) {
                 SettingsCard(title: "通用与代理", symbol: .sliders) {
                     LoginItemSettings().environmentObject(model)
                     Divider().opacity(0.5)
@@ -60,7 +48,7 @@ struct SettingsPage: View {
                 SettingsCard(title: "模块更新", symbol: .sync) {
                     ModuleUpdatePanel().environmentObject(model)
                 }
-                HStack(alignment: .top, spacing: 12) {
+                HStack(alignment: .top, spacing: PageLayout.gap) {
                     SettingsCard(title: "TUN 后台服务", symbol: .shieldCheck, fillHeight: true) {
                         LabeledContent("运行状态", value: model.tun?.isRunning == true ? "运行中" : "已关闭")
                         LabeledContent("后台服务", value: model.tun?.helperDescription ?? "正在检查")
@@ -80,7 +68,7 @@ struct SettingsPage: View {
                         Button("在访达中打开") { NSWorkspace.shared.open(model.dataDirectory) }
                     }
                 }.fixedSize(horizontal: false, vertical: true)
-            }.padding(16).background(SettingsWheelScroll())
-        }.scrollIndicators(.never).realityClipped()
+            }.padding(.horizontal, PageLayout.gap).background(SettingsWheelScroll())
+        }.scrollIndicators(.never).realityClipped().padding(.vertical, PageLayout.gap)
     }
 }

@@ -16,7 +16,7 @@ struct AdvancedSettingsPanel: View {
     @EnvironmentObject var model: AppModel
     let select: (SettingsPane) -> Void
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: PageLayout.gap) {
             ForEach(SettingsPane.allCases) { item in
                 Button { select(item) } label: {
                     HStack(alignment: .top, spacing: 10) {

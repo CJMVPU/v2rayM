@@ -24,27 +24,8 @@ struct ContentView: View {
         RealityWindow {
             VStack(spacing: 0) {
                 titleBar.zIndex(1)
-                if importing {
-                    ImportPane(close: { importing = false }, save: { try await model.importNodes($0) })
-                        .environmentObject(model)
-                } else if let profile = editingProfile {
-                    ProfileEditor(profile: profile, close: { editingProfile = nil }).environmentObject(model)
-                } else if !model.ready && page != .home && !settingsEditing {
-                    ContentUnavailableView {
-                        RealityLabel(title: model.connecting ? "正在连接本地服务" : "本地服务尚未连接", asset: .desktop)
-                    } description: { Text(model.connecting ? "首次启动可能需要几秒钟。" : "连接后即可管理节点。") }
-                    actions: {
-                        if model.connecting { RealityBusyIndicator() }
-                        else { Button("重新连接服务") { Task { await model.connect() } } }
-                    }.frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    switch page {
-                    case .home: homePage
-                    case .profiles: profilePage
-                    case .logs: ObservedLogConsole(state: model.logState)
-                        .padding(3).realityField().padding(.horizontal, 8).padding(.vertical, 4)
-                    case .settings: SettingsPage(navigationLocked: $settingsEditing).environmentObject(model)
-                    }
+                PageSlider(selection: page) { displayedPage in
+                    pageContent(displayedPage)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -75,6 +56,31 @@ struct ContentView: View {
             Button("删除", role: .destructive) { if let item = deletingProfile { model.deleteProfile(item) }; deletingProfile = nil }
         } message: { Text("正在使用的节点被删除时会断开连接。") }
     }
+    @ViewBuilder private func pageContent(_ displayedPage: Page) -> some View {
+        if importing {
+            ImportPane(close: { importing = false }, save: { try await model.importNodes($0) })
+                .environmentObject(model)
+        } else if let profile = editingProfile {
+            ProfileEditor(profile: profile, close: { editingProfile = nil }).environmentObject(model)
+        } else if !model.ready && displayedPage != .home && !settingsEditing {
+            ContentUnavailableView {
+                RealityLabel(title: model.connecting ? "正在连接本地服务" : "本地服务尚未连接", asset: .desktop)
+            } description: { Text(model.connecting ? "首次启动可能需要几秒钟。" : "连接后即可管理节点。") }
+            actions: {
+                if model.connecting { RealityBusyIndicator() }
+                else { Button("重新连接服务") { Task { await model.connect() } } }
+            }.frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            switch displayedPage {
+            case .home: homePage
+            case .profiles: profilePage
+            case .logs: ObservedLogConsole(state: model.logState)
+                .padding(3).realityField().padding(PageLayout.gap)
+            case .settings: SettingsPage(navigationLocked: $settingsEditing).environmentObject(model)
+            }
+        }
+    }
+
     private var titleBar: some View {
         HStack(spacing: 10) {
             WindowControlButtons().frame(width: 50, height: 24)
@@ -129,7 +135,7 @@ struct ContentView: View {
             .realityCard(radius: 8, depth: 6, level: 100)
     }
     private var profilePage: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: PageLayout.gap) {
             if model.profiles.isEmpty {
                 ContentUnavailableView {
                     RealityLabel(title: "还没有节点", asset: .network)
@@ -142,8 +148,6 @@ struct ContentView: View {
                     select: { model.select($0) }, edit: { editingProfile = $0 },
                     latency: { item in model.run { try await $0.perform("/api/profiles/\(item.id)/latency") } },
                     delete: { deletingProfile = $0 })
-                    .padding(.top, 3)
-
             }
             HStack {
                 Text("\(model.profiles.count) 个节点").font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
@@ -162,8 +166,7 @@ struct ContentView: View {
             }.padding(.horizontal, 12).frame(height: TitleBarGeometry.height)
                 .realitySurface(.init(shape: .dashboard(.titleBar), depth: 3, level: 18))
         }
-        .padding(.horizontal, TitleBarGeometry.sideMargin)
-        .padding(.bottom, 4)
+        .padding(PageLayout.gap)
     }
 
     private var homePage: some View {

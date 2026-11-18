@@ -14,43 +14,33 @@ struct RealityProfileTable: View {
     let latency: (Profile) -> Void
     let delete: (Profile) -> Void
     @FocusState private var focused: Bool
-    static let columns: [(String, CGFloat)] = [("节点", 304), ("协议", 62), ("传输", 64), ("TLS", 64), ("服务器", 170), ("延迟", 75)]
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 14) {
-                ForEach(Self.columns, id: \.0) { column in
-                    Text(column.0).frame(width: column.1, alignment: .leading)
-                }
-            }.font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
-                .padding(.horizontal, 12).frame(maxWidth: .infinity, alignment: .leading).frame(height: TitleBarGeometry.height)
-                .realitySurface(.init(shape: .dashboard(.titleBar), depth: 3, level: 12))
-            ScrollViewReader { proxy in
-                ScrollView(showsIndicators: false) {
-                    LazyVStack(spacing: 2) {
-                        ForEach(profiles) { profile in
-                            RealityProfileRow(profile: profile, selected: selection == profile.id) {
-                                selection = profile.id; focused = true
-                            }
-                            .id(profile.id)
-                            .simultaneousGesture(TapGesture(count: 2).onEnded { if !busy { select(profile) } })
-                            .contextMenu {
-                                Button("设为当前节点") { select(profile) }.disabled(busy)
-                                Button("配置节点") { edit(profile) }.disabled(controlsDisabled)
-                                Button("测试延迟") { latency(profile) }.disabled(busy || !profile.canTest)
-                                Divider()
-                                Button("删除节点", role: .destructive) { delete(profile) }.disabled(busy)
-                            }
+        ScrollViewReader { proxy in
+            ScrollView(showsIndicators: false) {
+                LazyVStack(spacing: PageLayout.gap) {
+                    ForEach(profiles) { profile in
+                        RealityProfileRow(profile: profile, selected: selection == profile.id) {
+                            selection = profile.id; focused = true
                         }
-                    }.padding(.vertical, 4)
+                        .id(profile.id)
+                        .simultaneousGesture(TapGesture(count: 2).onEnded { if !busy { select(profile) } })
+                        .contextMenu {
+                            Button("设为当前节点") { select(profile) }.disabled(busy)
+                            Button("配置节点") { edit(profile) }.disabled(controlsDisabled)
+                            Button("测试延迟") { latency(profile) }.disabled(busy || !profile.canTest)
+                            Divider()
+                            Button("删除节点", role: .destructive) { delete(profile) }.disabled(busy)
+                        }
+                    }
                 }
-                .realityClipped()
-                .focusable().focused($focused).focusEffectDisabled()
-                .onKeyPress(.downArrow) { move(1); if let selection { proxy.scrollTo(selection) }; return .handled }
-                .onKeyPress(.upArrow) { move(-1); if let selection { proxy.scrollTo(selection) }; return .handled }
-                .onKeyPress(.return) {
-                    if !busy, let profile = profiles.first(where: { $0.id == selection }) { select(profile) }
-                    return .handled
-                }
+            }
+            .realityClipped()
+            .focusable().focused($focused).focusEffectDisabled()
+            .onKeyPress(.downArrow) { move(1); if let selection { proxy.scrollTo(selection) }; return .handled }
+            .onKeyPress(.upArrow) { move(-1); if let selection { proxy.scrollTo(selection) }; return .handled }
+            .onKeyPress(.return) {
+                if !busy, let profile = profiles.first(where: { $0.id == selection }) { select(profile) }
+                return .handled
             }
         }
         .accessibilityElement(children: .contain).accessibilityLabel("节点表格")
@@ -75,11 +65,11 @@ private struct RealityProfileRow: View {
                     Text(profile.remarks.isEmpty ? profile.address : profile.remarks).lineLimit(1)
                         .help(profile.remarks.isEmpty ? profile.address : profile.remarks)
                 }.frame(width: 304, alignment: .leading)
-                cell(profile.protocol.uppercased(), width: 62)
-                cell(profile.network.isEmpty ? "—" : profile.network, width: 64)
-                cell((profile.streamSecurity ?? "").isEmpty ? "—" : profile.streamSecurity!.uppercased(), width: 64)
-                cell("\(profile.address):\(profile.port)", width: 170)
-                cell(profile.delay > 0 ? "\(profile.delay) ms" : "—", width: 75)
+                cell("协议", profile.protocol.uppercased(), width: 62)
+                cell("传输", profile.network.isEmpty ? "—" : profile.network, width: 64)
+                cell("TLS", (profile.streamSecurity ?? "").isEmpty ? "—" : profile.streamSecurity!.uppercased(), width: 64)
+                cell("服务器", "\(profile.address):\(profile.port)", width: 170)
+                cell("延迟", profile.delay > 0 ? "\(profile.delay) ms" : "—", width: 75)
             }.padding(.horizontal, 12).frame(maxWidth: .infinity, alignment: .leading).frame(height: TitleBarGeometry.height)
                 .contentShape(Rectangle())
                 .realitySurface(.init(shape: .dashboard(.titleBar),
@@ -87,8 +77,9 @@ private struct RealityProfileRow: View {
         }.buttonStyle(.plain).onHover { hovering = $0 }
             .accessibilityAddTraits(selected ? [.isSelected] : [])
     }
-    private func cell(_ text: String, width: CGFloat) -> some View {
+    private func cell(_ label: String, _ text: String, width: CGFloat) -> some View {
         Text(verbatim: text).font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
-            .lineLimit(1).frame(width: width, alignment: .leading).help(text)
+            .lineLimit(1).frame(width: width, alignment: .leading).help(label + " " + text)
+            .accessibilityLabel(Text(verbatim: label + " " + text))
     }
 }

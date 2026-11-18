@@ -373,6 +373,84 @@ private struct RealityInteractionView: View {
         XCTAssertTrue(anchors.contains { $0.style.shape == .glyph(.down) })
     }
 
+    func testRingRetargetsFromDisplayedLengthAndSettlesWhenMotionStops() throws {
+        let scene = RealityWindowScene(), id = UUID()
+        let stage = RealityStageView(owner: scene)
+        defer { stage.stop() }
+        let frame = CGRect(x: 0, y: 0, width: 260, height: 260)
+        func set(_ value: Double, animated: Bool = true) {
+            scene.update(id, frame: frame, visible: frame, style: .init(shape: .ring(value), animatesRing: animated))
+        }
+        set(0)
+        let entity = try XCTUnwrap(scene.root.findEntity(named: "surface-" + id.uuidString) as? ModelEntity)
+        let mesh = try XCTUnwrap(entity.model?.mesh.lowLevelMesh)
+        set(1)
+        scene.advanceMotion(by: 0.6)
+        XCTAssertEqual(mesh.parts.first?.indexCount, mesh.indexCapacity / 2)
+        set(0)
+        XCTAssertEqual(mesh.parts.first?.indexCount, mesh.indexCapacity / 2)
+        scene.advanceMotion(by: 0.6)
+        XCTAssertEqual(mesh.parts.first?.indexCount, mesh.indexCapacity / 4)
+        set(1, animated: false)
+        scene.advanceMotion(by: 1)
+        XCTAssertEqual(mesh.parts.first?.indexCount, mesh.indexCapacity)
+        XCTAssertEqual(scene.meshBuilds, 1)
+    }
+
+    func testPageSlideMovesLiveSurfacesAndKeepsTitleStill() async throws {
+        let model = AppModel(dataDirectory: FileManager.default.temporaryDirectory)
+        model.ready = true
+        let content = ContentView(initialPage: .logs).environmentObject(model)
+            .environment(\.dashboardVisibilityOverride, true)
+        let host = NSHostingView(rootView: content)
+        let window = NSWindow(contentRect: CGRect(x: 80, y: 80, width: 860, height: 600),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        defer { window.close() }
+        func views(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(views) }
+        func button(_ page: Page) throws -> NSButton {
+            try XCTUnwrap(views(host).compactMap { $0 as? NSButton }.first { $0.toolTip == page.rawValue })
+        }
+        func select(_ page: Page) throws {
+            let control = try button(page)
+            control.sendAction(control.action, to: control.target)
+        }
+        try await Task.sleep(for: .milliseconds(350))
+        let stage = try XCTUnwrap(views(host).compactMap { $0 as? RealityStageView }.first)
+        let anchors = views(host).compactMap { $0 as? RealitySurfaceAnchor }
+        let title = try XCTUnwrap(anchors.first { $0.style.shape == .dashboard(.titleBar) && $0.style.level == 50 })
+        let field = try XCTUnwrap(anchors.first { if case .well = $0.style.shape { return true }; return false })
+        let titleX = title.convert(title.bounds, to: stage).midX
+        let initialX = field.convert(field.bounds, to: stage).midX
+        try select(.settings)
+        var intermediate: [CGFloat] = []
+        for _ in 0..<30 {
+            try await Task.sleep(for: .milliseconds(10))
+            guard field.window != nil else { break }
+            let frame = field.convert(field.bounds, to: stage)
+            if frame.midX < initialX - 1 && frame.maxX > 1 {
+                intermediate.append(frame.midX)
+                let entity = try XCTUnwrap(stage.owner.root.findEntity(named: "surface-" + field.surfaceID.uuidString))
+                let renderedX = CGFloat(entity.position.x) * 1000 + stage.bounds.midX
+                XCTAssertLessThanOrEqual(renderedX, initialX - 0.1)
+            }
+            XCTAssertEqual(title.convert(title.bounds, to: stage).midX, titleX, accuracy: 0.01)
+        }
+        XCTAssertGreaterThan(Set(intermediate).count, 1)
+        try select(.profiles)
+        try await Task.sleep(for: .milliseconds(35))
+        try select(.logs)
+        try await Task.sleep(for: .milliseconds(850))
+        XCTAssertEqual(try button(.logs).accessibilityValue() as? String, "已选中")
+        let settled = views(host).compactMap { $0 as? RealitySurfaceAnchor }
+        XCTAssertTrue(settled.contains { if case .well = $0.style.shape { return true }; return false })
+        XCTAssertFalse(settled.contains { if case .cardPanel = $0.style.shape { return true }; return false })
+        XCTAssertEqual(title.convert(title.bounds, to: stage).midX, titleX, accuracy: 0.01)
+    }
+
     func testRingUpdatesOnlyItsVisibleIndexRange() throws {
         let scene = RealityWindowScene(), id = UUID()
         let frame = CGRect(x: 0, y: 0, width: 280, height: 280)

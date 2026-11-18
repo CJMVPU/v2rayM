@@ -1,4 +1,5 @@
 import AppKit
+import QuartzCore
 
 /// Short, interruptible movement for a detented mouse wheel. Pixel-precise
 /// devices already deliver a continuous stream with native momentum.
@@ -10,7 +11,12 @@ import AppKit
     }
     private weak var scroll: NSScrollView?
     private var movement: Movement?
-    private var timer: Timer?
+    private var link: CADisplayLink?
+    @MainActor private final class Tick: NSObject {
+        weak var owner: SmoothWheelScroll?
+        init(_ owner: SmoothWheelScroll) { self.owner = owner }
+        @objc func update(_ link: CADisplayLink) { owner?.advance(at: CACurrentMediaTime()) }
+    }
     public var isMoving: Bool { movement != nil }
 
     public init() {}
@@ -24,7 +30,7 @@ import AppKit
         // AppKit already maps Shift-wheel to the horizontal axis.
         let delta = CGPoint(x: -event.scrollingDeltaX * max(1, scroll.horizontalLineScroll),
                             y: (scroll.contentView.isFlipped ? -1 : 1) * event.scrollingDeltaY * max(1, scroll.verticalLineScroll))
-        return move(in: scroll, by: delta, at: ProcessInfo.processInfo.systemUptime)
+        return move(in: scroll, by: delta, at: CACurrentMediaTime())
     }
 
     @discardableResult func move(in scroll: NSScrollView, by delta: CGPoint, at time: TimeInterval) -> Bool {
@@ -37,12 +43,13 @@ import AppKit
         let target = clip.constrainBoundsRect(proposed).origin
         guard target != previous else { return movement != nil }
         movement = Movement(start: clip.bounds.origin, target: target, time: time)
-        guard timer == nil else { return true }
-        let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.advance(at: ProcessInfo.processInfo.systemUptime) }
+        if link == nil, let window = scroll.window {
+            let link = window.displayLink(target: Tick(self), selector: #selector(Tick.update(_:)))
+            let rate = Float(max(1, window.screen?.maximumFramesPerSecond ?? 60))
+            link.preferredFrameRateRange = .init(minimum: min(60, rate), maximum: rate, preferred: rate)
+            link.add(to: .main, forMode: .common)
+            self.link = link
         }
-        self.timer = timer
-        RunLoop.main.add(timer, forMode: .common)
         return true
     }
 
@@ -59,9 +66,9 @@ import AppKit
         if t == 1 { cancel() }
     }
     public func cancel() {
-        timer?.invalidate()
-        timer = nil
+        link?.invalidate()
+        link = nil
         movement = nil
     }
-    deinit { timer?.invalidate() }
+    deinit { link?.invalidate() }
 }
