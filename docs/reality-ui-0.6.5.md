@@ -22,6 +22,7 @@ To regenerate assets on macOS 15 or later with Xcode:
 
 ```sh
 xcrun swiftc -parse-as-library -target arm64-apple-macos15.0 \
+  macos/Native/Sources/V2rayM/DashboardBodyAsset.swift \
   macos/Native/Sources/V2rayM/RealityNavigationAssets.swift \
   scripts/generate-navigation-assets.swift -o /tmp/v2raym-generate-navigation
 /tmp/v2raym-generate-navigation macos/Native/Sources/V2rayM/Resources/Navigation

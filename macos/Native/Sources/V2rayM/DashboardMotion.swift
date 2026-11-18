@@ -2,7 +2,7 @@ import SwiftUI
 
 enum DashboardSolidKind {
     case disc, card
-    var depth: CGFloat { self == .disc ? 10 : 7 }
+    var depth: CGFloat { self == .disc ? 18 : 12 }
 }
 
 /// Native semantic faces follow an orthographic RealityKit solid. The entity
@@ -36,7 +36,7 @@ struct DashboardSolidSurface<Front: View, Back: View>: View, Animatable {
                 }
             }
             .background {
-                RealitySurface(style: .init(shape: kind == .disc ? .disc : .panel(10),
+                RealitySurface(style: .init(shape: .dashboard(kind == .disc ? .dial : .card),
                     depth: Float(kind.depth), level: 20, highlighted: highlighted, angle: renderedAngle), id: surfaceID)
             }
     }

@@ -239,7 +239,7 @@ struct RecentConnectionsCard: View {
                 VStack(spacing: 4) {
                     // Stable slots share a two-turn budget; each keeps its own bitmap cache.
                     ForEach(rows.indices, id: \.self) { index in
-                        RecentConnectionRow(connection: rows[index], slot: index, scheduler: rowScheduler, active: active).frame(height: rowHeight)
+                        RecentConnectionRow(connection: rows[index], slot: index, rowOffset: CGFloat(index) - CGFloat(rows.count - 1) / 2, scheduler: rowScheduler, active: active).frame(height: rowHeight)
                     }
                 }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             }
@@ -250,6 +250,7 @@ struct RecentConnectionsCard: View {
 struct RecentConnectionRow: View {
     let connection: GlobeConnection
     let slot: Int
+    let rowOffset: CGFloat
     let scheduler: RecentRowFlipScheduler
     let active: Bool
     @Environment(\.accessibilityReduceMotion) private var reduced
@@ -257,7 +258,7 @@ struct RecentConnectionRow: View {
     @Environment(\.dashboardFlipsEnabled) private var flips
     var body: some View {
         let location = connection.place.map { " · " + $0.displayCity + "（IP/DNS 估计）" } ?? " · 位置未知"
-        CachedRecentRow(face: RecentRowFace(connection), slot: slot, scheduler: scheduler,
+        CachedRecentRow(face: RecentRowFace(connection), slot: slot, rowOffset: rowOffset, scheduler: scheduler,
                         motion: motion, flips: flips && active, reduced: reduced)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(connection.host + "，" + connection.routeTitle)

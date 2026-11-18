@@ -20,7 +20,7 @@ private struct MotionFixtureView: View {
                 .frame(width: 550, height: 546)
             RecentConnectionsCard(connections: fixture.rows, coreRunning: fixture.active, dataReady: fixture.ready).frame(width: 280, height: 205)
         }.padding(12).environment(\.colorScheme, .dark)
-        }
+        }.environment(\.dashboardVisibilityOverride, true)
     }
 }
 final class DashboardMotionRenderingTests: XCTestCase {
@@ -45,13 +45,15 @@ final class DashboardMotionRenderingTests: XCTestCase {
         window.appearance = NSAppearance(named: .darkAqua)
         window.orderFront(nil)
         defer { window.close() }
-        func capture(_ name: String) throws {
+        @discardableResult func capture(_ name: String) throws -> URL {
             host.layoutSubtreeIfNeeded()
             let capture = Process()
             capture.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
-            capture.arguments = ["-x", "-l", String(window.windowNumber), URL(fileURLWithPath: directory).appendingPathComponent(name + "-screen.png").path]
+            let url = URL(fileURLWithPath: directory).appendingPathComponent(name + "-screen.png")
+            capture.arguments = ["-x", "-o", "-l", String(window.windowNumber), url.path]
             try capture.run(); capture.waitUntilExit()
             XCTAssertEqual(capture.terminationStatus, 0)
+            return url
         }
         try await Task.sleep(for: .milliseconds(100))
         try capture("motion-0-stopped")
@@ -70,19 +72,18 @@ final class DashboardMotionRenderingTests: XCTestCase {
         try capture("motion-3-row-native-turn")
         fixture.rows = try rows(3)
         try await Task.sleep(for: .milliseconds(5200))
-        try capture("motion-4-latest")
+        let latestCapture = try capture("motion-4-latest")
         // Compare the settled rendering against a fresh view of the final rows;
         // a rapid replacement must leave the latest text after staggered turns.
-        let actual = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
-        host.cacheDisplay(in: host.bounds, to: actual)
+        let actual = try XCTUnwrap(NSBitmapImageRep(data: Data(contentsOf: latestCapture)))
         let fresh = NSHostingView(rootView: MotionFixtureView(fixture: fixture))
         fresh.frame = host.bounds
         fresh.appearance = NSAppearance(named: .darkAqua)
         window.contentView = fresh
-        try await Task.sleep(for: .milliseconds(100))
+        try await Task.sleep(for: .milliseconds(500))
         fresh.layoutSubtreeIfNeeded()
-        let settled = fresh.bitmapImageRepForCachingDisplay(in: fresh.bounds)!
-        fresh.cacheDisplay(in: fresh.bounds, to: settled)
+        let reference = try capture("motion-4-reference")
+        let settled = try XCTUnwrap(NSBitmapImageRep(data: Data(contentsOf: reference)))
         // Row region excludes the live timer on the left.
         var mismatches = 0
         var compared = 0

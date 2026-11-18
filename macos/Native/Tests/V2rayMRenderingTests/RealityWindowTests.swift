@@ -67,6 +67,57 @@ private struct RealityInteractionView: View {
         anchor.detach()
         XCTAssertEqual(stage.owner.entityCount, 0)
     }
+    func testReclickAndSwitchThroughWindowHitTargets() async throws {
+        let model = AppModel(dataDirectory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString))
+        model.ready = true
+        let host = NSHostingView(rootView: ContentView().environmentObject(model).environment(\.dashboardVisibilityOverride, true).background(WindowTracker { _ in }))
+        let window = NSWindow(contentRect: CGRect(x: 80, y: 80, width: 860, height: 600),
+            styleMask: [.titled, .fullSizeContentView], backing: .buffered, defer: false)
+        window.titleVisibility = .hidden; window.titlebarAppearsTransparent = true
+        window.isReleasedWhenClosed = false; window.contentView = host
+        window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
+        defer { window.close() }
+        func all(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(all) }
+        try await Task.sleep(for: .milliseconds(500))
+        for label in ["节点", "节点", "日志", "设置", "主页"] {
+            let button = try XCTUnwrap(all(host).compactMap { $0 as? NSButton }.first { $0.toolTip == label })
+            let screenPoint = button.convert(NSPoint(x: button.bounds.midX, y: button.bounds.midY), to: nil)
+            let target = host.hitTest(host.superview!.convert(screenPoint, from: nil))
+            XCTAssertTrue(target === button, "\(label) hit \(String(describing: target))")
+            func event(_ type: NSEvent.EventType) throws -> NSEvent {
+                try XCTUnwrap(NSEvent.mouseEvent(with: type, location: screenPoint, modifierFlags: [],
+                    timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                    context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+            }
+            let stage = try XCTUnwrap(all(host).compactMap { $0 as? RealityStageView }.first)
+            window.sendEvent(try event(.leftMouseDown))
+            window.sendEvent(try event(.leftMouseUp))
+            try await Task.sleep(for: .milliseconds(90))
+            XCTAssertEqual(button.accessibilityValue() as? String, "已选中")
+            XCTAssertGreaterThan(stage.owner.activeNavigationFlips, 0, label)
+            try await Task.sleep(for: .milliseconds(450))
+            XCTAssertEqual(stage.owner.activeNavigationFlips, 0)
+        }
+    }
+
+    func testRowArrivingBeforeCardIsOnlyVisibleInsideFrontFace() throws {
+        let scene = RealityWindowScene(), parent = UUID(), row = UUID()
+        scene.resize(CGSize(width: 860, height: 600))
+        let local = CGRect(x: -100,y: -9,width: 200,height: 18)
+        scene.update(row, frame: local, visible: local, style: .init(parentID: parent, rowOffset: 0))
+        XCTAssertNil(scene.root.findEntity(named: "surface-" + row.uuidString))
+        let frame = CGRect(x: 560,y: 380,width: 270,height: 190)
+        for angle in [180.0, 300.0, 360.0] {
+            scene.update(parent, frame: frame, visible: frame, style: .init(shape: .dashboard(.card), angle: angle))
+            let card = try XCTUnwrap(scene.root.findEntity(named: "surface-" + parent.uuidString))
+            let child = try XCTUnwrap(card.findEntity(named: "surface-" + row.uuidString))
+            XCTAssertTrue(child.parent === card)
+            XCTAssertEqual(child.isEnabled, angle != 180)
+            XCTAssertEqual(child.position.x, 0)
+            XCTAssertEqual(child.position.y, 0)
+        }
+    }
+
     func testNavigationAssetFlipsCoalesceAndRespectCancellation() async throws {
         let stage = RealityStageView(owner: RealityWindowScene())
         let owner = stage.owner

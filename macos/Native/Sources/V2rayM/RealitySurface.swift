@@ -9,6 +9,7 @@ enum RealityShape: Equatable {
     case panel(CGFloat)
     case disc
     case ring(Double)
+    case dashboard(DashboardBodyAsset)
     case symbol(RealityNavigationSymbol)
 }
 
@@ -23,6 +24,7 @@ struct RealitySurfaceStyle: Equatable {
     var tilt: Double = 0
     var viewportID: UUID? = nil
     var parentID: UUID? = nil
+    var rowOffset: CGFloat? = nil
     var visible = true
     var flipToken = 0
     var allowsFlip = true
@@ -49,6 +51,7 @@ extension EnvironmentValues {
 }
 
 struct RealityWindow<Content: View>: View {
+    @Environment(\.dashboardVisibilityOverride) private var visibilityOverride
     @State private var scene = RealityWindowScene()
     @StateObject private var visibility = DashboardVisibilityCoordinator()
     @ViewBuilder var content: Content
@@ -57,7 +60,18 @@ struct RealityWindow<Content: View>: View {
             .environment(\.realityScene, scene)
             .background { RealityStage(scene: scene).allowsHitTesting(false).accessibilityHidden(true) }
             .background {
-                DashboardVisibilityObserver(rendering: visibility.phase.rendersMotion) { visibility.update($0) }
+                DashboardVisibilityObserver(rendering: visibility.phase.rendersMotion) { state in
+                    if let visibilityOverride {
+                        if visibilityOverride { scene.stage?.resume() } else { scene.stage?.suspend() }
+                        return
+                    }
+                    if !state.permitsRendering { scene.stage?.suspend() }
+                    visibility.update(state)
+                    if state.permitsRendering && visibility.phase.rendersMotion { scene.stage?.resume() }
+                }
+            }
+            .onChange(of: visibility.phase) { _, phase in
+                if phase.rendersMotion { scene.stage?.resume() }
             }
             .onDisappear { visibility.stop() }
     }
@@ -134,6 +148,15 @@ struct RealitySurface: NSViewRepresentable {
         // every clip so nested horizontal controls also follow vertical scroll.
         observeScrollAncestors()
         guard let owner, let stage = owner.stage, window != nil, stage.window === window else { return }
+        if let offset = style.rowOffset, style.parentID != nil {
+            // Row anchors can live in a detached SwiftUI transform host during
+            // a parent turn. Use the stack layout in card-local coordinates.
+            let local = CGRect(x: -bounds.width / 2, y: offset * (bounds.height + 4) - bounds.height / 2,
+                               width: bounds.width, height: bounds.height)
+            owner.update(surfaceID, frame: local, visible: local, style: style)
+            if let textureImage { owner.setFace(textureImage, for: surfaceID) }
+            return
+        }
         let rect = convert(bounds, to: stage)
         let visible = convert(visibleRect, to: stage).intersection(stage.bounds)
         owner.update(surfaceID, frame: rect, visible: visible, style: style)
@@ -157,7 +180,6 @@ private struct RealityStage: NSViewRepresentable {
 @MainActor final class RealityStageView: NSView {
     let renderer = ARView(frame: .zero)
     let owner: RealityWindowScene
-    private var observations: [NSObjectProtocol] = []
     private let frozenImage = NSImageView()
     private var suspensionGeneration = 0
     private(set) var suspended = false
@@ -178,19 +200,9 @@ private struct RealityStage: NSViewRepresentable {
     }
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        observations.forEach { NotificationCenter.default.removeObserver($0) }; observations.removeAll()
-        guard let window else { suspend(); return }
-        for name in [Notification.Name.dashboardWillFreeze, .dashboardDidThaw,
-                     NSWindow.didChangeOcclusionStateNotification, NSWindow.didDeminiaturizeNotification] {
-            observations.append(NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] note in
-                MainActor.assumeIsolated {
-                    guard let self else { return }
-                    if note.name == .dashboardWillFreeze { self.suspend() }
-                    else if note.name == .dashboardDidThaw { self.resume() }
-                    else if window.isMiniaturized || !window.isVisible || !window.occlusionState.contains(.visible) { self.suspend() }
-                }
-            })
-        }
+        guard window != nil else { suspend(); return }
+        // Only this window's visibility coordinator may freeze the shared scene.
+        // Dashboard subtree observers also publish lifecycle notifications.
         resume()
     }
     func synchronize() { owner.resize(bounds.size); owner.synchronizeAnchors() }
@@ -215,11 +227,9 @@ private struct RealityStage: NSViewRepresentable {
         synchronize()
     }
     func stop() {
-        observations.forEach { NotificationCenter.default.removeObserver($0) }; observations.removeAll()
         suspend(); owner.detach(self)
         renderer.removeFromSuperview(); frozenImage.image = nil
     }
-    deinit { observations.forEach { NotificationCenter.default.removeObserver($0) } }
 }
 
 @MainActor final class RealityWindowScene {
@@ -244,7 +254,7 @@ private struct RealityStage: NSViewRepresentable {
     let camera = Entity()
     private var anchors: [UUID: WeakAnchor] = [:]
     private var items: [UUID: Item] = [:]
-    private var faces: [UUID: (CGImage, ModelEntity)] = [:]
+    private var faces: [UUID: (CGImage, ModelEntity, CGSize)] = [:]
     private var navigationWorkers: [UUID: Task<Void, Never>] = [:]
     private var size = CGSize.zero
     private var layoutSyncQueued = false
@@ -327,6 +337,7 @@ private struct RealityStage: NSViewRepresentable {
         let entity = previous?.entity ?? ModelEntity()
         if previous?.frame == clipped, previous?.style == style {
             entity.isEnabled = style.visible
+            if style.parentID != nil { place(id) }
             return
         }
         if previous == nil { entity.name = "surface-" + id.uuidString }
@@ -344,6 +355,17 @@ private struct RealityStage: NSViewRepresentable {
                     NSLog("v2rayM navigation asset %@ could not load: %@", symbol.rawValue, String(describing: error))
                     entity.isEnabled = false; return
                 }
+            } else if case .dashboard(let body) = style.shape {
+                do {
+                    let shell = try body.load()
+                    shell.name = "dashboard-shell"
+                    shell.scale = [Float(clipped.width)/1000, Float(clipped.height)/1000, style.depth/1000]
+                    entity.findEntity(named: "dashboard-shell")?.removeFromParent()
+                    entity.addChild(shell)
+                } catch {
+                    NSLog("Dashboard asset %@: %@", body.rawValue, String(describing: error))
+                    entity.isEnabled = false; return
+                }
             } else {
                 guard let mesh = try? RealityGeometry.mesh(shape: style.shape, size: clipped.size, depth: style.depth) else {
                     entity.isEnabled = false; return
@@ -354,10 +376,14 @@ private struct RealityStage: NSViewRepresentable {
         } else if previous?.style.color != style.color || previous?.style.highlighted != style.highlighted || previous?.style.enabled != style.enabled {
             entity.model?.materials = [material(style)]
         }
+        if case .dashboard = style.shape, geometryChanged || previous?.style.highlighted != style.highlighted,
+           let shell = entity.findEntity(named: "dashboard-shell") {
+            // Lift the bevel into the light on hover, keeping content and hit regions stable.
+            shell.orientation = simd_quatf(angle: style.highlighted ? 0.045 : 0, axis: [1, 0, 0])
+        }
         entity.isEnabled = style.visible
-        entity.position = Self.position(clipped, viewport: size, level: style.level)
         if !style.allowsFlip || !style.enabled { navigationWorkers.removeValue(forKey: id)?.cancel(); entity.stopAllAnimations(recursive: true) }
-        if navigationWorkers[id] == nil { entity.orientation = Self.orientation(style) }
+        if navigationWorkers[id] == nil && style.rowOffset == nil { entity.orientation = Self.orientation(style) }
         items[id] = Item(frame: clipped, style: style, entity: entity)
         place(id)
         for (childID, child) in items where child.style.parentID == id { place(childID) }
@@ -374,12 +400,12 @@ private struct RealityStage: NSViewRepresentable {
     private func tintNavigation(_ entity: Entity, style: RealitySurfaceStyle) {
         entity.components.set(OpacityComponent(opacity: style.enabled ? 1 : 0.4))
         let accent = SimpleMaterial(color: style.highlighted ? NSColor(red: 0.02, green: 0.85, blue: 0.98, alpha: 1)
-            : NSColor(red: 0.25, green: 0.68, blue: 0.85, alpha: 1), roughness: 0.85, isMetallic: false)
+            : NSColor(red: 0.53, green: 0.65, blue: 0.74, alpha: 1), roughness: 0.85, isMetallic: false)
         func visit(_ node: Entity) {
             if let model = node as? ModelEntity {
                 if node.name.hasPrefix("accent-") { model.model?.materials = [accent] }
-                else if node.name == "soft-gear", var materials = model.model?.materials, materials.count == 3 {
-                    materials[0] = accent; model.model?.materials = materials
+                else if node.name == "navigation-gear", var materials = model.model?.materials, materials.count == 3 {
+                    materials[2] = accent; model.model?.materials = materials
                 }
             }
             for child in node.children { visit(child) }
@@ -395,29 +421,43 @@ private struct RealityStage: NSViewRepresentable {
     }
     private func flipNavigation(_ id: UUID) {
         // Hover followed immediately by selection is one turn, not two queued
-        // rotations. Three sub-180° steps avoid quaternion shortest-path collapse.
+        // rotations. Advance a continuous angle without interpolating position.
         guard navigationWorkers[id] == nil, stage?.suspended != true else { return }
         navigationWorkers[id] = Task { @MainActor [weak self] in
-            for degrees in [Float(120),240,360] {
-                guard let self, let item = self.items[id], !Task.isCancelled else { return }
-                var target = item.entity.transform
-                target.rotation = Self.orientation(item.style) * simd_quatf(angle: degrees * .pi / 180, axis: [0,1,0])
-                item.entity.move(to: target, relativeTo: item.entity.parent, duration: 0.2, timingFunction: .easeInOut)
-                do { try await Task.sleep(for: .milliseconds(200)) } catch { return }
+            let clock = ContinuousClock()
+            let start = clock.now
+            while !Task.isCancelled {
+                guard let self, let item = self.items[id] else { return }
+                let elapsed = start.duration(to: clock.now).components
+                let seconds = Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18
+                let t = min(1, seconds / 0.42)
+                let eased = t * t * (3 - 2 * t)
+                item.entity.orientation = Self.orientation(item.style) * simd_quatf(angle: Float(2 * .pi * eased), axis: [0,1,0])
+                if t >= 1 {
+                    item.entity.orientation = Self.orientation(item.style)
+                    self.navigationWorkers[id] = nil
+                    return
+                }
+                do { try await Task.sleep(for: .milliseconds(16)) } catch { return }
             }
-            guard let self, let item = self.items[id], !Task.isCancelled else { return }
-            item.entity.orientation = Self.orientation(item.style); self.navigationWorkers[id] = nil
         }
     }
     private func place(_ id: UUID) {
         guard let item = items[id] else { return }
         let world = Self.position(item.frame, viewport: size, level: item.style.level)
         if let parentID = item.style.parentID, parentID != id, let parent = items[parentID] {
+            if item.style.rowOffset != nil {
+                item.entity.position = [0, -Float(item.frame.midY)/1000, parent.style.depth/2000 + 0.001]
+                item.entity.isEnabled = item.style.visible && cos(parent.style.angle * .pi/180) >= 0
+            } else {
+                item.entity.position = world - Self.position(parent.frame, viewport: size, level: parent.style.level)
+            }
             if item.entity.parent !== parent.entity { parent.entity.addChild(item.entity) }
-            item.entity.position = world - Self.position(parent.frame, viewport: size, level: parent.style.level)
+        } else if item.style.parentID != nil {
+            item.entity.removeFromParent()
         } else {
-            if item.entity.parent !== root { root.addChild(item.entity) }
             item.entity.position = world
+            if item.entity.parent !== root { root.addChild(item.entity) }
         }
     }
     private func material(_ style: RealitySurfaceStyle) -> SimpleMaterial {
@@ -429,7 +469,7 @@ private struct RealityStage: NSViewRepresentable {
 
     func setFace(_ image: CGImage, for id: UUID) {
         guard let item = items[id] else { return }
-        if faces[id]?.0 === image { return }
+        if faces[id]?.0 === image, faces[id]?.2 == item.frame.size { return }
         guard let texture = try? TextureResource.generate(from: image, options: .init(semantic: .color)) else { return }
         var material = UnlitMaterial()
         material.color = .init(tint: .white, texture: .init(texture))
@@ -439,7 +479,7 @@ private struct RealityStage: NSViewRepresentable {
                                                          height: Float(item.frame.height) / 1000), materials: [material])
         face.position.z = item.style.depth / 2000 + 0.0001
         if face.parent == nil { item.entity.addChild(face) }
-        faces[id] = (image, face)
+        faces[id] = (image, face, item.frame.size)
     }
     func turn(_ id: UUID, degrees: Float, duration: Double) {
         guard let item = items[id], stage?.suspended != true else { return }
@@ -476,7 +516,7 @@ enum RealityGeometry {
                     return center + SIMD2<Float>(cos(a), sin(a)) * r
                 }
             }
-        case .ring, .symbol: return []
+        case .ring, .symbol, .dashboard: return []
         }
     }
     @MainActor static func mesh(shape: RealityShape, size: CGSize, depth: Float) throws -> MeshResource {

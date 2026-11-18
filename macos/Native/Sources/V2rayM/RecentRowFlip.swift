@@ -117,13 +117,14 @@ struct CachedRecentRow: NSViewRepresentable {
     @Environment(\.realityParentSurface) private var parent
     let face: RecentRowFace
     let slot: Int
+    let rowOffset: CGFloat
     let scheduler: RecentRowFlipScheduler
     let motion: Bool
     let flips: Bool
     let reduced: Bool
     func makeNSView(context: Context) -> CachedRecentRowView { CachedRecentRowView(slot: slot, scheduler: scheduler) }
     func updateNSView(_ view: CachedRecentRowView, context: Context) {
-        view.setScene(scene, parent: parent)
+        view.setScene(scene, parent: parent, offset: rowOffset)
         view.update(face, motion: motion, flips: flips, reduced: reduced)
     }
     static func dismantleNSView(_ view: CachedRecentRowView, coordinator: ()) { view.stop() }
@@ -137,6 +138,7 @@ struct CachedRecentRow: NSViewRepresentable {
     private weak var scheduler: RecentRowFlipScheduler?
     private let surface = RealitySurfaceAnchor()
     private weak var sceneOwner: RealityWindowScene?
+    private var rowOffset: CGFloat = 0
     private var parentID: UUID?
     private var cache: [(CacheKey, CGImage)] = []
     private var latest: RecentRowFace?
@@ -160,13 +162,14 @@ struct CachedRecentRow: NSViewRepresentable {
         addSubview(surface)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) unavailable") }
-    func setScene(_ scene: RealityWindowScene?, parent: UUID? = nil) {
+    func setScene(_ scene: RealityWindowScene?, parent: UUID? = nil, offset: CGFloat = 0) {
+        rowOffset = offset
         sceneOwner = scene; parentID = parent; synchronizeSurface()
     }
     private func synchronizeSurface() {
         surface.frame = bounds
         surface.configure(scene: sceneOwner, style: .init(shape: .panel(5),
-            color: NSColor(calibratedWhite: 0.17, alpha: 1), depth: 1.4, level: 30, parentID: parentID))
+            color: NSColor(calibratedWhite: 0.17, alpha: 1), depth: 1.4, level: 30, parentID: parentID, rowOffset: rowOffset))
         if !turning, let displayed, let bitmap = image(displayed) { surface.textureImage = bitmap }
     }
     override func layout() {

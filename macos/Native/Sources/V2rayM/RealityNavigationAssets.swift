@@ -38,29 +38,30 @@ enum RealityNavigationSymbol: String, CaseIterable {
             let entity = part(name, .generateBox(size: [radius*2,simd_length(delta)+radius*2,radius*2], cornerRadius: radius), material, at: (a+b)/2)
             entity.orientation = simd_quatf(from: [0,1,0], to: simd_normalize(delta))
         }
+        // Folded enamel marks share bevel widths, open silhouettes and a silver edge.
         switch symbol {
         case .home:
-            box("soft-house", [1.12,0.96,0.56], porcelain, [0,-0.27,0], radius: 0.18)
-            bar("accent-roof-left", from: [-0.68,0.16,0], to: [0,0.79,0], radius: 0.16, material: accent)
-            bar("accent-roof-right", from: [0,0.79,0], to: [0.68,0.16,0], radius: 0.16, material: accent)
-            box("accent-door", [0.34,0.46,0.12], accent, [0,-0.48,0.3], radius: 0.1)
+            bar("accent-eave-left", from: [-0.69,0.12,0], to: [0,0.80,0], radius: 0.115, material: accent)
+            bar("accent-eave-right", from: [0,0.80,0], to: [0.69,0.12,0], radius: 0.115, material: accent)
+            box("left-jamb", [0.23,0.81,0.37], porcelain, [-0.49,-0.26,0])
+            box("right-jamb", [0.23,0.81,0.37], porcelain, [0.49,-0.26,0])
+            box("threshold", [1.16,0.20,0.37], porcelain, [0,-0.62,0])
         case .nodes:
-            let centers: [SIMD3<Float>] = [[0,0.59,0],[-0.59,-0.43,0.08],[0.59,-0.43,-0.08]]
-            for (i,j) in [(0,1),(0,2),(1,2)] {
-                bar("soft-link-\(i)-\(j)", from: centers[i], to: centers[j], radius: 0.115, material: porcelain)
-            }
-            for (index, position) in centers.enumerated() {
-                part("accent-node-\(index)", .generateSphere(radius: 0.32), accent, at: position)
+            bar("upper-branch", from: [-0.52,0,0], to: [0.43,0.55,0], radius: 0.09, material: porcelain)
+            bar("lower-branch", from: [-0.52,0,0], to: [0.43,-0.55,0], radius: 0.09, material: porcelain)
+            for (i,pos) in [SIMD3<Float>(-0.52,0,0),[0.44,0.56,0],[0.44,-0.56,0]].enumerated() {
+                let tile = part("accent-junction-\(i)", .generateBox(size: [0.43,0.43,0.38], cornerRadius: 0.08), accent, at: pos)
+                tile.orientation = simd_quatf(angle: .pi/4, axis: [0,0,1])
             }
         case .logs:
-            box("accent-log-slab", [1.24,1.62,0.48], accent, .zero, radius: 0.19)
             for i in 0..<3 {
-                box("soft-log-line-\(i)", [i == 2 ? 0.48 : 0.78,0.16,0.12], porcelain,
-                    [i == 2 ? -0.15 : 0,0.42-Float(i)*0.4,0.26], radius: 0.075)
+                let x = i == 2 ? Float(-0.12) : 0
+                box("accent-entry-\(i)", [i == 2 ? 0.76 : 1,0.24,0.34], accent, [0.19+x,0.51-Float(i)*0.51,0], radius: 0.07)
+                box("bullet-\(i)", [0.23,0.24,0.34], porcelain, [-0.59,0.51-Float(i)*0.51,0], radius: 0.06)
             }
         case .settings:
-            let entity = ModelEntity(mesh: try gearMesh(), materials: [accent, dark, porcelain])
-            entity.name = "soft-gear"
+            let entity = ModelEntity(mesh: try gearMesh(), materials: [porcelain, dark, accent])
+            entity.name = "navigation-gear"
             root.addChild(entity)
         }
         return root
@@ -71,8 +72,8 @@ enum RealityNavigationSymbol: String, CaseIterable {
         var positions: [SIMD3<Float>] = [], normals: [SIMD3<Float>] = [], indices: [UInt32] = [], materials: [UInt32] = []
         func vertex(_ i: Int, inset: Float, z: Float, inner: Bool = false) -> SIMD3<Float> {
             let a = Float(i)*2 * .pi/Float(count)
-            let tooth: Float = 0.85 + 0.12 * cos(6*a)
-            let r = inner ? 0.30 + inset : tooth - inset
+            let tooth: Float = 0.84 + 0.12 * tanh(2.4 * cos(8*a))
+            let r = inner ? 0.40 + inset : tooth - inset
             return [cos(a)*r,sin(a)*r,z]
         }
         func quad(_ p: SIMD3<Float>, _ q: SIMD3<Float>, _ r: SIMD3<Float>, _ s: SIMD3<Float>, material: UInt32) {

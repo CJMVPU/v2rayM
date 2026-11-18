@@ -5,6 +5,8 @@ import SwiftUI
 struct RealityNavigationIcon: View {
     let symbol: RealityNavigationSymbol
     let selected: Bool
+    let label: String
+    let activate: () -> Void
     @Environment(\.isEnabled) private var enabled
     @Environment(\.accessibilityReduceMotion) private var reduced
     @State private var hovered = false
@@ -19,13 +21,54 @@ struct RealityNavigationIcon: View {
                     flipToken: flipToken, allowsFlip: !reduced && enabled))
             }
             .frame(width: 40, height: 24).contentShape(Rectangle())
+            .overlay {
+                NavigationButton(label: label, selected: selected, enabled: enabled) {
+                    if enabled && !reduced { flipToken += 1 }
+                    activate()
+                }
+            }
             .onHover { inside in
                 if inside && !hovered && enabled && !reduced { flipToken += 1 }
                 hovered = inside && enabled
             }
-            .onChange(of: selected) { _, selected in
-                if selected && enabled && !reduced { flipToken += 1 }
+    }
+}
+
+/// A stationary native hit target owns every activation, including reselection.
+private struct NavigationButton: NSViewRepresentable {
+    let label: String
+    let selected: Bool
+    let enabled: Bool
+    let action: () -> Void
+
+    final class Button: NSButton {
+        var activate: (() -> Void)?
+        override var mouseDownCanMoveWindow: Bool { false }
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+        private var pressed = false
+        override func mouseDown(with event: NSEvent) { pressed = isEnabled }
+        override func mouseUp(with event: NSEvent) {
+            defer { pressed = false }
+            if pressed && isEnabled && bounds.contains(convert(event.locationInWindow, from: nil)) {
+                performClick(nil)
             }
-            .accessibilityHidden(true)
+        }
+        override func draw(_ dirtyRect: NSRect) {}
+        @objc func clicked() { activate?() }
+    }
+    func makeNSView(context: Context) -> Button {
+        let button = Button(frame: .zero)
+        button.isBordered = false
+        button.setButtonType(.momentaryChange)
+        button.target = button
+        button.action = #selector(Button.clicked)
+        return button
+    }
+    func updateNSView(_ button: Button, context: Context) {
+        button.activate = action
+        button.toolTip = label
+        button.setAccessibilityLabel(label)
+        button.setAccessibilityValue(selected ? "已选中" : "未选中")
+        button.isEnabled = enabled
     }
 }

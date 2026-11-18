@@ -23,7 +23,7 @@ struct ContentView: View {
     var body: some View {
         RealityWindow {
             VStack(spacing: 0) {
-                titleBar
+                titleBar.zIndex(1)
                 if importing {
                     ImportPane(close: { importing = false }, save: { try await model.importNodes($0) })
                         .environmentObject(model)
@@ -78,12 +78,9 @@ struct ContentView: View {
             WindowControlButtons().frame(width: 50, height: 24)
             HStack(spacing: 4) {
                 ForEach(Page.allCases) { item in
-                    Button { page = item } label: {
-                        RealityNavigationIcon(symbol: item.symbol, selected: page == item)
-                    }.buttonStyle(HoverButtonStyle(plain: true)).disabled(editingContent)
-                        .help(item.rawValue)
-                        .accessibilityLabel(item.rawValue)
-                        .accessibilityAddTraits(page == item ? [.isSelected] : [])
+                    RealityNavigationIcon(symbol: item.symbol, selected: page == item, label: item.rawValue) {
+                        page = item
+                    }.disabled(editingContent)
                 }
             }.frame(height: 24, alignment: .center)
                 .accessibilityElement(children: .contain).accessibilityLabel("页面")
