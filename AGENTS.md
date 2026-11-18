@@ -22,7 +22,7 @@ Older documents describing multi-core support are historical, not requirements.
 - Fixed compact window; LXGWWenKaiMono Medium; dark appearance only; no sidebar or subscription page.
 - Reuse the main window content for settings, node editing and import; do not add
   separate editor windows or sheets. Preserve unsaved-edit confirmation on return.
-- Title-bar navigation uses volumetric RealityKit assets (house, nodes, log book, gear), with no icon background plates or outlines. Hover and newly selected pages flip once, respecting disabled state, Reduce Motion and window suspension.
+- Title-bar navigation uses abstract, rounded matte RealityKit assets (house, nodes, log slab, soft gear), with no icon background plates or outlines. Hover and newly selected pages flip once, respecting disabled state, Reduce Motion and window suspension.
 - Home defaults to a house icon. Navigation and mutually exclusive system proxy and TUN controls stay in the
   title bar; node import stays on the Nodes page. No separate connect button.
 - All buttons have disabled-aware hover feedback without layout shifts.
@@ -32,7 +32,7 @@ Older documents describing multi-core support are historical, not requirements.
   “设为当前节点”. Editing must preserve unexposed fields and validate before save.
 - Logs use bounded oldest-first eviction, retain history across mode changes,
   show each record separately, support both scroll directions, hide scrollbars.
-- Notices must not reflow content. Update progress stays within Settings.
+- Notices must not reflow content. Update progress stays within Settings; each module always shows its progress track, including idle and completed states.
 - Keep MTU presets/custom entry and the validated 1280–65535 range.
 
 ## Merge and verification

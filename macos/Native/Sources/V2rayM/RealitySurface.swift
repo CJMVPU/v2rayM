@@ -21,6 +21,7 @@ struct RealitySurfaceStyle: Equatable {
     var enabled = true
     var angle: Double = 0
     var tilt: Double = 0
+    var viewportID: UUID? = nil
     var parentID: UUID? = nil
     var visible = true
     var flipToken = 0
@@ -73,10 +74,11 @@ struct RealitySurface: NSViewRepresentable {
     var id: UUID? = nil
     @Environment(\.realityScene) private var scene
     @Environment(\.realityParentSurface) private var parent
+    @Environment(\.realityViewport) private var viewport
     @Environment(\.realityContentVisible) private var visible
     func makeNSView(context: Context) -> RealitySurfaceAnchor { RealitySurfaceAnchor(id: id ?? UUID()) }
     func updateNSView(_ view: RealitySurfaceAnchor, context: Context) {
-        var style = style; style.parentID = parent; style.visible = visible
+        var style = style; style.parentID = parent; style.visible = visible; style.viewportID = viewport
         view.configure(scene: scene, style: style)
     }
     static func dismantleNSView(_ view: RealitySurfaceAnchor, coordinator: ()) { view.detach() }
@@ -89,7 +91,8 @@ struct RealitySurface: NSViewRepresentable {
     weak var owner: RealityWindowScene?
     var style = RealitySurfaceStyle()
     var textureImage: CGImage? { didSet { synchronize() } }
-    private var scrollObservation: NSObjectProtocol?
+    private var scrollObservations: [NSObjectProtocol] = []
+    private var observedClipIDs: [ObjectIdentifier] = []
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     init(id: UUID = UUID()) { surfaceID = id; super.init(frame: .zero) }
@@ -104,31 +107,44 @@ struct RealitySurface: NSViewRepresentable {
     override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); synchronize() }
     override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
-        if let scrollObservation { NotificationCenter.default.removeObserver(scrollObservation) }
-        scrollObservation = nil
-        var ancestor = superview
-        while let view = ancestor {
-            if let clip = view as? NSClipView {
-                clip.postsBoundsChangedNotifications = true
-                scrollObservation = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification,
-                    object: clip, queue: .main) { [weak self] _ in
-                        MainActor.assumeIsolated { self?.synchronize() }
-                    }
-                break
-            }
-            ancestor = view.superview
-        }
         synchronize()
     }
+    private func observeScrollAncestors() {
+        var clips: [NSClipView] = []
+        var ancestor = superview
+        while let view = ancestor {
+            if let clip = view as? NSClipView { clips.append(clip) }
+            ancestor = view.superview
+        }
+        let ids = clips.map(ObjectIdentifier.init)
+        guard ids != observedClipIDs else { return }
+        scrollObservations.forEach { NotificationCenter.default.removeObserver($0) }
+        observedClipIDs = ids
+        scrollObservations = clips.map { clip in
+            clip.postsBoundsChangedNotifications = true
+            return NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification,
+                object: clip, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.synchronize() }
+                }
+        }
+    }
     func synchronize() {
+        // SwiftUI can attach the anchor before its hosting ancestors enter a
+        // scroll view. Discover again after layout/window attachment, and watch
+        // every clip so nested horizontal controls also follow vertical scroll.
+        observeScrollAncestors()
         guard let owner, let stage = owner.stage, window != nil, stage.window === window else { return }
         let rect = convert(bounds, to: stage)
         let visible = convert(visibleRect, to: stage).intersection(stage.bounds)
         owner.update(surfaceID, frame: rect, visible: visible, style: style)
         if let textureImage { owner.setFace(textureImage, for: surfaceID) }
     }
-    func detach() { owner?.remove(surfaceID); owner = nil }
-    deinit { if let scrollObservation { NotificationCenter.default.removeObserver(scrollObservation) } }
+    func detach() {
+        owner?.remove(surfaceID); owner = nil
+        scrollObservations.forEach { NotificationCenter.default.removeObserver($0) }
+        scrollObservations.removeAll(); observedClipIDs.removeAll()
+    }
+    deinit { scrollObservations.forEach { NotificationCenter.default.removeObserver($0) } }
 }
 
 private struct RealityStage: NSViewRepresentable {
@@ -211,6 +227,13 @@ private struct RealityStage: NSViewRepresentable {
         weak var view: RealitySurfaceAnchor?
         init(_ view: RealitySurfaceAnchor) { self.view = view }
     }
+    private final class WeakViewport {
+        weak var view: RealityViewportAnchor?
+        init(_ view: RealityViewportAnchor) { self.view = view }
+    }
+    private var viewports: [UUID: WeakViewport] = [:]
+    func registerViewport(_ view: RealityViewportAnchor) { viewports[view.id] = WeakViewport(view) }
+    func removeViewport(_ id: UUID) { viewports.removeValue(forKey: id) }
     private struct Item {
         var frame: CGRect
         var style: RealitySurfaceStyle
@@ -283,6 +306,13 @@ private struct RealityStage: NSViewRepresentable {
          Float(viewport.height / 2 - frame.midY) / 1000, level / 1000]
     }
     func update(_ id: UUID, frame: CGRect, visible: CGRect, style: RealitySurfaceStyle) {
+        var visible = visible
+        if let viewportID = style.viewportID {
+            guard let viewport = viewports[viewportID]?.view, let stage, viewport.window === stage.window else {
+                items[id]?.entity.isEnabled = false; return
+            }
+            visible = visible.intersection(viewport.convert(viewport.bounds, to: stage))
+        }
         guard frame.width.isFinite, frame.height.isFinite, frame.width > 0, frame.height > 0,
               !visible.isNull, visible.width > 0, visible.height > 0 else {
             items[id]?.entity.isEnabled = false; return
@@ -290,13 +320,16 @@ private struct RealityStage: NSViewRepresentable {
         // Panels in scroll views are clipped to their native visible region.
         // Rings and turning solids are not resized during their animation.
         let clipped = style.angle == 0 && style.tilt == 0 ? frame.intersection(visible) : frame
+        guard !clipped.isNull, !clipped.isEmpty, clipped.width.isFinite, clipped.height.isFinite else {
+            items[id]?.entity.isEnabled = false; return
+        }
         let previous = items[id]
         let entity = previous?.entity ?? ModelEntity()
         if previous?.frame == clipped, previous?.style == style {
             entity.isEnabled = style.visible
             return
         }
-        if previous == nil { root.addChild(entity); entity.name = "surface-" + id.uuidString }
+        if previous == nil { entity.name = "surface-" + id.uuidString }
         let geometryChanged = previous?.frame.size != clipped.size || previous?.style.shape != style.shape || previous?.style.depth != style.depth
         if geometryChanged {
             if case .symbol(let symbol) = style.shape {
@@ -341,12 +374,12 @@ private struct RealityStage: NSViewRepresentable {
     private func tintNavigation(_ entity: Entity, style: RealitySurfaceStyle) {
         entity.components.set(OpacityComponent(opacity: style.enabled ? 1 : 0.4))
         let accent = SimpleMaterial(color: style.highlighted ? NSColor(red: 0.02, green: 0.85, blue: 0.98, alpha: 1)
-            : NSColor(red: 0.12, green: 0.57, blue: 0.74, alpha: 1), roughness: 0.26, isMetallic: true)
+            : NSColor(red: 0.25, green: 0.68, blue: 0.85, alpha: 1), roughness: 0.85, isMetallic: false)
         func visit(_ node: Entity) {
             if let model = node as? ModelEntity {
                 if node.name.hasPrefix("accent-") { model.model?.materials = [accent] }
-                else if node.name == "beveled-gear", var materials = model.model?.materials, materials.count == 3 {
-                    materials[2] = accent; model.model?.materials = materials
+                else if node.name == "soft-gear", var materials = model.model?.materials, materials.count == 3 {
+                    materials[0] = accent; model.model?.materials = materials
                 }
             }
             for child in node.children { visit(child) }

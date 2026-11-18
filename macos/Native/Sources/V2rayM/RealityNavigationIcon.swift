@@ -10,15 +10,15 @@ struct RealityNavigationIcon: View {
     @State private var hovered = false
     @State private var flipToken = 0
     var body: some View {
-        Color.clear.frame(width: 26, height: 26)
+        Color.clear.frame(width: 22, height: 22)
             .background {
                 RealitySurface(style: .init(shape: .symbol(symbol),
                     color: NSColor(selected ? DashboardTheme.cyan : DashboardTheme.muted),
                     depth: 3, level: 70, highlighted: enabled && (hovered || selected), enabled: enabled,
-                    angle: enabled && hovered ? -36 : -27, tilt: enabled && hovered ? 23 : 18,
+                    angle: enabled && hovered ? -26 : -16, tilt: enabled && hovered ? 18 : 12,
                     flipToken: flipToken, allowsFlip: !reduced && enabled))
             }
-            .frame(width: 44, height: 29).contentShape(Rectangle())
+            .frame(width: 40, height: 24).contentShape(Rectangle())
             .onHover { inside in
                 if inside && !hovered && enabled && !reduced { flipToken += 1 }
                 hovered = inside && enabled

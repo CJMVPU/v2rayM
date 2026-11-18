@@ -75,7 +75,7 @@ struct ContentView: View {
     }
     private var titleBar: some View {
         HStack(spacing: 10) {
-            WindowControlButtons().frame(width: 50, height: 28)
+            WindowControlButtons().frame(width: 50, height: 24)
             HStack(spacing: 4) {
                 ForEach(Page.allCases) { item in
                     Button { page = item } label: {
@@ -85,7 +85,7 @@ struct ContentView: View {
                         .accessibilityLabel(item.rawValue)
                         .accessibilityAddTraits(page == item ? [.isSelected] : [])
                 }
-            }.frame(height: 30, alignment: .bottom)
+            }.frame(height: 24, alignment: .center)
                 .accessibilityElement(children: .contain).accessibilityLabel("页面")
             Spacer(minLength: 8)
             ZStack {
@@ -99,16 +99,16 @@ struct ContentView: View {
             }
             Toggle("TUN", isOn: Binding(get: { model.desiredMode == .tun }, set: { model.toggleTun($0) }))
                 .toggleStyle(RealityToggleStyle()).fixedSize().disabled(!model.canToggle(.tun) || model.tun == nil || editingContent)
-        }.controlSize(.small).padding(.horizontal, 12).frame(height: 32)
+        }.controlSize(.small).padding(.horizontal, 12).frame(height: 26)
             .overlay {
                 Text("powered by cj")
-                    .font(.custom("SnellRoundhand-Bold", size: 19))
+                    .font(.custom("SnellRoundhand-Bold", size: 17))
                     .foregroundStyle(Color(red: 0.2, green: 0.29, blue: 0.4))
                     .shadow(color: .black.opacity(0.95), radius: 0.5, x: 0, y: -1)
                     .shadow(color: .white.opacity(0.16), radius: 0.4, x: 0, y: 1)
                     .allowsHitTesting(false).accessibilityLabel("powered by cj")
             }
-            .realitySurface(.init(shape: .panel(9), color: NSColor(calibratedWhite: 0.23, alpha: 1), depth: 7, level: 50))
+            .realitySurface(.init(shape: .panel(7), color: NSColor(calibratedWhite: 0.23, alpha: 1), depth: 7, level: 50))
     }
 
     private func notice(_ text: String, error: Bool) -> some View {
@@ -137,6 +137,7 @@ struct ContentView: View {
                     select: { model.select($0) }, edit: { editingProfile = $0 },
                     latency: { item in model.run { try await $0.perform("/api/profiles/\(item.id)/latency") } },
                     delete: { deletingProfile = $0 })
+                    .padding(.top, 8)
 
             }
             Divider()

@@ -28,6 +28,45 @@ private struct RealityInteractionView: View {
 }
 
 @MainActor final class RealityWindowTests: XCTestCase {
+    func testLateAttachedNestedScrollAncestorsMoveSurfacesTogether() throws {
+        let stage = RealityStageView(owner: RealityWindowScene())
+        // Both clips are attached after the anchor enters its immediate parent,
+        // as SwiftUI does when assembling a settings card and its route scroller.
+        let outer = NSScrollView(frame: CGRect(x: 0, y: 0, width: 400, height: 200))
+        let document = NSView(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
+        let inner = NSScrollView(frame: CGRect(x: 0, y: 300, width: 400, height: 100))
+        let nested = NSView(frame: CGRect(x: 0, y: 0, width: 800, height: 100))
+        let anchor = RealitySurfaceAnchor()
+        anchor.frame = CGRect(x: 120, y: 20, width: 100, height: 40)
+        nested.addSubview(anchor)
+        inner.documentView = nested; document.addSubview(inner); outer.documentView = document
+        let container = NSView(frame: outer.frame)
+        // Use one scene for the stage and anchor.
+        stage.frame = container.bounds; container.addSubview(stage); container.addSubview(outer)
+        let window = NSWindow(contentRect: container.bounds, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = container
+        defer { stage.stop(); window.close() }
+        outer.contentView.scroll(to: CGPoint(x: 0, y: 250))
+        stage.owner.resize(container.bounds.size)
+        anchor.configure(scene: stage.owner, style: .init())
+        func assertAligned(file: StaticString = #filePath, line: UInt = #line) throws {
+            let entity = try XCTUnwrap(stage.owner.root.findEntity(named: "surface-" + anchor.surfaceID.uuidString), file: file, line: line)
+            let rect = anchor.convert(anchor.bounds, to: stage).intersection(anchor.convert(anchor.visibleRect, to: stage)).intersection(stage.bounds)
+            XCTAssertFalse(rect.isEmpty, file: file, line: line)
+            let expected = RealityWindowScene.position(rect, viewport: stage.bounds.size, level: anchor.style.level)
+            XCTAssertEqual(entity.position.x, expected.x, accuracy: 0.00001, file: file, line: line)
+            XCTAssertEqual(entity.position.y, expected.y, accuracy: 0.00001, file: file, line: line)
+        }
+        try assertAligned()
+        outer.contentView.scroll(to: CGPoint(x: 0, y: 280))
+        try assertAligned()
+        inner.contentView.scroll(to: CGPoint(x: 30, y: 0))
+        try assertAligned()
+        outer.contentView.scroll(to: CGPoint(x: 0, y: 260))
+        try assertAligned()
+        anchor.detach()
+        XCTAssertEqual(stage.owner.entityCount, 0)
+    }
     func testNavigationAssetFlipsCoalesceAndRespectCancellation() async throws {
         let stage = RealityStageView(owner: RealityWindowScene())
         let owner = stage.owner
@@ -41,7 +80,7 @@ private struct RealityInteractionView: View {
             for (i,symbol) in RealityNavigationSymbol.allCases.enumerated() {
                 let rect = CGRect(x: 30+i*200, y: 40, width: 140, height: 140)
                 owner.update(ids[i], frame: rect, visible: rect, style: .init(shape: .symbol(symbol),
-                    level: 70, highlighted: i == 0, enabled: enabled, angle: -27, tilt: 18,
+                    level: 70, highlighted: i == 0, enabled: enabled, angle: -16, tilt: 12,
                     flipToken: token, allowsFlip: motion))
             }
         }
@@ -114,6 +153,21 @@ private struct RealityInteractionView: View {
         XCTAssertEqual(clipped.0.x, 0, accuracy: 0.0001); XCTAssertEqual(clipped.1.x, 100, accuracy: 0.0001)
         XCTAssertNil(RealityPlotGeometry.clip(CGPoint(x: -20, y: 30), CGPoint(x: 120, y: 30), size: CGSize(width: 100, height: 20)))
     }
+    func testFullyClippedSurfacesDoNotLeaveOrphanEntities() {
+        let scene = RealityWindowScene(), id = UUID()
+        scene.resize(CGSize(width: 400, height: 200))
+        let viewport = CGRect(x: 0, y: 26, width: 400, height: 174)
+        for _ in 0..<20 {
+            scene.update(id, frame: CGRect(x: 30, y: -50, width: 60, height: 20), visible: viewport, style: .init())
+        }
+        XCTAssertEqual(scene.entityCount, 0)
+        XCTAssertNil(scene.root.findEntity(named: "surface-" + id.uuidString))
+        scene.update(id, frame: CGRect(x: 30, y: 40, width: 60, height: 20), visible: viewport, style: .init())
+        XCTAssertEqual(scene.root.children.filter { $0.name == "surface-" + id.uuidString }.count, 1)
+        scene.update(id, frame: CGRect(x: 30, y: -50, width: 60, height: 20), visible: viewport, style: .init())
+        XCTAssertFalse(scene.root.findEntity(named: "surface-" + id.uuidString)?.isEnabled ?? true)
+    }
+
     func testPointCoordinatesMatchNativeHitRegions() {
         let viewport = CGSize(width: 860, height: 600)
         let center = RealityWindowScene.position(CGRect(x: 420, y: 290, width: 20, height: 20), viewport: viewport, level: 20)
@@ -216,6 +270,41 @@ private struct RealityInteractionView: View {
             let capture = Process(); capture.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
             capture.arguments = ["-x", "-l", String(window.windowNumber), path.path]
             try capture.run(); capture.waitUntilExit(); XCTAssertEqual(capture.terminationStatus, 0)
+            if page == .settings {
+                func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+                let scroll = try XCTUnwrap(descendants(host).compactMap { $0 as? NSScrollView }
+                    .first { ($0.documentView?.bounds.height ?? 0) > $0.contentView.bounds.height + 20 })
+                let document = try XCTUnwrap(scroll.documentView)
+                let maxY = document.bounds.height - scroll.contentView.bounds.height
+                for (index, offset) in [min(90, maxY), maxY, 0].enumerated() {
+                    scroll.contentView.scroll(to: CGPoint(x: 0, y: offset))
+                    scroll.reflectScrolledClipView(scroll.contentView)
+                    try await Task.sleep(for: .milliseconds(100))
+                    for anchor in descendants(document).compactMap({ $0 as? RealitySurfaceAnchor }) {
+                        var rect = anchor.convert(anchor.bounds, to: renderer)
+                            .intersection(anchor.convert(anchor.visibleRect, to: renderer)).intersection(renderer.bounds)
+                        if let viewportID = anchor.style.viewportID {
+                            let viewport = try XCTUnwrap(descendants(host).compactMap { $0 as? RealityViewportAnchor }.first { $0.id == viewportID })
+                            let visible = viewport.convert(viewport.bounds, to: renderer).intersection(renderer.bounds)
+                            XCTAssertGreaterThanOrEqual(visible.minY, 26, "Settings must stay below the title bar")
+                            rect = rect.intersection(visible)
+                        }
+                        let existing = renderer.owner.root.findEntity(named: "surface-" + anchor.surfaceID.uuidString)
+                        if rect.isEmpty || !anchor.style.visible {
+                            XCTAssertFalse(existing?.isEnabled ?? false, "Offscreen settings must not paint over navigation")
+                            continue
+                        }
+                        guard anchor.style.parentID == nil else { continue }
+                        let entity = try XCTUnwrap(existing)
+                        let expected = RealityWindowScene.position(rect, viewport: renderer.bounds.size, level: anchor.style.level)
+                        XCTAssertEqual(entity.position.x, expected.x, accuracy: 0.00001)
+                        XCTAssertEqual(entity.position.y, expected.y, accuracy: 0.00001, "Card background must follow native text at scroll offset \(offset)")
+                    }
+                    let capture = Process(); capture.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+                    capture.arguments = ["-x", "-l", String(window.windowNumber), folder.appendingPathComponent("settings-scroll-\(index).png").path]
+                    try capture.run(); capture.waitUntilExit(); XCTAssertEqual(capture.terminationStatus, 0)
+                }
+            }
             let before = renderer.owner.entityCount
             renderer.suspend(); renderer.resume()
             try await Task.sleep(for: .milliseconds(100))

@@ -17,22 +17,9 @@ private struct ModuleUpdateContent: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("Xray 内核与分流规则数据独立维护").font(AppFont.caption).foregroundStyle(.secondary)
-                Spacer()
-                Button("更新全部模块") { model.updateModules(.all) }
-                    .disabled(!model.ready || model.busy || model.moduleUpdateActive)
-            }
-            ForEach(model.moduleTargets, id: \.self) { id in
-                ModuleUpdateRow(id: id, progress: observation.progress.first(where: { $0.coreType == id }),
-                    queued: model.moduleUpdateActive && model.moduleScope?.targets.contains(id) == true,
-                    disabled: !model.ready || model.busy || model.moduleUpdateActive) {
-                        model.updateModules(id == "GeoFiles" ? .geo : .xray)
-                    }
-            }
-            HStack(spacing: 8) {
-                Text(model.moduleUpdateError ?? "检查最新版本（含预发布版）；发现新版本后等待验证，不自动替换 Xray 内核。")
+                Text(model.moduleUpdateError ?? "Xray 内核与分流规则数据独立维护")
                     .font(AppFont.caption).foregroundStyle(model.moduleUpdateError == nil ? Color.secondary : .orange)
-                    .lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
+                    .lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
                     .help(model.moduleUpdateError ?? "")
                 Button("详情") { showingError = true }
                     .environment(\.realityContentVisible, model.moduleUpdateError != nil)
@@ -40,7 +27,16 @@ private struct ModuleUpdateContent: View {
                     .opacity(model.moduleUpdateError == nil ? 0 : 1)
                     .accessibilityHidden(model.moduleUpdateError == nil)
                     .popover(isPresented: $showingError) { UpdateDetails(text: model.moduleUpdateError ?? "") }
-            }.frame(height: 32)
+                Button("更新全部模块") { model.updateModules(.all) }
+                    .disabled(!model.ready || model.busy || model.moduleUpdateActive)
+            }.frame(height: 24)
+            ForEach(model.moduleTargets, id: \.self) { id in
+                ModuleUpdateRow(id: id, progress: observation.progress.first(where: { $0.coreType == id }),
+                    queued: model.moduleUpdateActive && model.moduleScope?.targets.contains(id) == true,
+                    disabled: !model.ready || model.busy || model.moduleUpdateActive) {
+                        model.updateModules(id == "GeoFiles" ? .geo : .xray)
+                    }
+            }
         }
     }
 }
@@ -81,8 +77,10 @@ struct ModuleUpdateRow: View {
                     if let fraction = progress?.downloadFraction, progress?.phase == "downloading" {
                         ProgressView(value: fraction).progressViewStyle(.linear)
                     } else { ProgressView().progressViewStyle(.linear) }
+                } else {
+                    ProgressView(value: progress?.success == true ? 1 : 0).progressViewStyle(.linear)
                 }
-            }.accessibilityHidden(!active)
+            }.accessibilityLabel("更新进度")
         }.padding(10)
             .realitySurface(.init(shape: .panel(8), depth: 3, level: 14))
     }
