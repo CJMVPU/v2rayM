@@ -16,13 +16,12 @@ struct RoutingSettingsFields: SettingsFields {
         VStack(alignment: .leading, spacing: 12) {
             SettingsFormSection(title: "路由方案", subtitle: "保存修改后可切换或启用方案。") {
                 SettingsFieldRow(title: "当前编辑方案") {
-                    Picker("方案", selection: Binding(get: { routeID }, set: { id in
+                    RealityChoice(title: "方案", selection: Binding(get: { routeID }, set: { id in
                         guard let item = routes.first(where: { $0["id"].text == id }) else { return }
                         select(item)
-                    })) {
-                        if routeID.isEmpty { Text("新方案").tag("") }
-                        ForEach(routes.indices, id: \.self) { i in Text(settingsRouteLabel(routes[i]["remarks"].text)).tag(routes[i]["id"].text) }
-                    }.labelsHidden().disabled(dirty)
+                    }), values: (routeID.isEmpty ? [""] : []) + routes.map { $0["id"].text }) { id in
+                        routes.first { $0["id"].text == id }.map { settingsRouteLabel($0["remarks"].text) } ?? "新方案"
+                    }.disabled(dirty)
                 }
                 HStack {
                     Spacer()
@@ -45,9 +44,10 @@ struct RoutingSettingsFields: SettingsFields {
                 }
                 if rules.indices.contains(ruleIndex) {
                     SettingsFieldRow(title: "当前编辑规则") {
-                        Picker("编辑规则", selection: $ruleIndex) {
-                            ForEach(rules.indices, id: \.self) { i in Text("\(i + 1). " + (rules[i]["remarks"].text.isEmpty ? settingsOptionLabel(rules[i]["outboundTag"].text) : rules[i]["remarks"].text)).tag(i) }
-                        }.labelsHidden()
+                        RealityChoice(title: "编辑规则", selection: $ruleIndex, values: Array(rules.indices)) { i in
+                            guard rules.indices.contains(i) else { return "—" }
+                            return "\(i+1). " + (rules[i]["remarks"].text.isEmpty ? settingsOptionLabel(rules[i]["outboundTag"].text) : rules[i]["remarks"].text)
+                        }
                     }
                     let rule = Binding<SettingsValue>(get: { rules.indices.contains(ruleIndex) ? rules[ruleIndex] : .null }, set: { if rules.indices.contains(ruleIndex) { rules[ruleIndex] = $0; dirty = true } })
                     HStack {

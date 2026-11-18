@@ -93,6 +93,13 @@ enum DashboardBodyAsset: String, CaseIterable {
 
     #if SWIFT_PACKAGE
     @MainActor private static var templates: [Self: Entity] = [:]
+    @MainActor static let cardFace: (any Material)? = {
+        func face(in entity: Entity) -> (any Material)? {
+            if let materials = (entity as? ModelEntity)?.model?.materials, materials.count >= 5 { return materials[4] }
+            return entity.children.lazy.compactMap { face(in: $0) }.first
+        }
+        return (try? Self.card.load()).flatMap(face)
+    }()
     @MainActor func load() throws -> Entity {
         if let cached = Self.templates[self] { return cached.clone(recursive: true) }
         guard let url = Bundle.module.url(forResource: rawValue, withExtension: "reality", subdirectory: "Dashboard") else { throw CocoaError(.fileNoSuchFile) }

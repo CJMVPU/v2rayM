@@ -32,11 +32,8 @@ extension SettingsFields {
     }
     func choice(_ title: String, _ root: Binding<SettingsValue>, _ key: String, _ options: [String]) -> some View {
         SettingsFieldRow(title: title) {
-            Picker(title, selection: text(root, key)) {
-                ForEach(settingsOptions(options, current: root.wrappedValue[key].text), id: \.self) { option in
-                    Text(settingsOptionLabel(option)).tag(option)
-                }
-            }.labelsHidden().frame(maxWidth: .infinity, alignment: .leading).accessibilityLabel(title)
+            RealityChoice(title: title, selection: text(root, key),
+                values: settingsOptions(options, current: root.wrappedValue[key].text), name: settingsOptionLabel).frame(maxWidth: .infinity, alignment: .leading).accessibilityLabel(title)
         }
     }
     func multiline(_ title: String, _ root: Binding<SettingsValue>, _ key: String, array: Bool = false) -> some View {
@@ -48,7 +45,7 @@ extension SettingsFields {
             Text(title).foregroundStyle(.secondary)
             TextEditor(text: content).font(AppFont.caption).scrollIndicators(.never)
                 .scrollContentBackground(.hidden).padding(6).frame(height: 96)
-                .realitySurface(.init(shape: .panel(6), color: NSColor(calibratedWhite: 0.13, alpha: 1), depth: 2, level: 18))
+                .modifier(RealityEditorSurface())
                 .accessibilityLabel(title)
         }
     }

@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import RealityKit
 import QuartzCore
 import Accelerate
 
@@ -11,11 +12,15 @@ struct DashboardNumericText: View {
     var color: Color = .primary
     @Environment(\.accessibilityReduceMotion) private var reduced
     @Environment(\.dashboardMotionEnabled) private var motion
+    @Environment(\.realityParentSurface) private var parent
     var body: some View {
         Text(text).font(AppFont.size(size)).monospacedDigit().hidden()
             .overlay {
-                NativeNumericText(text: text, size: size, color: color, animate: motion && !reduced)
-                    .accessibilityHidden(true)
+                GeometryReader { geometry in
+                    let local = parent.map { geometry.frame(in: .named($0)) }
+                    NativeNumericText(text: text, size: size, color: color, animate: motion && !reduced,
+                        parent: parent, local: local)
+                }.accessibilityHidden(true)
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(text).accessibilityHidden(false)
@@ -27,11 +32,15 @@ private struct NativeNumericText: NSViewRepresentable {
     let size: CGFloat
     let color: Color
     let animate: Bool
+    let parent: UUID?
+    let local: CGRect?
+    @Environment(\.realityScene) private var scene
     func makeNSView(context: Context) -> NumericLayerView { NumericLayerView() }
     func updateNSView(_ view: NumericLayerView, context: Context) {
+        view.configure(scene, parent: parent, local: local)
         view.update(text, size: size, color: NSColor(color), animate: animate)
     }
-    static func dismantleNSView(_ view: NumericLayerView, coordinator: ()) { view.freeze() }
+    static func dismantleNSView(_ view: NumericLayerView, coordinator: ()) { view.stop() }
 }
 
 @MainActor final class NumericLayerView: DashboardLayerView {
@@ -55,6 +64,38 @@ private struct NativeNumericText: NSViewRepresentable {
     private let pad: CGFloat = 5
     override init(frame: NSRect = .zero) { super.init(frame: frame) }
     required init?(coder: NSCoder) { fatalError("init(coder:) unavailable") }
+    private let face = RealityNumberFace()
+    private let anchor = RealitySurfaceAnchor()
+    private weak var scene: RealityWindowScene?
+    private var textures: [Character: RealityNumberFace.Glyph] = [:]
+
+    func configure(_ owner: RealityWindowScene?, parent: UUID?, local: CGRect?) {
+        guard let owner, let parent, let local else {
+            if scene != nil { anchor.detach(); anchor.removeFromSuperview(); face.reset(); recover = true }
+            scene = nil
+            return
+        }
+        if scene !== owner {
+            scene = owner; recover = true
+            glyphLayers.forEach { $0.removeFromSuperlayer() }
+            outgoing.forEach { $0.removeFromSuperlayer() }
+            glyphLayers.removeAll(); outgoing.removeAll()
+        }
+        if anchor.superview == nil { addSubview(anchor) }
+        anchor.frame = bounds
+        anchor.drawing = face.root
+        anchor.configure(scene: owner, style: .init(shape: .group, depth: 0.3, parentID: parent,
+            facePoint: CGPoint(x: local.midX, y: local.midY)))
+    }
+    func stop() { freeze(); anchor.detach(); face.reset() }
+    private func texturedGlyph(_ character: Character) -> RealityNumberFace.Glyph? {
+        if let cached = textures[character] { return cached }
+        guard let source = glyph(character),
+              let result = try? RealityNumberFace.Glyph(images: source.images, width: source.width,
+                      height: source.height, padding: pad) else { return nil }
+        textures[character] = result
+        return result
+    }
     func update(_ value: String, size: CGFloat, color: NSColor, animate: Bool) {
         guard !frozen else { return }
         let motionStopped = animationAllowed && !animate
@@ -66,19 +107,23 @@ private struct NativeNumericText: NSViewRepresentable {
         let newScale = window?.backingScaleFactor ?? 2
         let styleChanged = size != fontSize || resolved != tint || scale != newScale
         guard value != text || styleChanged || recover || motionStopped else { return }
-        if styleChanged { fontSize = size; tint = resolved; scale = newScale; cache.removeAll() }
+        if styleChanged { fontSize = size; tint = resolved; scale = newScale; cache.removeAll(); textures.removeAll(); face.reset() }
         let previous = styleChanged ? "" : text
         text = value
         let rolling = animate && !previous.isEmpty && !styleChanged && !recover
-        let crossfade = animate && recover
+        let crossfade = animate && recover && !previous.isEmpty
         recover = false
-        replace(previous: previous, rolling: rolling, crossfade: crossfade)
+        if let scene {
+            face.display(text, size: size, roll: rolling, fade: crossfade, scene: scene, glyphFor: texturedGlyph)
+            if rolling || crossfade { transitionCount += 1 }
+        } else { replace(previous: previous, rolling: rolling, crossfade: crossfade) }
     }
     override func layout() {
         super.layout()
         guard bounds.size != layoutSize else { return }
         layoutSize = bounds.size
-        withoutActions { positionLayers() }
+        if scene != nil { anchor.frame = bounds; anchor.synchronize() }
+        else { withoutActions { positionLayers() } }
     }
     private func positionLayers() {
         let characters = Array(text)
@@ -152,6 +197,7 @@ private struct NativeNumericText: NSViewRepresentable {
     }
     override func freeze() {
         guard !frozen else { return }
+        face.settle()
         withoutActions {
             for item in glyphLayers + outgoing {
                 if let shown = item.presentation() {

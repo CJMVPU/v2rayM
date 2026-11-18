@@ -20,7 +20,7 @@ struct ProfileEditor: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Button { if dirty { discard = true } else { close() } } label: {
-                    Label("节点", systemImage: "chevron.left")
+                    RealityLabel(title: "节点", asset: .back)
                 }.disabled(saving)
                 Divider().frame(height: 20)
                 Text("配置节点").font(AppFont.title)
@@ -31,9 +31,7 @@ struct ProfileEditor: View {
             Divider()
             if loaded {
                 if simple {
-                    Picker("配置分类", selection: $section) {
-                        ForEach(["基本信息", "传输与 TLS", "扩展配置"], id: \.self) { Text($0) }
-                    }.pickerStyle(.segmented)
+                    RealitySegments(title: "配置分类", selection: $section, options: ["基本信息", "传输与 TLS", "扩展配置"])
                 }
                 ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 12) {
@@ -65,19 +63,19 @@ struct ProfileEditor: View {
                             field("指纹", "fingerprint")
                             field("Reality 公钥", "publicKey")
                             field("Short ID", "shortId")
-                            Toggle("允许不安全证书", isOn: Binding(get: { value["allowInsecure"].text == "true" }, set: { value["allowInsecure"] = .string($0 ? "true" : "false") }))
+                            Toggle("允许不安全证书", isOn: Binding(get: { value["allowInsecure"].text == "true" }, set: { value["allowInsecure"] = .string($0 ? "true" : "false") })).toggleStyle(RealityToggleStyle())
                         } else {
                             Text("协议扩展（JSON）").foregroundStyle(.secondary)
-                            TextEditor(text: binding("protoExtra")).scrollIndicators(.never).frame(height: 115)
+                            TextEditor(text: binding("protoExtra")).scrollIndicators(.never).scrollContentBackground(.hidden).padding(5).modifier(RealityEditorSurface()).frame(height: 115)
                             Text("传输扩展（JSON，包括 XHTTP 模式、路径、Host 和 extra）").foregroundStyle(.secondary)
-                            TextEditor(text: binding("transportExtra")).scrollIndicators(.never).frame(height: 145)
+                            TextEditor(text: binding("transportExtra")).scrollIndicators(.never).scrollContentBackground(.hidden).padding(5).modifier(RealityEditorSurface()).frame(height: 145)
                         }
                     }.textFieldStyle(RealityTextFieldStyle()).padding(2)
-                }.scrollIndicators(.never).disabled(saving)
+                }.scrollIndicators(.never).realityClipped().disabled(saving)
             } else {
                 Spacer()
                 if failed { Button("重新加载") { Task { await load() } } }
-                else { ProgressView() }
+                else { RealityBusyIndicator() }
             }
             Spacer(minLength: 0)
             Divider()

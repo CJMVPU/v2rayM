@@ -55,7 +55,7 @@ struct ModuleUpdateRow: View {
     var body: some View {
         VStack(spacing: 4) {
             HStack(spacing: 8) {
-                Label(id == "GeoFiles" ? "分流规则数据" : "Xray 内核", systemImage: id == "GeoFiles" ? "globe" : "shippingbox")
+                RealityLabel(title: id == "GeoFiles" ? "分流规则数据" : "Xray 内核", asset: id == "GeoFiles" ? .globe : .package)
                     .font(AppFont.body).frame(width: 132, alignment: .leading)
                 Text(progress?.phaseLabel ?? (queued ? "等待更新" : "尚未检查"))
                     .foregroundStyle(progress?.isComplete == true && progress?.success == false ? .orange : .secondary)
@@ -72,26 +72,22 @@ struct ModuleUpdateRow: View {
                 Button(id == "GeoFiles" ? "更新数据" : "检查版本", action: update)
                     .disabled(disabled).frame(width: 76, alignment: .trailing)
             }.font(AppFont.caption).frame(height: 24)
-            Color.clear.frame(height: 6).overlay {
-                if active {
-                    if let fraction = progress?.downloadFraction, progress?.phase == "downloading" {
-                        ProgressView(value: fraction).progressViewStyle(.linear)
-                    } else { ProgressView().progressViewStyle(.linear) }
-                } else {
-                    ProgressView(value: progress?.success == true ? 1 : 0).progressViewStyle(.linear)
-                }
-            }.accessibilityLabel("更新进度")
+            RealityProgressTrack(fraction: active
+                ? (progress?.phase == "downloading" ? progress?.downloadFraction : nil)
+                : (progress?.success == true ? 1 : 0))
         }.padding(10)
-            .realitySurface(.init(shape: .panel(8), depth: 3, level: 14))
+            .realityCard(radius: 6, depth: 3, level: 16)
     }
 }
 
 private struct UpdateDetails: View {
     let text: String
     var body: some View {
-        ScrollView {
-            Text(text).font(AppFont.body).textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading).padding(14).background(SettingsWheelScroll())
+        RealityWindow {
+            ScrollView {
+                Text(text).font(AppFont.body).textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(14).background(SettingsWheelScroll())
+            }.realityClipped().realityCard(radius: 8).padding(3)
         }.frame(width: 390, height: 180)
     }
 }

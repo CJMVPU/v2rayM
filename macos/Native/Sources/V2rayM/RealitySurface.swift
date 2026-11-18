@@ -8,10 +8,16 @@ import RealityKit
 /// Rendering never reads AppModel or performs network operations.
 enum RealityShape: Equatable {
     case panel(CGFloat)
-    case disc
+    case disc, group
+    case well(CGFloat), cardPanel(CGFloat), shadow(CGFloat), glyph(ControlAsset)
     case ring(Double)
     case dashboard(DashboardBodyAsset)
     case symbol(RealityNavigationSymbol)
+
+    func sharesGeometry(with previous: RealityShape?) -> Bool {
+        if case .ring = self, case .ring = previous { return true }
+        return self == previous
+    }
 
     var isNavigationSymbol: Bool {
         if case .symbol = self { return true }
@@ -31,11 +37,14 @@ struct RealitySurfaceStyle: Equatable {
     var tilt: Double = 0
     var viewportID: UUID? = nil
     var parentID: UUID? = nil
+    var facePoint: CGPoint?
     var rowOffset: CGFloat? = nil
     var visible = true
     var flipToken = 0
     var allowsFlip = true
     var switchOn: Bool? = nil
+    var progress: Double? = nil
+    var progressOffset: Double = 0
 }
 
 private struct RealitySceneKey: EnvironmentKey {
@@ -66,6 +75,7 @@ struct RealityWindow<Content: View>: View {
     var body: some View {
         content
             .environment(\.realityScene, scene)
+            .environment(\.dashboardMotionEnabled, visibilityOverride ?? visibility.phase.rendersMotion)
             .background { RealityStage(scene: scene).allowsHitTesting(false).accessibilityHidden(true) }
             .background {
                 DashboardVisibilityObserver(rendering: visibility.phase.rendersMotion) { state in
@@ -112,6 +122,7 @@ struct RealitySurface: NSViewRepresentable {
     let surfaceID: UUID
     weak var owner: RealityWindowScene?
     var style = RealitySurfaceStyle()
+    var drawing: Entity?
     var textureImage: CGImage? { didSet { synchronize() } }
     private var scrollObservations: [NSObjectProtocol] = []
     private var observedClipIDs: [ObjectIdentifier] = []
@@ -156,6 +167,13 @@ struct RealitySurface: NSViewRepresentable {
         // every clip so nested horizontal controls also follow vertical scroll.
         observeScrollAncestors()
         guard let owner, let stage = owner.stage, window != nil, stage.window === window else { return }
+        defer { if let drawing { owner.attachDrawing(drawing, to: surfaceID) } }
+        if let point = style.facePoint, style.parentID != nil {
+            let local = CGRect(x: point.x-bounds.width/2, y: point.y-bounds.height/2, width: bounds.width, height: bounds.height)
+            owner.update(surfaceID, frame: local, visible: local, style: style)
+            if let textureImage { owner.setFace(textureImage, for: surfaceID) }
+            return
+        }
         if let offset = style.rowOffset, style.parentID != nil {
             // Row anchors can live in a detached SwiftUI transform host during
             // a parent turn. Use the stack layout in card-local coordinates.
@@ -358,10 +376,21 @@ private struct RealityStage: NSViewRepresentable {
             return
         }
         if previous == nil { entity.name = "surface-" + id.uuidString }
-        let geometryChanged = previous?.frame.size != clipped.size || previous?.style.shape != style.shape || previous?.style.depth != style.depth
+        let geometryChanged = previous?.frame.size != clipped.size || !style.shape.sharesGeometry(with: previous?.style.shape) || previous?.style.depth != style.depth
         let selectionChanged = previous?.style.selected != style.selected
         if geometryChanged || (selectionChanged && style.shape.isNavigationSymbol) {
-            if case .symbol(let symbol) = style.shape {
+            if style.shape == .group { entity.model = nil }
+            else if case .glyph(let asset) = style.shape {
+                do {
+                    let glyph = try asset.instance(size: clipped.size, depth: style.depth, material: material(style), fit: true)
+                    entity.children.removeAll()
+                    entity.addChild(glyph)
+                } catch { NSLog("Control asset %@: %@", asset.rawValue, String(describing: error)); return }
+            } else if style.switchOn != nil {
+                guard let track = try? ControlAsset.switchTrack.instance(size: clipped.size, depth: style.depth, material: material(style)) else { return }
+                entity.findEntity(named: ControlAsset.switchTrack.rawValue)?.removeFromParent()
+                entity.addChild(track)
+            } else if case .symbol(let symbol) = style.shape {
                 entity.model = nil
                 entity.children.removeAll()
                 do {
@@ -397,13 +426,22 @@ private struct RealityStage: NSViewRepresentable {
                     pivot.model = ModelComponent(mesh: mesh, materials: [material(style)])
                     if pivot.parent == nil { entity.addChild(pivot) }
                 } else {
-                    entity.model = ModelComponent(mesh: mesh, materials: [material(style)])
+                    if case .cardPanel = style.shape, let satin = DashboardBodyAsset.cardFace {
+                        entity.model = ModelComponent(mesh: mesh, materials: [material(style), satin])
+                    } else if case .shadow = style.shape {
+                        var shadow = UnlitMaterial(color: .black)
+                        shadow.blending = .transparent(opacity: .init(floatLiteral: 0.24))
+                        entity.model = ModelComponent(mesh: mesh, materials: [shadow])
+                    } else { entity.model = ModelComponent(mesh: mesh, materials: [material(style)]) }
                 }
             }
             meshBuilds += 1
         } else if previous?.style.color != style.color || previous?.style.highlighted != style.highlighted || previous?.style.enabled != style.enabled {
-            entity.model?.materials = [material(style)]
+            if case .glyph(let asset) = style.shape {
+                (entity.findEntity(named: asset.rawValue) as? ModelEntity)?.model?.materials = [material(style)]
+            } else { entity.model?.materials = [material(style)] }
         }
+        if case .ring(let fraction) = style.shape { RealityRingMesh.reveal(fraction, on: entity.model?.mesh) }
         if style.shape == .dashboard(.titleBar),
            geometryChanged || selectionChanged || previous?.style.highlighted != style.highlighted,
            let shell = entity.findEntity(named: "dashboard-shell") {
@@ -418,8 +456,10 @@ private struct RealityStage: NSViewRepresentable {
             applyFace(shell)
         } else if case .dashboard = style.shape, geometryChanged || previous?.style.highlighted != style.highlighted,
            let shell = entity.findEntity(named: "dashboard-shell") {
-            // Lift the bevel into the light on hover, keeping content and hit regions stable.
-            shell.orientation = simd_quatf(angle: style.highlighted ? 0.045 : 0, axis: [1, 0, 0])
+            // Keep the face parallel to its glyphs; a shell-only tilt can
+            // otherwise pass through the figures at the far edge of the dial.
+            let scale: Float = style.highlighted ? 1.008 : 1
+            shell.scale = [Float(clipped.width)/1000 * scale, Float(clipped.height)/1000 * scale, style.depth/1000]
         }
         entity.isEnabled = style.visible
         if case .symbol = style.shape, !style.allowsFlip || !style.enabled {
@@ -429,6 +469,7 @@ private struct RealityStage: NSViewRepresentable {
         if turnTimes[id] == nil && style.rowOffset == nil { entity.orientation = Self.orientation(style) }
         items[id] = Item(frame: clipped, style: style, entity: entity)
         place(id)
+        if let fraction = style.progress { entity.updateProgress(width: clipped.width, fraction: fraction, offset: style.progressOffset) }
         if let on = style.switchOn {
             updateSwitch(id, on: on, previous: previous?.style.switchOn, animated: style.allowsFlip)
         }
@@ -506,10 +547,9 @@ private struct RealityStage: NSViewRepresentable {
         guard let item = items[id] else { return }
         let target: Float = on ? 1 : 0
         if item.entity.findEntity(named: "switch-thumb") == nil {
-            let thumb = ModelEntity(mesh: .generateSphere(radius: 0.007), materials: [
-                SimpleMaterial(color: .white, roughness: 0.8, isMetallic: false)])
+            guard let thumb = try? ControlAsset.switchThumb.instance(size: CGSize(width: 14, height: 14), depth: 2.6,
+                material: SimpleMaterial(color: .white, roughness: 0.75, isMetallic: false)) else { return }
             thumb.name = "switch-thumb"
-            thumb.scale.z = 0.28
             thumb.position.z = 0.003
             item.entity.addChild(thumb)
         }
@@ -534,14 +574,18 @@ private struct RealityStage: NSViewRepresentable {
         let off = NSColor(calibratedWhite: 0.26, alpha: 1)
         var style = item.style
         style.color = off.blended(withFraction: CGFloat(progress), of: NSColor(DashboardTheme.cyan)) ?? off
-        item.entity.model?.materials = [material(style)]
+        (item.entity.findEntity(named: ControlAsset.switchTrack.rawValue) as? ModelEntity)?.model?.materials = [material(style)]
     }
 
     private func place(_ id: UUID) {
         guard let item = items[id] else { return }
         let world = Self.position(item.frame, viewport: size, level: item.style.level)
         if let parentID = item.style.parentID, parentID != id, let parent = items[parentID] {
-            if item.style.rowOffset != nil {
+            if let point = item.style.facePoint {
+                item.entity.position = [Float(point.x - parent.frame.width/2)/1000, Float(parent.frame.height/2 - point.y)/1000,
+                    (parent.style.depth + item.style.depth)/2000 + 0.00025]
+                item.entity.isEnabled = item.style.visible && cos(parent.style.angle * .pi/180) >= 0
+            } else if item.style.rowOffset != nil {
                 item.entity.position = [0, -Float(item.frame.midY)/1000, (parent.style.depth + Float(item.frame.height) + item.style.depth)/2000 + 0.0002]
                 item.entity.isEnabled = item.style.visible && cos(parent.style.angle * .pi/180) >= 0
             } else {
@@ -559,7 +603,7 @@ private struct RealityStage: NSViewRepresentable {
         let base = style.color.usingColorSpace(.deviceRGB) ?? style.color
         let color = style.highlighted && style.enabled ? base.blended(withFraction: 0.22, of: .white)! : base
         return SimpleMaterial(color: style.enabled ? color : color.blended(withFraction: 0.45, of: .darkGray)!,
-                              roughness: style.highlighted ? 0.32 : 0.62, isMetallic: true)
+                              roughness: style.highlighted ? 0.65 : 0.78, isMetallic: style.level < 0 || style.shape == .panel(0))
     }
 
     func setFace(_ image: CGImage, for id: UUID) {
@@ -587,77 +631,5 @@ private struct RealityStage: NSViewRepresentable {
         guard let item = items[id] else { return }
         if entity.parent !== item.entity { item.entity.addChild(entity) }
         entity.position.z = item.style.depth / 2000 + 0.0002
-    }
-}
-
-/// Point-space geometry is converted once to metres. All generated meshes have
-/// real side faces; cards are not stacks of two-dimensional SwiftUI shapes.
-enum RealityGeometry {
-    static func outline(shape: RealityShape, size: CGSize) -> [SIMD2<Float>] {
-        let w = Float(size.width / 1000), h = Float(size.height / 1000)
-        switch shape {
-        case .disc:
-            return (0..<96).map { i in
-                let a = Float(i) * 2 * .pi / 96
-                return [cos(a) * w / 2, sin(a) * h / 2]
-            }
-        case .panel(let radius):
-            let r = min(Float(radius / 1000), min(w, h) / 2)
-            if r <= 0 { return [[w/2,h/2],[-w/2,h/2],[-w/2,-h/2],[w/2,-h/2]] }
-            let centers: [SIMD2<Float>] = [[w/2-r, h/2-r], [-w/2+r, h/2-r], [-w/2+r, -h/2+r], [w/2-r, -h/2+r]]
-            return centers.enumerated().flatMap { corner, center in
-                (0...8).map { i in
-                    let a = Float(corner) * .pi / 2 + Float(i) * .pi / 16
-                    return center + SIMD2<Float>(cos(a), sin(a)) * r
-                }
-            }
-        case .ring, .symbol, .dashboard: return []
-        }
-    }
-    @MainActor static func mesh(shape: RealityShape, size: CGSize, depth: Float) throws -> MeshResource {
-        if case .symbol = shape { throw CocoaError(.featureUnsupported) }
-        var points: [SIMD3<Float>] = [], normals: [SIMD3<Float>] = [], indices: [UInt32] = []
-        func triangle(_ a: SIMD3<Float>, _ b: SIMD3<Float>, _ c: SIMD3<Float>, normal: SIMD3<Float>) {
-            let start = UInt32(points.count); points += [a,b,c]; normals += [normal,normal,normal]
-            indices += [start,start+1,start+2]
-        }
-        let half = max(0.0001, depth / 2000)
-        if case .ring(let input) = shape {
-            let fraction = Float(min(1, max(0, input.isFinite ? input : 0)))
-            let radius = max(0.001, Float(min(size.width, size.height)) / 2000 - 0.0025)
-            let tube: Float = 0.0025
-            let segments = max(1, Int(ceil(128 * fraction))), sides = 8
-            for segment in 0..<segments {
-                let a = Float(segment) / Float(segments) * 2 * .pi * max(0.00001, fraction) - .pi / 2
-                let b = Float(segment + 1) / Float(segments) * 2 * .pi * max(0.00001, fraction) - .pi / 2
-                for side in 0..<sides {
-                    let c = Float(side) * 2 * .pi / Float(sides), d = Float(side + 1) * 2 * .pi / Float(sides)
-                    func vertex(_ theta: Float, _ phi: Float) -> SIMD3<Float> {
-                        [cos(theta) * (radius + cos(phi) * tube), -sin(theta) * (radius + cos(phi) * tube), sin(phi) * tube]
-                    }
-                    let p = vertex(a,c), q = vertex(b,c), r = vertex(b,d), s = vertex(a,d)
-                    let normal = simd_normalize(simd_cross(q-p, r-p))
-                    triangle(p,q,r,normal: normal); triangle(p,r,s,normal: normal)
-                }
-            }
-        } else {
-            let polygon = outline(shape: shape, size: size)
-            for i in polygon.indices {
-                let a = polygon[i], b = polygon[(i+1) % polygon.count]
-                guard simd_length_squared(b-a) > 1e-16 else { continue }
-                let frontA = SIMD3<Float>(a.x,a.y,half), frontB = SIMD3<Float>(b.x,b.y,half)
-                let backA = SIMD3<Float>(a.x,a.y,-half), backB = SIMD3<Float>(b.x,b.y,-half)
-                triangle([0,0,half],frontA,frontB,normal: [0,0,1])
-                triangle([0,0,-half],backB,backA,normal: [0,0,-1])
-                let edge = b-a
-                let normal = simd_normalize(SIMD3<Float>(edge.y,-edge.x,0))
-                triangle(frontA,backA,backB,normal: normal); triangle(frontA,backB,frontB,normal: normal)
-            }
-        }
-        var descriptor = MeshDescriptor(name: "v2rayM-surface")
-        descriptor.positions = MeshBuffers.Positions(points)
-        descriptor.normals = MeshBuffers.Normals(normals)
-        descriptor.primitives = .triangles(indices)
-        return try MeshResource.generate(from: [descriptor])
     }
 }

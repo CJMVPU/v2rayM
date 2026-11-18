@@ -88,8 +88,7 @@ struct ConnectionDashboard: View {
             ZStack {
                 DashboardDiscSurface(hovered: discHovered)
                 VStack(spacing: 9) {
-                    Image(systemName: running ? "shield.lefthalf.filled" : state == .recovering ? "arrow.triangle.2.circlepath" : "shield")
-                        .font(.system(size: 22)).foregroundStyle(statusColor)
+                    RealityGlyph(asset: running ? .shieldActive : state == .recovering ? .sync : .shield, size: 22, color: statusColor)
                     Text(city).font(AppFont.size(25)).lineLimit(1).minimumScaleFactor(0.7)
                     Text(nodeName).font(AppFont.size(12)).foregroundStyle(DashboardTheme.muted)
                         .lineLimit(1).truncationMode(.middle)
@@ -240,9 +239,8 @@ struct TrafficTrendView: View {
                             HStack(spacing: 4) {
                                 Spacer(minLength: 0)
                                 ForEach(0..<4) { index in
-                                    Circle().fill([DashboardTheme.cyan, DashboardTheme.purple,
-                                                   DashboardTheme.directUpload, DashboardTheme.directDownload][index])
-                                        .frame(width: 4, height: 4)
+                                    legendDot([DashboardTheme.cyan, DashboardTheme.purple,
+                                               DashboardTheme.directUpload, DashboardTheme.directDownload][index])
                                 }
                             }
                         }.padding(.trailing, 2).padding(.bottom, 1)
@@ -256,9 +254,14 @@ struct TrafficTrendView: View {
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: awaitingSample)
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: points.isEmpty)
     }
+    private func legendDot(_ color: Color) -> some View {
+        Color.clear.frame(width: 4, height: 4)
+            .realitySurface(.init(shape: .disc, color: NSColor(color), depth: 1, level: 18))
+    }
+
     private func legend(_ title: String, color: Color) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 4) {
-            Circle().fill(color).frame(width: 4, height: 4)
+            legendDot(color)
                 .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 3 }
             Text(title).font(AppFont.size(10)).foregroundStyle(DashboardTheme.muted)
         }.fixedSize()

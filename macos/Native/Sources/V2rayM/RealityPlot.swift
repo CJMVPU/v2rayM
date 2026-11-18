@@ -71,9 +71,12 @@ enum RealityPlotGeometry {
                 let q = SIMD2<Float>(Float(to.x-size.width/2),Float(size.height/2-to.y))
                 let n = SIMD2<Float>(normal.x,-normal.y)
                 let base = UInt32(positions.count)
-                for value in [p+n,p-n,q-n,q+n] { positions.append([value.x/1000,value.y/1000,0]) }
-                indices += [base,base+1,base+2,base,base+2,base+3]
-                materials += [UInt32(index),UInt32(index)]
+                // A shallow ridge retains the precise projected line width.
+                for (point,z): (SIMD2<Float>, Float) in [(p+n,0),(p,0.0003),(p-n,0),(q+n,0),(q,0.0003),(q-n,0)] {
+                    positions.append([point.x/1000, point.y/1000, z])
+                }
+                for index in [0,1,4,0,4,3,1,2,5,1,5,4] { indices.append(base + UInt32(index)) }
+                materials.append(contentsOf: Array(repeating: UInt32(index), count: 4))
             }
         }
         guard !positions.isEmpty else { return nil }
@@ -91,14 +94,21 @@ enum RealityPlotGeometry {
     private var lastPaths: [CGPath] = []
     private var lastOffsets: [CGFloat] = []
     private var lastSize = CGSize.zero
+    private var lastWidths: [CGFloat] = []
     private var lastColors: [CGColor] = []
     private var lastOpacities: [Float] = []
     func update(_ strokes: [RealityPlotStroke], size: CGSize) {
         let paths = strokes.map(\.path), offsets = strokes.map(\.offset)
         let colors = strokes.map(\.color), opacities = strokes.map(\.opacity)
-        guard paths != lastPaths || offsets != lastOffsets || size != lastSize || colors != lastColors || opacities != lastOpacities else { return }
-        lastPaths = paths; lastOffsets = offsets; lastSize = size; lastColors = colors; lastOpacities = opacities
-        guard let mesh = try? RealityPlotGeometry.mesh(strokes, size: size) else { entity.isEnabled = false; return }
+        let widths = strokes.map(\.width)
+        let rebuild = paths != lastPaths || widths != lastWidths || offsets != lastOffsets || size != lastSize
+        guard rebuild || colors != lastColors || opacities != lastOpacities else { return }
+        lastPaths = paths; lastWidths = widths; lastOffsets = offsets; lastSize = size
+        lastColors = colors; lastOpacities = opacities
+        let mesh: MeshResource?
+        if rebuild { mesh = try? RealityPlotGeometry.mesh(strokes, size: size) }
+        else { mesh = entity.model?.mesh }
+        guard let mesh else { entity.model = nil; entity.isEnabled = false; return }
         let materials: [UnlitMaterial] = strokes.map { stroke in
             let color = NSColor(cgColor: stroke.color) ?? .white
             var material = UnlitMaterial(color: color.withAlphaComponent(1))

@@ -4,8 +4,8 @@ import V2rayMKit
 enum SettingsPane: String, CaseIterable, Identifiable {
     case parameters = "参数设置", routing = "路由设置", dns = "DNS 设置"
     var id: String { rawValue }
-    var symbol: String {
-        switch self { case .parameters: return "slider.horizontal.3"; case .routing: return "arrow.triangle.branch"; case .dns: return "network" }
+    var symbol: ControlAsset {
+        switch self { case .parameters: return .sliders; case .routing: return .branch; case .dns: return .network }
     }
     var detail: String {
         switch self { case .parameters: return "监听、嗅探、Xray 与原生 TUN"; case .routing: return "方案、匹配顺序与分流规则"; case .dns: return "常规解析与自定义 DNS" }
@@ -20,11 +20,9 @@ struct AdvancedSettingsPanel: View {
             ForEach(SettingsPane.allCases) { item in
                 Button { select(item) } label: {
                     HStack(alignment: .top, spacing: 10) {
-                        Image(systemName: item.symbol)
-                            .font(.system(size: 19, weight: .medium))
-                            .foregroundStyle(DashboardTheme.cyan)
+                        RealityGlyph(asset: item.symbol, size: 20, color: DashboardTheme.cyan)
                             .frame(width: 34, height: 34)
-                            .background(DashboardTheme.cyan.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+
                         VStack(alignment: .leading, spacing: 5) {
                             Text(item.rawValue).font(AppFont.body)
                             Text(item.detail).font(AppFont.caption).foregroundStyle(.secondary)
@@ -32,8 +30,7 @@ struct AdvancedSettingsPanel: View {
                         }
                         Spacer(minLength: 0)
                     }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
-                        .realitySurface(.init(shape: .panel(14), depth: 3, level: 14))
-                        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(DashboardTheme.cyan.opacity(0.18)))
+                        .realityCard(radius: 7, depth: 3, level: 16)
                 }.buttonStyle(HoverButtonStyle(plain: true))
                     .disabled(!model.ready || model.busy || model.moduleUpdateActive)
             }
@@ -60,7 +57,7 @@ struct SettingsEditor: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Button { if dirty { dismissConfirmation = true } else { close() } } label: {
-                    Label("返回设置", systemImage: "chevron.left")
+                    RealityLabel(title: "返回设置", asset: .back)
                 }.disabled(working).help("返回设置总览")
                 Divider().frame(height: 20)
                 VStack(alignment: .leading, spacing: 3) {
@@ -98,11 +95,11 @@ struct SettingsEditor: View {
                                 } })
                         }
                     }.frame(maxWidth: .infinity, alignment: .leading).padding(.trailing, 2).background(SettingsWheelScroll())
-                }.scrollIndicators(.never).disabled(working)
+                }.scrollIndicators(.never).realityClipped().disabled(working)
             } else {
                 Spacer()
                 if failed { Button("重新加载") { Task { await load() } }.frame(maxWidth: .infinity) }
-                else { ProgressView().frame(maxWidth: .infinity) }
+                else { RealityBusyIndicator().frame(maxWidth: .infinity) }
                 Spacer()
             }
             Divider()

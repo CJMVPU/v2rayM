@@ -9,7 +9,7 @@ let package = Package(
         .target(name: "V2rayMDomain"),
         .target(name: "V2rayMApplication", dependencies: ["V2rayMDomain"]),
         .target(name: "V2rayMKit", dependencies: ["V2rayMDomain", "V2rayMApplication"]),
-        .executableTarget(name: "V2rayM", dependencies: ["V2rayMKit"], resources: [.copy("Resources/Fonts"), .copy("Resources/Globe"), .copy("Resources/Navigation"), .copy("Resources/Dashboard")]),
+        .executableTarget(name: "V2rayM", dependencies: ["V2rayMKit"], resources: [.copy("Resources/Fonts"), .copy("Resources/Globe"), .copy("Resources/Navigation"), .copy("Resources/Dashboard"), .copy("Resources/Controls")]),
         .executableTarget(name: "V2rayMCheck", dependencies: ["V2rayMKit"]),
         .testTarget(name: "V2rayMKitTests", dependencies: ["V2rayMKit"]),
         .testTarget(name: "V2rayMApplicationTests", dependencies: ["V2rayMApplication"]),

@@ -44,6 +44,7 @@ struct WindowControlButtons: NSViewRepresentable {
         enum Role { case close, minimize }
         weak var sceneOwner: RealityWindowScene?
         private let surface = RealitySurfaceAnchor()
+        private let mark = RealitySurfaceAnchor()
         private let role: Role
         private var hovered = false
         private var hoverLevel: CGFloat = 0
@@ -58,7 +59,7 @@ struct WindowControlButtons: NSViewRepresentable {
         init(role: Role) {
             self.role = role
             super.init(frame: .zero)
-            addSubview(surface)
+            addSubview(surface); addSubview(mark)
             title = ""
             isBordered = false
             setButtonType(.momentaryChange)
@@ -69,6 +70,7 @@ struct WindowControlButtons: NSViewRepresentable {
         override func layout() {
             super.layout()
             surface.frame = NSRect(x: bounds.midX - diameter / 2, y: bounds.midY - diameter / 2, width: diameter, height: diameter)
+            mark.frame = NSRect(x: bounds.midX - 3.5, y: bounds.midY - 3.5, width: 7, height: 7)
             updateSurface()
         }
         func updateSurface() {
@@ -76,6 +78,9 @@ struct WindowControlButtons: NSViewRepresentable {
             let highlight: NSColor = role == .close ? .systemRed : .systemYellow
             let color = NSColor(calibratedWhite: 0.66, alpha: 1).blended(withFraction: level, of: highlight)!
             surface.configure(scene: sceneOwner, style: .init(shape: .disc, color: color, depth: 4, level: 90, highlighted: level > 0, enabled: isEnabled))
+            let ink = color.blended(withFraction: level, of: NSColor(white: 0.09, alpha: 1)) ?? color
+            mark.configure(scene: sceneOwner, style: .init(shape: .glyph(role == .close ? .close : .minimize),
+                color: ink, depth: 0.8, level: 93, visible: level > 0))
         }
         override func updateTrackingAreas() {
             super.updateTrackingAreas()
@@ -137,22 +142,6 @@ struct WindowControlButtons: NSViewRepresentable {
         override func mouseMoved(with event: NSEvent) { updateHoverFromPointer() }
         override func mouseEntered(with event: NSEvent) { setHovered(true) }
         override func mouseExited(with event: NSEvent) { setHovered(false) }
-        override func draw(_ dirtyRect: NSRect) {
-            let rect = NSRect(x: bounds.midX - diameter / 2, y: bounds.midY - diameter / 2, width: diameter, height: diameter)
-            let level: CGFloat = isEnabled ? (isHighlighted ? 1 : hoverLevel) : 0
-            updateSurface()
-            // Normal state is a quiet gray circle; hover reveals the action symbol.
-            guard level > 0 else { return }
-            let symbol = NSBezierPath()
-            let x = rect.midX, y = rect.midY
-            if role == .close {
-                symbol.move(to: NSPoint(x: x - 2.5, y: y - 2.5)); symbol.line(to: NSPoint(x: x + 2.5, y: y + 2.5))
-                symbol.move(to: NSPoint(x: x + 2.5, y: y - 2.5)); symbol.line(to: NSPoint(x: x - 2.5, y: y + 2.5))
-            } else {
-                symbol.move(to: NSPoint(x: x - 3, y: y)); symbol.line(to: NSPoint(x: x + 3, y: y))
-            }
-            NSColor(calibratedWhite: 0.12, alpha: level).setStroke()
-            symbol.lineWidth = 1.2; symbol.lineCapStyle = .round; symbol.stroke()
-        }
+        override func draw(_ dirtyRect: NSRect) { updateSurface() }
     }
 }

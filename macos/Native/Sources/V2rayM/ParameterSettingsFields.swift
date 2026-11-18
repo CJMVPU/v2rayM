@@ -10,7 +10,7 @@ struct ParameterSettingsFields: SettingsFields {
     private let groups = ["监听与嗅探", "Xray 参数", "应用与测速", "原生 TUN"]
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Picker("参数分类", selection: $parameterGroup) { ForEach(groups, id: \.self) { Text($0) } }.pickerStyle(.segmented)
+            RealitySegments(title: "参数分类", selection: $parameterGroup, options: groups)
             if parameterGroup == groups[0] {
                 SettingsFormSection(title: "监听与嗅探", subtitle: "管理本地连接入口和流量识别。") {
                     let inbound = value($settings, "inbound")
@@ -34,7 +34,7 @@ struct ParameterSettingsFields: SettingsFields {
                             Toggle(protocolName.uppercased(), isOn: Binding(get: { inbound.wrappedValue["destOverride"].items.contains(.string(protocolName)) }, set: { on in
                                 var names = inbound.wrappedValue["destOverride"].items.filter { $0 != .string(protocolName) }
                                 if on { names.append(.string(protocolName)) }; inbound.wrappedValue["destOverride"] = .array(names)
-                            }))
+                            })).toggleStyle(RealityToggleStyle())
                         }
                     }
                     Text("原生 TUN 共用嗅探协议，但固定仅用于路由；虚拟网卡、路由和 DNS 恢复由后台管理。").font(AppFont.caption).foregroundStyle(.secondary)

@@ -27,7 +27,7 @@ struct SettingsPage: View {
                     Text(versionLabel)
                         .font(AppFont.caption).foregroundStyle(.secondary)
                 }.padding(.horizontal, 2)
-                SettingsCard(title: "通用与代理", symbol: "slider.horizontal.3") {
+                SettingsCard(title: "通用与代理", symbol: .sliders) {
                     LoginItemSettings().environmentObject(model)
                     Divider().opacity(0.5)
                     HStack(spacing: 12) {
@@ -39,7 +39,7 @@ struct SettingsPage: View {
                                         guard !route.isActive else { return }
                                         model.run { try await $0.perform("/api/settings/routing-profiles/\(route.id)/activate") }
                                     } label: {
-                                        Label(settingsRouteLabel(route.remarks), systemImage: route.isActive ? "checkmark.circle.fill" : "circle")
+                                        RealityLabel(title: settingsRouteLabel(route.remarks), asset: route.isActive ? .current : .circle, color: route.isActive ? DashboardTheme.cyan : .secondary)
                                             .lineLimit(1).fixedSize()
                                             .foregroundStyle(route.isActive ? DashboardTheme.cyan : Color.primary)
                                             .padding(.vertical, 3)
@@ -50,18 +50,18 @@ struct SettingsPage: View {
                         }
                     }
                     HStack(spacing: 18) {
-                        Label("代理端口 " + (model.status?.configuredProxyPort.map(String.init) ?? "—"), systemImage: "network")
-                        Label(model.status?.xrayAvailable == true ? "Xray 已安装" : "Xray 未安装", systemImage: "shippingbox")
+                        RealityLabel(title: "代理端口 " + (model.status?.configuredProxyPort.map(String.init) ?? "—"), asset: .network, color: .secondary)
+                        RealityLabel(title: model.status?.xrayAvailable == true ? "Xray 已安装" : "Xray 未安装", asset: .package, color: .secondary)
                     }.font(AppFont.caption).foregroundStyle(.secondary)
                 }
-                SettingsCard(title: "网络配置", symbol: "point.3.connected.trianglepath.dotted") {
+                SettingsCard(title: "网络配置", symbol: .topology) {
                     AdvancedSettingsPanel(select: { pane = $0; navigationLocked = true }).environmentObject(model)
                 }
-                SettingsCard(title: "模块更新", symbol: "arrow.triangle.2.circlepath") {
+                SettingsCard(title: "模块更新", symbol: .sync) {
                     ModuleUpdatePanel().environmentObject(model)
                 }
                 HStack(alignment: .top, spacing: 12) {
-                    SettingsCard(title: "TUN 后台服务", symbol: "checkmark.shield", fillHeight: true) {
+                    SettingsCard(title: "TUN 后台服务", symbol: .shieldCheck, fillHeight: true) {
                         LabeledContent("运行状态", value: model.tun?.isRunning == true ? "运行中" : "已关闭")
                         LabeledContent("后台服务", value: model.tun?.helperDescription ?? "正在检查")
                         HStack {
@@ -72,7 +72,7 @@ struct SettingsPage: View {
                         Text("开启前请先暂停其他软件的 TUN 或 VPN。")
                             .font(AppFont.caption).foregroundStyle(.secondary)
                     }
-                    SettingsCard(title: "日志与数据", symbol: "folder", fillHeight: true) {
+                    SettingsCard(title: "日志与数据", symbol: .folder, fillHeight: true) {
                         Text("保留最近 10,000 行日志，切换模式时保留历史。")
                             .font(AppFont.caption).foregroundStyle(.secondary)
                         Text(model.dataDirectory.path).font(AppFont.caption).foregroundStyle(.secondary)

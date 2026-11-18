@@ -133,11 +133,11 @@ private struct DashboardContent: View, Equatable {
     private func nodeCard(state: DashboardStatus) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 0) {
-                statusIcon("shield.lefthalf.filled", title: "后台服务", enabled: data.helperReady)
+                statusIcon(.shieldActive, title: "后台服务", enabled: data.helperReady)
                 Rectangle().fill(DashboardTheme.line.opacity(0.5)).frame(width: 0.5, height: 32)
-                statusIcon("arrow.left.arrow.right", title: "系统代理", enabled: state == .system)
+                statusIcon(.transfer, title: "系统代理", enabled: state == .system)
                 Rectangle().fill(DashboardTheme.line.opacity(0.5)).frame(width: 0.5, height: 32)
-                statusIcon("personalhotspot", title: "TUN", enabled: state == .tun)
+                statusIcon(.link, title: "TUN", enabled: state == .tun)
             }.padding(.top, 2).padding(.bottom, 10)
             rule
             Text("当前节点").font(AppFont.caption).foregroundStyle(DashboardTheme.muted).padding(.top, 11)
@@ -154,11 +154,9 @@ private struct DashboardContent: View, Equatable {
                 .foregroundStyle(DashboardTheme.muted.opacity(0.75)).lineLimit(1).padding(.top, 7)
         }.padding(12).dashboardPanel()
     }
-    private func statusIcon(_ icon: String, title: String, enabled: Bool) -> some View {
+    private func statusIcon(_ icon: ControlAsset, title: String, enabled: Bool) -> some View {
         VStack(spacing: 6) {
-            Image(systemName: icon).font(.system(size: 21, weight: .medium))
-                .frame(height: 28)
-                .shadow(color: enabled ? .green.opacity(0.3) : .clear, radius: 6)
+            RealityGlyph(asset: icon, size: 21, color: enabled ? .green : DashboardTheme.muted).frame(height: 28)
             Text(title).font(AppFont.caption).frame(height: 16)
         }.foregroundStyle(enabled ? Color.green : DashboardTheme.muted)
             .frame(maxWidth: .infinity)
@@ -170,41 +168,41 @@ private struct DashboardContent: View, Equatable {
             Text("实时流量").font(AppFont.size(13))
             HStack(spacing: 10) {
                 VStack(spacing: 8) {
-                    trafficMetric("代理上传", icon: "arrow.up.right", value: DashboardStatus.rateParts(rates?[0]), color: DashboardTheme.cyan)
-                    trafficMetric("直连上传", icon: "arrow.up.right", value: DashboardStatus.rateParts(rates?[2]), color: DashboardTheme.directUpload)
+                    trafficMetric("代理上传", icon: .upload, value: DashboardStatus.rateParts(rates?[0]), color: DashboardTheme.cyan)
+                    trafficMetric("直连上传", icon: .upload, value: DashboardStatus.rateParts(rates?[2]), color: DashboardTheme.directUpload)
                 }
                 Rectangle().fill(DashboardTheme.line).frame(width: 0.5, height: 42)
                 VStack(spacing: 8) {
-                    trafficMetric("代理下载", icon: "arrow.down.left", value: DashboardStatus.rateParts(rates?[1]), color: DashboardTheme.purple)
-                    trafficMetric("直连下载", icon: "arrow.down.left", value: DashboardStatus.rateParts(rates?[3]), color: DashboardTheme.directDownload)
+                    trafficMetric("代理下载", icon: .download, value: DashboardStatus.rateParts(rates?[1]), color: DashboardTheme.purple)
+                    trafficMetric("直连下载", icon: .download, value: DashboardStatus.rateParts(rates?[3]), color: DashboardTheme.directDownload)
                 }
             }
             rule
             Text("节点累计").font(AppFont.size(13))
             HStack(spacing: 10) {
-                trafficMetric("代理累计上传", icon: "arrow.up.right", value: DashboardStatus.amountParts(data.status?.statisticsEnabled == true ? node?.totalUp : nil),
+                trafficMetric("代理累计上传", icon: .upload, value: DashboardStatus.amountParts(data.status?.statisticsEnabled == true ? node?.totalUp : nil),
                               color: DashboardTheme.cyan)
                 Rectangle().fill(DashboardTheme.line).frame(width: 0.5, height: 22)
-                trafficMetric("代理累计下载", icon: "arrow.down.left", value: DashboardStatus.amountParts(data.status?.statisticsEnabled == true ? node?.totalDown : nil),
+                trafficMetric("代理累计下载", icon: .download, value: DashboardStatus.amountParts(data.status?.statisticsEnabled == true ? node?.totalDown : nil),
                               color: DashboardTheme.purple)
             }
         }.padding(12).dashboardPanel()
             .help(DashboardStatus.trafficDescription(state: state, enabled: data.status?.trafficEnabled, hasSample: rates != nil)
                 + "；第一行青／紫为代理上传／下载，第二行绿／橙为直连上传／下载。直连仅包含经过 Xray 的流量；节点累计仅统计当前节点的代理流量。")
     }
-    private func trafficMetric(_ title: String, icon: String, value: DashboardMetricValue, color: Color) -> some View {
+    private func trafficMetric(_ title: String, icon: ControlAsset, value: DashboardMetricValue, color: Color) -> some View {
         DashboardTrafficMetric(title: title, icon: icon, value: value, color: color)
     }
 }
 
 struct DashboardTrafficMetric: View {
     let title: String
-    let icon: String
+    let icon: ControlAsset
     let value: DashboardMetricValue
     let color: Color
     var body: some View {
         HStack(spacing: 6) {
-            Image(systemName: icon).font(.system(size: 14, weight: .regular))
+            RealityGlyph(asset: icon, size: 14, color: color)
                 .frame(width: 14, height: 20)
             DashboardNumericText(text: value.number, size: 14, color: color)
                 .frame(maxWidth: .infinity, alignment: .trailing)

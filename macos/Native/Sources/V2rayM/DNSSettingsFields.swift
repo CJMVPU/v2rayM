@@ -18,10 +18,9 @@ struct DNSSettingsFields: SettingsFields {
                 SettingsFieldRow(title: "远程 DNS") {
                     TextField("", text: text($simpleDNS, "remoteDNS"))
                         .textFieldStyle(RealityTextFieldStyle()).accessibilityLabel("远程 DNS")
-                    Menu("常用地址") {
-                        ForEach(remotePresets, id: \.self) { address in
-                            Button(address) { text($simpleDNS, "remoteDNS").wrappedValue = address }
-                        }
+                    RealityMenuButton(title: "常用地址", caption: "常用地址", values: remotePresets,
+                                      name: { $0 }) { address in
+                        text($simpleDNS, "remoteDNS").wrappedValue = address
                     }.frame(width: 90).disabled(remotePresets.isEmpty)
                         .help("选择预设或直接输入自定义 DNS 地址，保存后生效")
                 }

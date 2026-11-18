@@ -267,6 +267,70 @@ private struct RealityInteractionView: View {
         XCTAssertEqual(top.y, 0.29, accuracy: 0.00001)
     }
 
+    func testRealityChoicePreservesDuplicateLabelsAndUsesTheNativePopupAction() async throws {
+        let state = RealityInteractionFixture()
+        let binding = Binding(get: { state.clicks }, set: { state.clicks = $0 })
+        let host = NSHostingView(rootView: RealityWindow {
+            RealityChoice(title: "方案", selection: binding, values: [0, 1, 2]) { _ in "相同名称" }
+        })
+        let window = NSWindow(contentRect: CGRect(x: 80, y: 80, width: 180, height: 80),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host; window.orderFront(nil)
+        defer { window.close() }
+        try await Task.sleep(for: .milliseconds(160))
+        func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+        let popup = try XCTUnwrap(descendants(host).compactMap { $0 as? NSPopUpButton }.first)
+        XCTAssertEqual(popup.numberOfItems, 3)
+        popup.selectItem(at: 2)
+        XCTAssertTrue(popup.sendAction(popup.action, to: popup.target))
+        XCTAssertEqual(state.clicks, 2)
+        let anchors = descendants(host).compactMap { $0 as? RealitySurfaceAnchor }
+        XCTAssertTrue(anchors.contains { $0.style.shape == .well(5) })
+        XCTAssertTrue(anchors.contains { $0.style.shape == .glyph(.down) })
+    }
+
+    func testRingUpdatesOnlyItsVisibleIndexRange() throws {
+        let scene = RealityWindowScene(), id = UUID()
+        let frame = CGRect(x: 0, y: 0, width: 280, height: 280)
+        func set(_ fraction: Double) { scene.update(id, frame: frame, visible: frame, style: .init(shape: .ring(fraction))) }
+        set(0)
+        let entity = try XCTUnwrap(scene.root.findEntity(named: "surface-" + id.uuidString) as? ModelEntity)
+        let mesh = try XCTUnwrap(entity.model?.mesh.lowLevelMesh)
+        XCTAssertEqual(mesh.parts.first?.indexCount, 0)
+        mesh.withUnsafeBytes(bufferIndex: 0) { bytes in
+            let stride = mesh.descriptor.vertexLayouts[0].bufferStride
+            let start = bytes.loadUnaligned(as: SIMD3<Float>.self)
+            let quarter = bytes.loadUnaligned(fromByteOffset: mesh.vertexCapacity / 4 * stride, as: SIMD3<Float>.self)
+            XCTAssertEqual(start.x, 0, accuracy: 0.00001)
+            XCTAssertLessThan(start.y, 0, "Start at six o'clock")
+            XCTAssertLessThan(quarter.x, 0, "Reach nine o'clock after a quarter turn")
+            XCTAssertEqual(quarter.y, 0, accuracy: 0.00001)
+        }
+        for percent in 1...100 { set(Double(percent)/100) }
+        XCTAssertEqual(mesh.parts.first?.indexCount, mesh.indexCapacity)
+        set(0.5)
+        XCTAssertEqual(mesh.parts.first?.indexCount, mesh.indexCapacity/2)
+        set(0)
+        XCTAssertEqual(mesh.parts.first?.indexCount, 0, "The original buffer must reflect the final range")
+        XCTAssertEqual(scene.meshBuilds, 1)
+    }
+
+    func testBundledControlsHaveDepthAndProgressKeepsOneFill() throws {
+        for asset in ControlAsset.allCases {
+            let mesh = try asset.mesh()
+            XCTAssertGreaterThan(mesh.bounds.extents.z, 0, asset.rawValue)
+        }
+        let scene = RealityWindowScene(), id = UUID()
+        let frame = CGRect(x: 0, y: 0, width: 200, height: 6)
+        for value in [0.0, 0.25, 1, 0] {
+            scene.update(id, frame: frame, visible: frame, style: .init(shape: .well(3), progress: value))
+            let fill = try XCTUnwrap(scene.root.findEntity(named: ControlAsset.progressFill.rawValue) as? ModelEntity)
+            XCTAssertEqual(fill.isEnabled, value > 0)
+            XCTAssertEqual(fill.scale.x * (fill.model?.mesh.bounds.extents.x ?? 0), Float(value)*0.197, accuracy: 0.00001)
+        }
+        XCTAssertEqual(scene.meshBuilds, 1)
+    }
+
     func testMeshesReuseGeometryAcrossHoverAndRotationAndRetire() throws {
         let scene = RealityWindowScene()
         scene.resize(CGSize(width: 860, height: 600))

@@ -23,6 +23,7 @@ struct DashboardSolidSurface<Front: View, Back: View>: View, Animatable {
     private var frontFacing: Bool { cos(renderedAngle * .pi / 180) >= 0 }
     var body: some View {
         front
+            .coordinateSpace(name: surfaceID)
             .environment(\.insideRealitySolid, true)
             .environment(\.realityParentSurface, surfaceID)
             .opacity(frontFacing ? 1 : 0)
@@ -36,6 +37,9 @@ struct DashboardSolidSurface<Front: View, Back: View>: View, Animatable {
                 }
             }
             .background {
+                if kind == .card {
+                    RealityContactShadow(radius: 10, level: 13.5, angle: renderedAngle)
+                }
                 RealitySurface(style: .init(shape: .dashboard(kind == .disc ? .dial : .card),
                     depth: Float(kind.depth), level: 20, highlighted: highlighted, angle: renderedAngle), id: surfaceID)
             }

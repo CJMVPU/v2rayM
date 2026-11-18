@@ -31,10 +31,10 @@ struct ContentView: View {
                     ProfileEditor(profile: profile, close: { editingProfile = nil }).environmentObject(model)
                 } else if !model.ready && page != .home && !settingsEditing {
                     ContentUnavailableView {
-                        Label(model.connecting ? "正在连接本地服务" : "本地服务尚未连接", systemImage: "desktopcomputer")
+                        RealityLabel(title: model.connecting ? "正在连接本地服务" : "本地服务尚未连接", asset: .desktop)
                     } description: { Text(model.connecting ? "首次启动可能需要几秒钟。" : "连接后即可管理节点。") }
                     actions: {
-                        if model.connecting { ProgressView().controlSize(.small) }
+                        if model.connecting { RealityBusyIndicator() }
                         else { Button("重新连接服务") { Task { await model.connect() } } }
                     }.frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
@@ -42,6 +42,7 @@ struct ContentView: View {
                     case .home: homePage
                     case .profiles: profilePage
                     case .logs: ObservedLogConsole(state: model.logState)
+                        .padding(3).realityField().padding(.horizontal, 8).padding(.vertical, 4)
                     case .settings: SettingsPage(navigationLocked: $settingsEditing).environmentObject(model)
                     }
                 }
@@ -88,14 +89,14 @@ struct ContentView: View {
             ZStack {
                 Toggle("系统代理", isOn: Binding(get: { model.desiredMode == .system }, set: { model.toggleProxy($0) }))
                     .environment(\.realityContentVisible, !model.proxyNeedsRecovery)
-                    .toggleStyle(RealityToggleStyle(titleBar: true)).fixedSize().disabled(!model.canToggle(.system) || editingContent || model.proxyNeedsRecovery)
+                    .toggleStyle(RealityToggleStyle()).fixedSize().disabled(!model.canToggle(.system) || editingContent || model.proxyNeedsRecovery)
                     .opacity(model.proxyNeedsRecovery ? 0 : 1).accessibilityHidden(model.proxyNeedsRecovery)
                 if model.proxyNeedsRecovery {
                     Button("恢复代理") { model.recoverProxy() }.disabled(model.busy || model.moduleUpdateActive)
                 }
             }
             Toggle("TUN", isOn: Binding(get: { model.desiredMode == .tun }, set: { model.toggleTun($0) }))
-                .toggleStyle(RealityToggleStyle(titleBar: true)).fixedSize().disabled(!model.canToggle(.tun) || model.tun == nil || editingContent)
+                .toggleStyle(RealityToggleStyle()).fixedSize().disabled(!model.canToggle(.tun) || model.tun == nil || editingContent)
         }.controlSize(.small).padding(.horizontal, 12).frame(height: TitleBarGeometry.height)
             .overlay {
                 Text("powered by cj")
@@ -117,21 +118,20 @@ struct ContentView: View {
 
     private func notice(_ text: String, error: Bool) -> some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: error ? "exclamationmark.circle.fill" : "info.circle.fill")
-                .foregroundStyle(error ? .orange : .blue)
+            RealityGlyph(asset: error ? .warning : .notice, color: error ? .orange : .blue, level: 107)
             Text(text).font(AppFont.body).textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            Button { if error { model.error = nil } else { model.message = nil } } label: { Image(systemName: "xmark") }
+            Button { if error { model.error = nil } else { model.message = nil } } label: { RealityGlyph(asset: .close, size: 12, level: 107) }
                 .buttonStyle(HoverButtonStyle(plain: true)).help("关闭提示").accessibilityLabel("关闭提示")
         }.padding(12)
-            .realitySurface(.init(shape: .panel(12), color: NSColor(calibratedWhite: 0.25, alpha: 1), depth: 8, level: 100))
+            .realityCard(radius: 8, depth: 6, level: 100)
     }
     private var profilePage: some View {
         VStack(spacing: 0) {
             if model.profiles.isEmpty {
                 ContentUnavailableView {
-                    Label("还没有节点", systemImage: "network")
+                    RealityLabel(title: "还没有节点", asset: .network)
                 } description: { Text("导入分享链接或配置，添加你的第一个节点。") }
                 actions: { Button("导入节点") { importing = true } }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)

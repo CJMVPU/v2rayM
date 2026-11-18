@@ -3,7 +3,7 @@ import SwiftUI
 /// Shared presentation only; settings persistence stays in AppModel's command path.
 struct SettingsCard<Content: View>: View {
     let title: String
-    var symbol: String? = nil
+    var symbol: ControlAsset? = nil
     var subtitle: String = ""
     var fillHeight: Bool = false
     @ViewBuilder var content: Content
@@ -12,7 +12,7 @@ struct SettingsCard<Content: View>: View {
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 Group {
-                    if let symbol { Label(title, systemImage: symbol) }
+                    if let symbol { RealityLabel(title: title, asset: symbol, color: DashboardTheme.cyan) }
                     else { Text(title) }
                 }.font(AppFont.body).foregroundStyle(DashboardTheme.cyan)
                 if !subtitle.isEmpty { Text(subtitle).font(AppFont.caption).foregroundStyle(.secondary) }
@@ -20,7 +20,7 @@ struct SettingsCard<Content: View>: View {
             content
         }
         .padding(14).frame(maxWidth: .infinity, maxHeight: fillHeight ? .infinity : nil, alignment: .topLeading)
-        .realitySurface(.init(shape: .panel(12), depth: 6, level: 10))
+        .realityCard()
     }
 }
 
@@ -50,7 +50,7 @@ struct InlineActivityIndicator: View {
     let active: Bool
     var body: some View {
         Color.clear.frame(width: 16, height: 16).overlay {
-            if active { ProgressView().controlSize(.small) }
+            if active { RealityBusyIndicator() }
         }.accessibilityHidden(!active)
     }
 }

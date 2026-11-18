@@ -69,14 +69,14 @@ import V2rayMKit
         XCTAssertEqual(draft.rules.first?["remarks"].text, "New rule")
     }
 
-    func testSettingsLayoutSnapshots() throws {
+    func testSettingsLayoutSnapshots() async throws {
         guard let directory = ProcessInfo.processInfo.environment["V2RAYM_SETTINGS_RENDER_DIRECTORY"] else {
             throw XCTSkip("Set V2RAYM_SETTINGS_RENDER_DIRECTORY to inspect settings layouts")
         }
         AppFont.register()
         let model = AppModel(dataDirectory: URL(fileURLWithPath: "/tmp/v2raym-ui-fixture"))
         model.ready = true
-        try render(ImportPane(close: {}, save: { _ in }).environmentObject(model),
+        try await render(ImportPane(close: {}, save: { _ in }).environmentObject(model),
             name: "import", height: 568, directory: directory)
         model.routes = try JSONDecoder().decode([RoutingProfile].self, from: Data("""
             [{"id":"one","remarks":"绕过大陆","isActive":true},{"id":"two","remarks":"全局代理","isActive":false}]
@@ -93,16 +93,16 @@ import V2rayMKit
         let tun = try SettingsValue.parse("""
             {"mtu":1500,"enableIPv6Address":true,"routeExcludeAddress":["192.168.0.0/16"]}
             """)
-        try render(SettingsPage(navigationLocked: .constant(false)).environmentObject(model),
+        try await render(SettingsPage(navigationLocked: .constant(false)).environmentObject(model),
             name: "settings", height: 568, directory: directory)
-        try render(SettingsPage(navigationLocked: .constant(false)).environmentObject(model),
+        try await render(SettingsPage(navigationLocked: .constant(false)).environmentObject(model),
             name: "settings-full", height: 900, directory: directory)
         for group in ["监听与嗅探", "Xray 参数", "应用与测速", "原生 TUN"] {
-            try render(ParameterSettingsFields(settings: .constant(settings), tunSettings: .constant(tun),
+            try await render(ParameterSettingsFields(settings: .constant(settings), tunSettings: .constant(tun),
                 dirty: .constant(false), parameterGroup: group).environmentObject(model).padding(16),
                 name: "parameters-\(group)", height: group == "Xray 参数" ? 900 : 568, directory: directory)
         }
-        try render(DNSSettingsFields(simpleDNS: .constant(try SettingsValue.parse("""
+        try await render(DNSSettingsFields(simpleDNS: .constant(try SettingsValue.parse("""
             {"directDNS":"https://dns.example/dns-query","remoteDNS":"1.1.1.1","bootstrapDNS":"223.5.5.5","useSystemHosts":true}
             """)), dns: .constant(.object(["enabled": .bool(false)])), dirty: .constant(false), saveSimple: {}, saveCustom: {}).padding(16),
             name: "dns", height: 1500, directory: directory)
@@ -112,21 +112,29 @@ import V2rayMKit
         let rule = try SettingsValue.parse("""
             {"remarks":"直连局域网","enabled":true,"outboundTag":"direct","ip":["geoip:private"]}
             """)
-        try render(RoutingSettingsFields(routes: [route], route: .constant(route), rules: .constant([rule]),
+        try await render(RoutingSettingsFields(routes: [route], route: .constant(route), rules: .constant([rule]),
             routeID: .constant("one"), ruleIndex: .constant(0), dirty: .constant(false), select: { _ in }, create: {}, delete: {}, activate: {}).padding(16),
             name: "routing", height: 1100, directory: directory)
     }
 
-    private func render<V: View>(_ view: V, name: String, height: CGFloat, directory: String) throws {
-        let host = NSHostingView(rootView: view.font(AppFont.body).buttonStyle(HoverButtonStyle())
-            .frame(width: 860, height: height, alignment: .top).background(DashboardTheme.background)
-            .environment(\.colorScheme, .dark))
-        host.frame = CGRect(x: 0, y: 0, width: 860, height: height)
-        host.appearance = NSAppearance(named: .darkAqua)
-        host.layoutSubtreeIfNeeded()
-        let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-        host.cacheDisplay(in: host.bounds, to: bitmap)
-        try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
-            .write(to: URL(fileURLWithPath: directory).appendingPathComponent(name + ".png"))
+    private func render<V: View>(_ view: V, name: String, height: CGFloat, directory: String) async throws {
+        let host = NSHostingView(rootView: RealityWindow {
+            view.font(AppFont.body).buttonStyle(HoverButtonStyle())
+                .frame(width: 860, height: height, alignment: .top)
+        }.environment(\.colorScheme, .dark).environment(\.dashboardVisibilityOverride, true))
+        let window = NSWindow(contentRect: CGRect(x: 40, y: 40, width: 860, height: height),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.appearance = NSAppearance(named: .darkAqua)
+        window.contentView = host
+        window.orderFront(nil)
+        defer { window.close() }
+        try await Task.sleep(for: .milliseconds(350))
+        let capture = Process()
+        capture.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+        capture.arguments = ["-x", "-l", String(window.windowNumber),
+            URL(fileURLWithPath: directory).appendingPathComponent(name + ".png").path]
+        try capture.run(); capture.waitUntilExit()
+        XCTAssertEqual(capture.terminationStatus, 0)
     }
 }

@@ -14,15 +14,14 @@ struct ImportPane: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Button(action: requestClose) { Label("返回", systemImage: "chevron.left") }.disabled(draft.saving)
+                Button(action: requestClose) { RealityLabel(title: "返回", asset: .back) }.disabled(draft.saving)
                 Text("导入节点").font(AppFont.title)
                 Spacer()
             }
             Text("粘贴分享链接或兼容的配置内容，可一次导入多个节点。").foregroundStyle(.secondary)
             TextEditor(text: $draft.content).font(AppFont.body).scrollIndicators(.never).scrollContentBackground(.hidden)
                 .padding(10).frame(maxHeight: .infinity)
-                .realitySurface(.init(shape: .panel(10), depth: 3, level: 14))
-                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(DashboardTheme.line))
+                .modifier(RealityEditorSurface())
                 .accessibilityLabel("节点分享链接或配置").disabled(draft.saving)
             HStack {
                 Text(draft.error ?? (draft.saving ? "正在导入…" : ""))
