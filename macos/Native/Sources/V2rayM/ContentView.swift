@@ -88,15 +88,15 @@ struct ContentView: View {
             ZStack {
                 Toggle("系统代理", isOn: Binding(get: { model.desiredMode == .system }, set: { model.toggleProxy($0) }))
                     .environment(\.realityContentVisible, !model.proxyNeedsRecovery)
-                    .toggleStyle(RealityToggleStyle()).fixedSize().disabled(!model.canToggle(.system) || editingContent || model.proxyNeedsRecovery)
+                    .toggleStyle(RealityToggleStyle(titleBar: true)).fixedSize().disabled(!model.canToggle(.system) || editingContent || model.proxyNeedsRecovery)
                     .opacity(model.proxyNeedsRecovery ? 0 : 1).accessibilityHidden(model.proxyNeedsRecovery)
                 if model.proxyNeedsRecovery {
                     Button("恢复代理") { model.recoverProxy() }.disabled(model.busy || model.moduleUpdateActive)
                 }
             }
             Toggle("TUN", isOn: Binding(get: { model.desiredMode == .tun }, set: { model.toggleTun($0) }))
-                .toggleStyle(RealityToggleStyle()).fixedSize().disabled(!model.canToggle(.tun) || model.tun == nil || editingContent)
-        }.controlSize(.small).padding(.horizontal, 12).frame(height: 26)
+                .toggleStyle(RealityToggleStyle(titleBar: true)).fixedSize().disabled(!model.canToggle(.tun) || model.tun == nil || editingContent)
+        }.controlSize(.small).padding(.horizontal, 12).frame(height: TitleBarGeometry.height)
             .overlay {
                 Text("powered by cj")
                     .font(.custom("SnellRoundhand-Bold", size: 17))
@@ -105,7 +105,14 @@ struct ContentView: View {
                     .shadow(color: .white.opacity(0.16), radius: 0.4, x: 0, y: 1)
                     .allowsHitTesting(false).accessibilityLabel("powered by cj")
             }
-            .realitySurface(.init(shape: .dashboard(.titleBar), depth: 7, level: 50))
+            .realitySurface(.init(shape: .dashboard(.titleBar), depth: 4, level: 50))
+            .background {
+                RealitySurface(style: .init(shape: .panel(13), color: NSColor(white: 0.075, alpha: 1),
+                                            depth: 1, level: 44))
+                    .offset(y: 1.25).allowsHitTesting(false).accessibilityHidden(true)
+            }
+            .padding(.horizontal, TitleBarGeometry.sideMargin)
+            .padding(.top, TitleBarGeometry.topMargin)
     }
 
     private func notice(_ text: String, error: Bool) -> some View {
@@ -134,7 +141,7 @@ struct ContentView: View {
                     select: { model.select($0) }, edit: { editingProfile = $0 },
                     latency: { item in model.run { try await $0.perform("/api/profiles/\(item.id)/latency") } },
                     delete: { deletingProfile = $0 })
-                    .padding(.top, 8)
+                    .padding(.top, 3)
 
             }
             Divider()
@@ -152,7 +159,7 @@ struct ContentView: View {
                     .disabled(item == nil || model.busy || model.moduleUpdateActive)
                     .opacity(item == nil ? 0 : 1)
                     .accessibilityHidden(item == nil)
-            }.padding(.horizontal, 12).frame(height: 34)
+            }.padding(.horizontal, 12).frame(height: 27)
                 .realitySurface(.init(shape: .panel(0), depth: 4, level: 18))
         }
     }

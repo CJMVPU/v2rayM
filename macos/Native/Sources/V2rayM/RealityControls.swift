@@ -3,6 +3,7 @@ import AppKit
 
 struct RealityToggleStyle: ToggleStyle {
     var showsLabel = true
+    var titleBar = false
     @Environment(\.isEnabled) private var enabled
     @Environment(\.accessibilityReduceMotion) private var reduced
     @State private var hovering = false
@@ -10,23 +11,29 @@ struct RealityToggleStyle: ToggleStyle {
         Button { configuration.isOn.toggle() } label: {
             HStack(spacing: 6) {
                 if showsLabel { configuration.label }
-                Color.clear.frame(width: 30, height: 18)
-                    .realitySurface(.init(shape: .panel(9),
-                        color: configuration.isOn ? NSColor(DashboardTheme.cyan) : NSColor(calibratedWhite: 0.26, alpha: 1),
-                        depth: 3, level: 76, highlighted: hovering, enabled: enabled))
-                    .overlay(alignment: configuration.isOn ? .trailing : .leading) {
-                        Color.clear.frame(width: 14, height: 14)
-                            .realitySurface(.init(shape: .disc, color: NSColor(calibratedWhite: 0.85, alpha: 1),
-                                depth: 4, level: 80, enabled: enabled))
-                            .padding(2)
-                    }
+                if titleBar {
+                    Color.clear.frame(width: 30, height: 18)
+                        .realitySurface(.init(shape: .panel(9), depth: 3, level: 76,
+                            highlighted: hovering, enabled: enabled, allowsFlip: !reduced, switchOn: configuration.isOn))
+                } else {
+                    Color.clear.frame(width: 30, height: 18)
+                        .realitySurface(.init(shape: .panel(9),
+                            color: configuration.isOn ? NSColor(DashboardTheme.cyan) : NSColor(calibratedWhite: 0.26, alpha: 1),
+                            depth: 3, level: 76, highlighted: hovering, enabled: enabled))
+                        .overlay(alignment: configuration.isOn ? .trailing : .leading) {
+                            Color.clear.frame(width: 14, height: 14)
+                                .realitySurface(.init(shape: .disc, color: NSColor(calibratedWhite: 0.85, alpha: 1),
+                                    depth: 4, level: 80, enabled: enabled))
+                                .padding(2)
+                        }
+                }
             }.contentShape(Rectangle())
         }
         .buttonStyle(.plain).disabled(!enabled)
         .opacity(enabled ? 1 : 0.5)
         .onHover { hovering = $0 && enabled }
         .accessibilityValue(configuration.isOn ? "已开启" : "已关闭")
-        .animation(reduced ? nil : .easeInOut(duration: 0.16), value: configuration.isOn)
+        .animation(reduced || titleBar ? nil : .easeInOut(duration: 0.16), value: configuration.isOn)
     }
 }
 

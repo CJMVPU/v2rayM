@@ -17,7 +17,7 @@ struct RealityNavigationIcon: View {
                 RealitySurface(style: .init(shape: .symbol(symbol),
                     color: NSColor(selected ? DashboardTheme.cyan : DashboardTheme.muted),
                     depth: 3, level: 70, highlighted: enabled && (hovered || selected), enabled: enabled,
-                    angle: enabled && hovered ? -26 : -16, tilt: enabled && hovered ? 18 : 12,
+                    angle: -16, tilt: 12,
                     flipToken: flipToken, allowsFlip: !reduced && enabled))
             }
             .frame(width: 40, height: 24).contentShape(Rectangle())
@@ -50,7 +50,7 @@ private struct NavigationButton: NSViewRepresentable {
         override func mouseUp(with event: NSEvent) {
             defer { pressed = false }
             if pressed && isEnabled && bounds.contains(convert(event.locationInWindow, from: nil)) {
-                performClick(nil)
+                sendAction(action, to: target)
             }
         }
         override func draw(_ dirtyRect: NSRect) {}

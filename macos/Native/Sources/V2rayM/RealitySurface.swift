@@ -1,3 +1,4 @@
+import Combine
 import AppKit
 import SwiftUI
 import RealityKit
@@ -28,6 +29,7 @@ struct RealitySurfaceStyle: Equatable {
     var visible = true
     var flipToken = 0
     var allowsFlip = true
+    var switchOn: Bool? = nil
 }
 
 private struct RealitySceneKey: EnvironmentKey {
@@ -255,12 +257,19 @@ private struct RealityStage: NSViewRepresentable {
     private var anchors: [UUID: WeakAnchor] = [:]
     private var items: [UUID: Item] = [:]
     private var faces: [UUID: (CGImage, ModelEntity, CGSize)] = [:]
-    private var navigationWorkers: [UUID: Task<Void, Never>] = [:]
+    private var turnTimes: [UUID: Double] = [:]
+    private struct Slide {
+        var from: Float
+        var to: Float
+        var elapsed: Double = 0
+    }
+    private var slides: [UUID: Slide] = [:]
+    private var motionSubscription: (any Cancellable)?
     private var size = CGSize.zero
     private var layoutSyncQueued = false
     private(set) var meshBuilds = 0
     var entityCount: Int { items.count }
-    var activeNavigationFlips: Int { navigationWorkers.count }
+    var activeNavigationFlips: Int { turnTimes.count }
     init() {
         camera.position = [0, 0, 4]
         root.addChild(camera)
@@ -283,7 +292,9 @@ private struct RealityStage: NSViewRepresentable {
     }
     func register(_ view: RealitySurfaceAnchor) { anchors[view.surfaceID] = WeakAnchor(view) }
     func remove(_ id: UUID) {
-        navigationWorkers.removeValue(forKey: id)?.cancel()
+        turnTimes.removeValue(forKey: id)
+        slides.removeValue(forKey: id)
+        retireClockIfIdle()
         items.removeValue(forKey: id)?.entity.removeFromParent(); anchors.removeValue(forKey: id); faces.removeValue(forKey: id)
     }
     func synchronizeAnchors() {
@@ -382,10 +393,16 @@ private struct RealityStage: NSViewRepresentable {
             shell.orientation = simd_quatf(angle: style.highlighted ? 0.045 : 0, axis: [1, 0, 0])
         }
         entity.isEnabled = style.visible
-        if !style.allowsFlip || !style.enabled { navigationWorkers.removeValue(forKey: id)?.cancel(); entity.stopAllAnimations(recursive: true) }
-        if navigationWorkers[id] == nil && style.rowOffset == nil { entity.orientation = Self.orientation(style) }
+        if case .symbol = style.shape, !style.allowsFlip || !style.enabled {
+            turnTimes.removeValue(forKey: id)
+            retireClockIfIdle()
+        }
+        if turnTimes[id] == nil && style.rowOffset == nil { entity.orientation = Self.orientation(style) }
         items[id] = Item(frame: clipped, style: style, entity: entity)
         place(id)
+        if let on = style.switchOn {
+            updateSwitch(id, on: on, previous: previous?.style.switchOn, animated: style.allowsFlip)
+        }
         for (childID, child) in items where child.style.parentID == id { place(childID) }
         if case .symbol = style.shape {
             tintNavigation(entity, style: style)
@@ -404,35 +421,93 @@ private struct RealityStage: NSViewRepresentable {
         entity.scale = SIMD3(repeating: size)
     }
     func cancelNavigationAnimations() {
-        for (id, worker) in navigationWorkers {
-            worker.cancel()
-            if let item = items[id] { item.entity.stopAllAnimations(recursive: true); item.entity.orientation = Self.orientation(item.style) }
+        for id in turnTimes.keys {
+            if let item = items[id] { item.entity.orientation = Self.orientation(item.style) }
         }
-        navigationWorkers.removeAll()
+        for (id, slide) in slides { drawSwitch(id, progress: slide.to) }
+        slides.removeAll()
+        turnTimes.removeAll()
+        retireClockIfIdle()
     }
+
     private func flipNavigation(_ id: UUID) {
-        // Hover followed immediately by selection is one turn, not two queued
-        // rotations. Advance a continuous angle without interpolating position.
-        guard navigationWorkers[id] == nil, stage?.suspended != true else { return }
-        navigationWorkers[id] = Task { @MainActor [weak self] in
-            let clock = ContinuousClock()
-            let start = clock.now
-            while !Task.isCancelled {
-                guard let self, let item = self.items[id] else { return }
-                let elapsed = start.duration(to: clock.now).components
-                let seconds = Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18
-                let t = min(1, seconds / 0.42)
-                let eased = t * t * (3 - 2 * t)
-                item.entity.orientation = Self.orientation(item.style) * simd_quatf(angle: Float(2 * .pi * eased), axis: [0,1,0])
-                if t >= 1 {
-                    item.entity.orientation = Self.orientation(item.style)
-                    self.navigationWorkers[id] = nil
-                    return
-                }
-                do { try await Task.sleep(for: .milliseconds(16)) } catch { return }
-            }
+        guard turnTimes[id] == nil, stage?.suspended == false else { return }
+        turnTimes[id] = 0
+        startMotionClock()
+    }
+
+    private func startMotionClock() {
+        guard motionSubscription == nil, let stage else { return }
+        motionSubscription = stage.renderer.scene.subscribe(to: SceneEvents.Update.self) { [weak self] event in
+            MainActor.assumeIsolated { self?.advanceMotion(by: event.deltaTime) }
         }
     }
+
+    private func retireClockIfIdle() {
+        if turnTimes.isEmpty && slides.isEmpty {
+            motionSubscription?.cancel()
+            motionSubscription = nil
+        }
+    }
+
+    /// Advance only on render updates. A delayed frame during a page switch
+    /// must not consume the entire animation before the next pose is drawn.
+    func advanceMotion(by delta: Double) {
+        let step = min(1.0/30.0, max(0, delta))
+        for (id, elapsed) in turnTimes {
+            guard let item = items[id] else { continue }
+            let next = elapsed + step
+            let t = min(1, next/0.42)
+            let angle = Float(2 * .pi * t * t * (3 - 2*t))
+            item.entity.orientation = Self.orientation(item.style) * simd_quatf(angle: angle, axis: [0,1,0])
+            if t == 1 { turnTimes.removeValue(forKey: id) }
+            else { turnTimes[id] = next }
+        }
+        for (id, var slide) in slides {
+            slide.elapsed += step
+            let t = Float(min(1, slide.elapsed/0.20))
+            drawSwitch(id, progress: slide.from + (slide.to-slide.from)*t*t*(3-2*t))
+            if t == 1 { slides.removeValue(forKey: id) }
+            else { slides[id] = slide }
+        }
+        retireClockIfIdle()
+    }
+
+    private func updateSwitch(_ id: UUID, on: Bool, previous: Bool?, animated: Bool) {
+        guard let item = items[id] else { return }
+        let target: Float = on ? 1 : 0
+        if item.entity.findEntity(named: "switch-thumb") == nil {
+            let thumb = ModelEntity(mesh: .generateSphere(radius: 0.007), materials: [
+                SimpleMaterial(color: .white, roughness: 0.8, isMetallic: false)])
+            thumb.name = "switch-thumb"
+            thumb.scale.z = 0.28
+            thumb.position.z = 0.003
+            item.entity.addChild(thumb)
+        }
+        guard animated, stage?.suspended == false, let previous else {
+            slides.removeValue(forKey: id)
+            drawSwitch(id, progress: target)
+            retireClockIfIdle()
+            return
+        }
+        let thumb = item.entity.findEntity(named: "switch-thumb")!
+        let current = min(1, max(0, (thumb.position.x + 0.006)/0.012))
+        if on != previous {
+            slides[id] = Slide(from: current, to: target)
+            startMotionClock()
+        }
+        drawSwitch(id, progress: slides[id] == nil ? target : current)
+    }
+
+    private func drawSwitch(_ id: UUID, progress: Float) {
+        guard let item = items[id] else { return }
+        item.entity.findEntity(named: "switch-thumb")?.position.x = -0.006 + 0.012 * progress
+        let off = NSColor(calibratedWhite: 0.26, alpha: 1)
+        var style = item.style
+        style.color = off.blended(withFraction: CGFloat(progress), of: NSColor(DashboardTheme.cyan)) ?? off
+        item.entity.model?.materials = [material(style)]
+    }
+
     private func place(_ id: UUID) {
         guard let item = items[id] else { return }
         let world = Self.position(item.frame, viewport: size, level: item.style.level)

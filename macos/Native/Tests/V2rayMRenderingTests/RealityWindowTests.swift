@@ -118,6 +118,37 @@ private struct RealityInteractionView: View {
         }
     }
 
+    func testToolbarMotionSurvivesALateFrameAndSwitchReversal() throws {
+        let stage = RealityStageView(owner: RealityWindowScene())
+        let scene = stage.owner
+        let rect = CGRect(x: 10, y: 5, width: 30, height: 18)
+        scene.resize(CGSize(width: 860, height: 600))
+        let toggle = UUID(), icon = UUID()
+        func setSwitch(_ on: Bool, reduced: Bool = false) {
+            scene.update(toggle, frame: rect, visible: rect, style: .init(allowsFlip: !reduced, switchOn: on))
+        }
+        setSwitch(false)
+        let track = try XCTUnwrap(scene.root.findEntity(named: "surface-" + toggle.uuidString))
+        let thumb = try XCTUnwrap(track.findEntity(named: "switch-thumb"))
+        setSwitch(true)
+        scene.update(icon, frame: rect, visible: rect, style: .init(shape: .symbol(.home)))
+        scene.update(icon, frame: rect, visible: rect, style: .init(shape: .symbol(.home), flipToken: 1))
+        scene.advanceMotion(by: 0.6)
+        XCTAssertEqual(scene.activeNavigationFlips, 1, "One slow frame must not finish the turn")
+        let halfway = thumb.position.x
+        XCTAssertGreaterThan(halfway, -0.006)
+        XCTAssertLessThan(halfway, 0)
+        setSwitch(false)
+        XCTAssertEqual(thumb.position.x, halfway, accuracy: 0.000001)
+        scene.advanceMotion(by: 1.0/60.0)
+        XCTAssertLessThan(thumb.position.x, halfway)
+        for _ in 0..<30 { scene.advanceMotion(by: 1.0/60.0) }
+        XCTAssertEqual(thumb.position.x, -0.006, accuracy: 0.000001)
+        XCTAssertEqual(scene.activeNavigationFlips, 0)
+        setSwitch(true, reduced: true)
+        XCTAssertEqual(thumb.position.x, 0.006, accuracy: 0.000001)
+    }
+
     func testNavigationAssetFlipsCoalesceAndRespectCancellation() async throws {
         let stage = RealityStageView(owner: RealityWindowScene())
         let owner = stage.owner
@@ -337,7 +368,7 @@ private struct RealityInteractionView: View {
                         if let viewportID = anchor.style.viewportID {
                             let viewport = try XCTUnwrap(descendants(host).compactMap { $0 as? RealityViewportAnchor }.first { $0.id == viewportID })
                             let visible = viewport.convert(viewport.bounds, to: renderer).intersection(renderer.bounds)
-                            XCTAssertGreaterThanOrEqual(visible.minY, 26, "Settings must stay below the title bar")
+                            XCTAssertGreaterThanOrEqual(visible.minY, TitleBarGeometry.topMargin + TitleBarGeometry.height, "Settings must stay below the title bar")
                             rect = rect.intersection(visible)
                         }
                         let existing = renderer.owner.root.findEntity(named: "surface-" + anchor.surfaceID.uuidString)
