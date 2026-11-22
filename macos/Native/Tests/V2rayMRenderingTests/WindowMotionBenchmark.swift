@@ -86,9 +86,8 @@ private final class FrameSampler: NSObject, SCStreamOutput {
         defer { window.close() }
         try await Task.sleep(for: .seconds(1))
         func views(_ v: NSView) -> [NSView] { [v] + v.subviews.flatMap(views) }
-        let controls = views(host).compactMap { $0 as? NSButton }
         func click(_ page: Page) throws {
-            let button = try XCTUnwrap(controls.first { $0.toolTip == page.rawValue })
+            let button = try XCTUnwrap(views(host).compactMap { $0 as? NSButton }.first { $0.toolTip == page.rawValue })
             button.sendAction(button.action, to: button.target)
         }
         let source = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
@@ -126,24 +125,14 @@ private final class FrameSampler: NSObject, SCStreamOutput {
                 try traffic(Date(), round == 1 ? 2800 : 260)
                 try await Task.sleep(for: .milliseconds(1250))
             }
-            for page in [Page.profiles, .logs, .settings, .logs, .profiles, .home] {
-                try await measure("slide-" + page.rawValue) {
+            for page in [Page.logs, .home, .settings, .home] {
+                try await measure("expand-return-" + page.rawValue) {
                     try click(page)
                     try await Task.sleep(for: .milliseconds(380))
                 }
                 try await Task.sleep(for: .milliseconds(100))
             }
-            try await measure("rapid") {
-                try click(.settings)
-                try await Task.sleep(for: .milliseconds(70))
-                try click(.profiles)
-                try await Task.sleep(for: .milliseconds(70))
-                try click(.logs)
-                try await Task.sleep(for: .milliseconds(620))
-            }
-            XCTAssertEqual(controls.first { $0.toolTip == Page.logs.rawValue }?.accessibilityValue() as? String, "已选中")
-            try click(.home)
-            try await Task.sleep(for: .milliseconds(600))
+
         }
         ticks.cancel()
         try await stream.stopCapture()

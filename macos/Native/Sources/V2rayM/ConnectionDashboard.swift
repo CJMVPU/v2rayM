@@ -7,7 +7,6 @@ struct ConnectionDashboard: View {
     let state: DashboardStatus
     let city: String
     let nodeName: String
-    let node: Profile?
     let startedAt: String?
     let coreRunning: Bool
     let rates: [Double]?
@@ -21,15 +20,6 @@ struct ConnectionDashboard: View {
     @Environment(\.dashboardMotionEnabled) private var windowVisible
     @State private var discHovered = false
     private var running: Bool { state.active || state == .local }
-    private var mode: String {
-        switch state {
-        case .tun: return "TUN"
-        case .system: return "系统代理"
-        case .local: return "本地代理"
-        case .stopped: return "已关闭"
-        default: return "待确认"
-        }
-    }
     private var statusColor: Color {
         if running { return Color.green }
         return [.recovering, .faulted, .stale, .changing, .updating].contains(state) ? DashboardTheme.warning : DashboardTheme.muted
@@ -41,20 +31,8 @@ struct ConnectionDashboard: View {
             let gaugeHeight = max(0, geometry.size.height - trendHeight - gap)
             let diameter = max(0, min(384, gaugeHeight - 80, geometry.size.width - 24))
             VStack(spacing: gap) {
-                ZStack(alignment: .topLeading) {
-                    HStack {
-                        badge("模式", value: mode)
-                        Spacer()
-                        badge("内核", value: "Xray")
-                    }.padding(.horizontal, 12).padding(.top, 14)
-                    activityRing(diameter: diameter)
-                        .position(x: geometry.size.width / 2, y: gaugeHeight / 2)
-                    HStack {
-                        badge("协议", value: node?.protocol.uppercased() ?? "—")
-                        Spacer()
-                        badge("延迟", value: (node?.delay ?? 0) > 0 ? "\(node?.delay ?? 0) ms" : "—")
-                    }.padding(.horizontal, 12).padding(.bottom, 12).frame(maxHeight: .infinity, alignment: .bottom)
-                }.frame(height: gaugeHeight)
+                activityRing(diameter: diameter)
+                    .frame(width: geometry.size.width, height: gaugeHeight)
                 TrafficTrendView(trend: trend, catchUp: catchUp, now: trend.displayDate(at: now),
                     animate: coreRunning && trafficEnabled == true && windowVisible && !reduceMotion,
                     emptyTitle: DashboardStatus.trafficDescription(state: state, enabled: trafficEnabled, hasSample: false),
@@ -62,13 +40,6 @@ struct ConnectionDashboard: View {
                     .frame(height: trendHeight)
             }
         }
-    }
-    private func badge(_ title: String, value: String) -> some View {
-        HStack(spacing: 7) {
-            Text(title).foregroundStyle(DashboardTheme.muted)
-            Text(value).foregroundStyle(DashboardTheme.text)
-        }.font(AppFont.caption).padding(.horizontal, 10).padding(.vertical, 6)
-            .realitySurface(.init(shape: .panel(7), depth: 3, level: 15))
     }
     private func activityRing(diameter: CGFloat) -> some View {
         let peaks = trend.peaks(at: now)
@@ -87,6 +58,7 @@ struct ConnectionDashboard: View {
             .accessibilityHidden(true)
             ZStack {
                 DashboardDiscSurface(hovered: discHovered)
+                    .overlay { DashboardTarget(page: .settings, circular: true) }
                 VStack(spacing: 9) {
                     RealityGlyph(asset: running ? .shieldActive : state == .recovering ? .sync : .shield, size: 22, color: statusColor)
                     Text(city).font(AppFont.size(25)).lineLimit(1).minimumScaleFactor(0.7)
@@ -101,6 +73,7 @@ struct ConnectionDashboard: View {
                         .opacity(state == .offline && !connecting ? 1 : 0)
                         .accessibilityHidden(state != .offline || connecting)
                 }.padding(.horizontal, 18)
+                    .allowsHitTesting(state == .offline && !connecting)
             }.frame(width: max(0, diameter - Self.discInset * 2), height: max(0, diameter - Self.discInset * 2))
                 .modifier(DashboardActivationFlip(active: coreRunning, kind: .disc, highlighted: discHovered))
         }.frame(width: diameter, height: diameter)

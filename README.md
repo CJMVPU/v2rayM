@@ -1,10 +1,10 @@
 # v2rayM
 
-基于 [v2rayN](https://github.com/2dust/v2rayN) 的原生 macOS 代理客户端，采用 **SwiftUI/AppKit + RealityKit + Xray**，保留上游 fork 和提交历史。当前版本 **0.7.2**，要求 macOS 15 或以上。
+基于 [v2rayN](https://github.com/2dust/v2rayN) 的原生 macOS 代理客户端，采用 **SwiftUI/AppKit + RealityKit + Xray**，保留上游 fork 和提交历史。当前版本 **0.7.7**，要求 macOS 15 或以上。
 
 ## 使用
 
-1. 将应用放入 Applications，导入节点并选择“设为当前节点”。
+1. 将应用放入 Applications。点击主页的城市与节点名称可配置当前节点；尚未选择时进入节点列表，可导入并设为当前节点。点击近期连接卡片查看日志，点击中央圆盘打开设置。在各页概览点击标题栏签名或按 Esc 返回主页。
 2. 在标题栏或菜单栏开启“系统代理”或“TUN”；两种模式互斥，关闭当前模式即可停止。
 3. 首次使用 TUN，在设置页注册并按 macOS 提示授权后台服务。开启前先暂停其他 VPN/TUN。
 
@@ -53,6 +53,6 @@ swift test --package-path macos/TunHelper
 - [Darwin 出口绑定补丁](docs/xray-darwin-binding-fix.md) · [进程查询补丁](docs/xray-process-lookup-fix.md)
 - [上游合并规则](docs/upstream-merge-policy.md) · [最终收敛记录](docs/audits/2026-10-24-final-stabilization.md)
 
-本地构建、安装回执和测试证据放在忽略提交的 `artifacts/`。保留当前产物与上一版回退包，过时二进制和重复安装包可清理；历史文档可从 Git 查阅。不要清理用户数据或 root 可信内核存储来释放构建空间。
+本机发布时，先验证新版安装包的签名、版本及回环测试，再用新版替换 `/Applications/v2rayM.app`。核对已安装应用后，卸载本次挂载的安装镜像，删除旧版安装包、旧应用及构建目录里的应用副本。仅保留当前版本的安装包和一份已安装应用。本地构建回执和测试记录放在忽略提交的 `artifacts/`。清理范围限于桌面应用及其分发产物，用户数据和特权服务的可信内核存储独立维护。
 
 保留上游 [GPL-3.0 许可证](LICENSE) 和源文件声明；随包字体采用 [SIL Open Font License](macos/Native/Sources/V2rayM/Resources/Fonts/OFL.txt)，离线定位数据保留 DB-IP 归属。

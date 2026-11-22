@@ -22,9 +22,8 @@ Older documents describing multi-core support are historical, not requirements.
 - Fixed compact window; LXGWWenKaiMono Medium; dark appearance only; no sidebar or subscription page.
 - Reuse the main window content for settings, node editing and import; do not add
   separate editor windows or sheets. Preserve unsaved-edit confirmation on return.
-- Title-bar navigation uses rounded RealityKit assets in neutral graphite, with only the selected icon bright (solid house with doorway, five signal bars, smiling log book, eight-tooth gear), with no icon background plates or outlines. Models rest front-facing and visually centered on their native buttons. Hover and newly selected pages flip once, respecting disabled state, Reduce Motion and window suspension.
-- The compact title bar has a bevelled 3D card body. Home defaults to a house icon. Navigation and mutually exclusive system proxy and TUN controls stay in the
-  title bar; node import stays on the Nodes page. No separate connect button.
+- Use the existing dashboard node-name row, recent-connections card and center disc to enter node configuration, logs and settings. Animate entry from the activated location and return to it. Keep navigation within the existing artwork and text, with hover feedback and Reduce Motion support.
+- The compact title bar has a bevelled 3D card body, window controls and mutually exclusive system proxy and TUN switches. Reuse its centered signature to return home. Node import stays on the Nodes page.
 - All buttons have disabled-aware hover feedback without layout shifts.
 - Node table has fixed names, order and widths, including transport and TLS; do not
   restore manual column resizing/reordering. Footer height never changes on selection.

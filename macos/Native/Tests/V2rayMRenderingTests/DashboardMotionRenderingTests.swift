@@ -16,7 +16,7 @@ private struct MotionFixtureView: View {
         RealityWindow {
         HStack(spacing: 12) {
             ConnectionDashboard(state: fixture.active ? .system : .stopped, city: "洛杉矶", nodeName: "Preview",
-                node: nil, startedAt: "2026-11-16T00:00:00Z", coreRunning: fixture.active, rates: nil,
+                startedAt: "2026-11-16T00:00:00Z", coreRunning: fixture.active, rates: nil,
                 trend: TrafficTrend(), trafficEnabled: true, now: Date(), connecting: false, reconnect: {})
                 .frame(width: 550, height: 546)
             RecentConnectionsCard(connections: fixture.rows, coreRunning: fixture.active, dataReady: fixture.ready).frame(width: 280, height: 205)

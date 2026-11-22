@@ -12,6 +12,12 @@ enum Page: String, CaseIterable, Identifiable {
 struct ContentView: View {
     @EnvironmentObject var model: AppModel
     @State private var page: Page = .home
+    @Environment(\.accessibilityReduceMotion) private var reduced
+    @State private var homeHovered = false
+    @State private var editorHomeRequest = 0
+    @State private var origin = UnitPoint.center
+    @State private var expanded = true
+    @State private var transitioning = false
     @State private var settingsEditing = false
     @State private var selectedProfile: String?
     @State private var importing = false
@@ -24,9 +30,35 @@ struct ContentView: View {
         RealityWindow {
             VStack(spacing: 0) {
                 titleBar.zIndex(1)
-                PageSlider(selection: page) { displayedPage in
-                    pageContent(displayedPage)
+                GeometryReader { geometry in
+                    pageContent(page)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .modifier(PageSurfaceSync())
+                        .geometryGroup()
+                        .scaleEffect(expanded ? 1 : 0.025, anchor: origin)
+                        .allowsHitTesting(!transitioning)
+                        .environment(\.openDashboardPage) { destination, point in
+                            guard page == .home, !transitioning else { return }
+                            origin = UnitPoint(x: point.x / max(1, geometry.size.width),
+                                               y: point.y / max(1, geometry.size.height))
+                            if destination == .profiles {
+                                let id = model.status?.coreRunning == true ? model.status?.runningProfileId : model.status?.currentProfileId
+                                selectedProfile = id
+                                editingProfile = model.profiles.first { $0.id == id }
+                            }
+                            expanded = reduced
+                            transitioning = !reduced
+                            page = destination
+                        }
+                        .task(id: page) {
+                            guard page != .home, !expanded else { return }
+                            await Task.yield()
+                            withAnimation(.easeOut(duration: 0.24), completionCriteria: .removed) {
+                                expanded = true
+                            } completion: { transitioning = false }
+                        }
                 }
+                .coordinateSpace(name: PageLayout.space)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .scrollIndicators(.never)
@@ -50,7 +82,8 @@ struct ContentView: View {
             do { try await Task.sleep(for: .seconds(6)) } catch { return }
             if model.message == message { model.message = nil }
         }
-        .onChange(of: model.homeRequest) { if !editingContent { page = .home } }
+        .onChange(of: model.homeRequest) { returnHome() }
+        .onExitCommand(perform: returnHome)
         .alert("删除节点？", isPresented: Binding(get: { deletingProfile != nil }, set: { if !$0 { deletingProfile = nil } })) {
             Button("取消", role: .cancel) { deletingProfile = nil }
             Button("删除", role: .destructive) { if let item = deletingProfile { model.deleteProfile(item) }; deletingProfile = nil }
@@ -61,7 +94,9 @@ struct ContentView: View {
             ImportPane(close: { importing = false }, save: { try await model.importNodes($0) })
                 .environmentObject(model)
         } else if let profile = editingProfile {
-            ProfileEditor(profile: profile, close: { editingProfile = nil }).environmentObject(model)
+            ProfileEditor(profile: profile, homeRequest: editorHomeRequest, goHome: {
+                beginReturn()
+            }, close: { editingProfile = nil }).environmentObject(model)
         } else if !model.ready && displayedPage != .home && !settingsEditing {
             ContentUnavailableView {
                 RealityLabel(title: model.connecting ? "正在连接本地服务" : "本地服务尚未连接", asset: .desktop)
@@ -84,14 +119,6 @@ struct ContentView: View {
     private var titleBar: some View {
         HStack(spacing: 10) {
             WindowControlButtons().frame(width: 50, height: 24)
-            HStack(spacing: 4) {
-                ForEach(Page.allCases) { item in
-                    RealityNavigationIcon(symbol: item.symbol, selected: page == item, label: item.rawValue) {
-                        page = item
-                    }.disabled(editingContent)
-                }
-            }.frame(height: 24, alignment: .center)
-                .accessibilityElement(children: .contain).accessibilityLabel("页面")
             Spacer(minLength: 8)
             ZStack {
                 Toggle("系统代理", isOn: Binding(get: { model.desiredMode == .system }, set: { model.toggleProxy($0) }))
@@ -108,10 +135,16 @@ struct ContentView: View {
             .overlay {
                 Text("powered by cj")
                     .font(.custom("SnellRoundhand-Bold", size: 17))
-                    .foregroundStyle(DashboardTheme.graphite)
+                    .foregroundStyle(homeHovered && page != .home && !settingsEditing && !importing ? DashboardTheme.accent : DashboardTheme.graphite)
+                    .animation(reduced ? nil : .easeOut(duration: 0.16), value: homeHovered)
                     .shadow(color: .black.opacity(0.95), radius: 0.5, x: 0, y: -1)
                     .shadow(color: .white.opacity(0.16), radius: 0.4, x: 0, y: 1)
-                    .allowsHitTesting(false).accessibilityLabel("powered by cj")
+                    .overlay {
+                        if page != .home {
+                            NavigationButton(label: Page.home.rawValue, enabled: !settingsEditing && !importing && !transitioning) { _ in returnHome() }
+                                .onHover { homeHovered = $0 }
+                        }
+                    }
             }
             .realitySurface(.init(shape: .dashboard(.titleBar), depth: 4, level: 50))
             .background {
@@ -121,6 +154,25 @@ struct ContentView: View {
             }
             .padding(.horizontal, TitleBarGeometry.sideMargin)
             .padding(.top, TitleBarGeometry.topMargin)
+    }
+
+    private func returnHome() {
+        guard page != .home, !settingsEditing, !importing, !transitioning else { return }
+        if editingProfile != nil { editorHomeRequest += 1 } else { beginReturn() }
+    }
+
+    private func beginReturn() {
+        homeHovered = false
+        if reduced { editingProfile = nil; page = .home; return }
+        transitioning = true
+        withAnimation(.easeIn(duration: 0.18), completionCriteria: .removed) {
+            expanded = false
+        } completion: {
+            editingProfile = nil
+            page = .home
+            expanded = true
+            transitioning = false
+        }
     }
 
     private func notice(_ text: String, error: Bool) -> some View {
@@ -174,4 +226,13 @@ struct ContentView: View {
             .environmentObject(model)
     }
 
+}
+
+private struct PageSurfaceSync: ViewModifier {
+    @Environment(\.realityScene) private var scene
+    func body(content: Content) -> some View {
+        content.onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { _ in
+            scene?.requestLayoutSync(recheckScrollAncestors: false)
+        }
+    }
 }

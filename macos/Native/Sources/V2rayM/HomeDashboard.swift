@@ -56,6 +56,9 @@ private struct DashboardContent: View, Equatable {
     static func == (lhs: Self, rhs: Self) -> Bool { lhs.data == rhs.data && lhs.model === rhs.model }
     let data: DashboardSnapshot
     let model: AppModel
+    @Environment(\.accessibilityReduceMotion) private var reduced
+    @State private var nodeHovered = false
+    @State private var logsHovered = false
     @State private var alpn = ""
     private var node: Profile? {
         let id = data.status?.coreRunning == true ? data.status?.runningProfileId : data.status?.currentProfileId
@@ -87,7 +90,7 @@ private struct DashboardContent: View, Equatable {
                     let cardSpace = max(0, geometry.size.height - 24 - 2 * 12)
                     HStack(spacing: 0) {
                         ConnectionDashboard(state: state, city: data.nodePlace?.displayCity ?? "位置未知",
-                            nodeName: nodeName, node: node, startedAt: data.status?.coreStartedAt,
+                            nodeName: nodeName, startedAt: data.status?.coreStartedAt,
                             coreRunning: data.status?.coreRunning == true, rates: rates,
                             trend: data.trend, catchUp: data.trendCatchUp, trafficEnabled: data.status?.trafficEnabled,
                             now: data.now, connecting: data.connecting,
@@ -105,6 +108,13 @@ private struct DashboardContent: View, Equatable {
                             RecentConnectionsCard(connections: data.connections,
                                 coreRunning: data.status?.coreRunning == true, dataReady: cardsReady)
                                 .frame(height: cardSpace * 0.352)
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 10).fill(DashboardTheme.accent.opacity(logsHovered ? 0.12 : 0))
+                                        .allowsHitTesting(false)
+                                }
+                                .overlay { DashboardTarget(page: .logs) }
+                                .onHover { logsHovered = $0 }
+                                .animation(reduced ? nil : .easeOut(duration: 0.16), value: logsHovered)
                         }.frame(width: geometry.size.width * 0.325, height: max(0, geometry.size.height - 24))
                             .padding(.trailing, 12).padding(.vertical, 12)
                     }
@@ -123,7 +133,8 @@ private struct DashboardContent: View, Equatable {
             }
     }
     private func nodeCard(state: DashboardStatus) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
+        let latency = node.map(\.delay).flatMap { $0 > 0 ? "\($0) ms" : nil }
+        return VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 0) {
                 statusIcon(.shieldActive, title: "后台服务", enabled: data.helperReady)
                 Rectangle().fill(DashboardTheme.line.opacity(0.5)).frame(width: 0.5, height: 32)
@@ -132,17 +143,23 @@ private struct DashboardContent: View, Equatable {
                 statusIcon(.link, title: "TUN", enabled: state == .tun)
             }.padding(.top, 2).padding(.bottom, 10)
             rule
-            Text("当前节点").font(AppFont.caption).foregroundStyle(DashboardTheme.muted).padding(.top, 11)
+            Text("当前节点 · " + (latency ?? "—"))
+                .font(AppFont.caption).foregroundStyle(DashboardTheme.muted).padding(.top, 11)
+                .accessibilityLabel("当前节点，延迟" + (latency ?? "未知"))
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(data.nodePlace?.displayCity ?? "位置未知").font(AppFont.size(21)).lineLimit(1).minimumScaleFactor(0.75)
-                Text("·").foregroundStyle(DashboardTheme.muted)
-                Text(nodeName).font(AppFont.size(14)).foregroundStyle(DashboardTheme.muted)
+                Text("·")
+                Text(nodeName).font(AppFont.size(14))
                     .lineLimit(1).truncationMode(.tail).frame(maxWidth: .infinity, alignment: .leading).help(nodeName)
-            }.padding(.top, 6).padding(.bottom, 8)
-            Text(protocols).font(AppFont.size(10.5)).foregroundStyle(DashboardTheme.muted)
-                .lineLimit(1).minimumScaleFactor(0.8).help("节点配置：" + protocols + "。ALPN 是配置值，不代表已协商的协议。")
+            }.foregroundStyle(nodeHovered ? Color.white : DashboardTheme.accent)
+                .padding(.top, 6).padding(.bottom, 8)
+                .overlay { DashboardTarget(page: .profiles) }
+                .onHover { nodeHovered = $0 }
+                .animation(reduced ? nil : .easeOut(duration: 0.16), value: nodeHovered)
+            Text(protocols).font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
+                .lineLimit(1).help("节点配置：" + protocols + "。ALPN 是配置值，不代表已协商的协议。")
             Text("Xray " + (data.status?.installedXrayVersion ?? "版本待读取"))
-                .font(AppFont.size(10))
+                .font(AppFont.caption)
                 .foregroundStyle(DashboardTheme.muted.opacity(0.75)).lineLimit(1).padding(.top, 7)
         }.padding(12).dashboardPanel()
     }

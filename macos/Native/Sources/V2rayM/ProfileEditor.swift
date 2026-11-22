@@ -4,6 +4,9 @@ import V2rayMKit
 struct ProfileEditor: View {
     let profile: Profile
     @EnvironmentObject private var model: AppModel
+    var homeRequest = 0
+    var goHome: (() -> Void)?
+    @State private var returningHome = false
     let close: () -> Void
     @State private var value = SettingsValue.object([:])
     @State private var original = SettingsValue.object([:])
@@ -19,7 +22,7 @@ struct ProfileEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Button { if dirty { discard = true } else { close() } } label: {
+                Button { requestReturn(home: false) } label: {
                     RealityLabel(title: "节点", asset: .back)
                 }.disabled(saving)
                 Divider().frame(height: 20)
@@ -90,10 +93,19 @@ struct ProfileEditor: View {
             .background(HiddenScrollbars())
             .buttonStyle(HoverButtonStyle())
             .task { await load() }
+            .onChange(of: homeRequest) { requestReturn(home: true) }
             .confirmationDialog("放弃未保存的修改？", isPresented: $discard) {
-                Button("放弃修改", role: .destructive) { close() }
+                Button("放弃修改", role: .destructive) { finishReturn() }
                 Button("继续编辑", role: .cancel) {}
             }
+    }
+    private func requestReturn(home: Bool) {
+        guard !saving else { return }
+        returningHome = home
+        if dirty { discard = true } else { finishReturn() }
+    }
+    private func finishReturn() {
+        if returningHome, let goHome { goHome() } else { close() }
     }
     private func binding(_ key: String) -> Binding<String> {
         Binding(get: { value[key].text }, set: { value[key] = .string($0) })

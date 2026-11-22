@@ -136,7 +136,7 @@ final class ConnectionDashboardRenderingTests: XCTestCase {
             model.telemetry.record(state, now: date)
             model.status = state
         }
-        let dashboard = ConnectionDashboard(state: .tun, city: "洛杉矶", nodeName: "Vless_xray", node: nil,
+        let dashboard = ConnectionDashboard(state: .tun, city: "洛杉矶", nodeName: "Vless_xray",
             startedAt: formatter.string(from: now.addingTimeInterval(-351)), coreRunning: true,
             rates: [25, 1300, 300, 700], trend: trend, trafficEnabled: true, now: now, connecting: false, reconnect: {})
             .frame(width: 550, height: 546).padding(12)

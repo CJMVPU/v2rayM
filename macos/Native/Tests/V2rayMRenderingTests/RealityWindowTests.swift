@@ -67,7 +67,7 @@ private struct RealityInteractionView: View {
         anchor.detach()
         XCTAssertEqual(stage.owner.entityCount, 0)
     }
-    func testReclickAndSwitchThroughWindowHitTargets() async throws {
+    func testDashboardDestinationsAndReturnThroughWindowHitTargets() async throws {
         let model = AppModel(dataDirectory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString))
         model.ready = true
         let host = NSHostingView(rootView: ContentView().environmentObject(model).environment(\.dashboardVisibilityOverride, true).background(WindowTracker { _ in }))
@@ -79,7 +79,7 @@ private struct RealityInteractionView: View {
         defer { window.close() }
         func all(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(all) }
         try await Task.sleep(for: .milliseconds(500))
-        for label in ["节点", "节点", "日志", "设置", "主页"] {
+        for label in ["节点", "主页", "日志", "主页", "设置", "主页"] {
             let button = try XCTUnwrap(all(host).compactMap { $0 as? NSButton }.first { $0.toolTip == label })
             let screenPoint = button.convert(NSPoint(x: button.bounds.midX, y: button.bounds.midY), to: nil)
             let target = host.hitTest(host.superview!.convert(screenPoint, from: nil))
@@ -89,22 +89,14 @@ private struct RealityInteractionView: View {
                     timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
                     context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
             }
-            let stage = try XCTUnwrap(all(host).compactMap { $0 as? RealityStageView }.first)
             window.sendEvent(try event(.leftMouseDown))
             window.sendEvent(try event(.leftMouseUp))
-            try await Task.sleep(for: .milliseconds(90))
-            XCTAssertEqual(button.accessibilityValue() as? String, "已选中")
-            XCTAssertGreaterThan(stage.owner.activeNavigationFlips, 0, label)
-            try await Task.sleep(for: .milliseconds(450))
-            XCTAssertEqual(stage.owner.activeNavigationFlips, 0)
-            let anchors = all(host).compactMap { $0 as? RealitySurfaceAnchor }.filter { $0.style.shape.isNavigationSymbol }
-            XCTAssertEqual(anchors.count, 4)
-            for anchor in anchors {
-                let entity = try XCTUnwrap(stage.owner.root.findEntity(named: "surface-" + anchor.surfaceID.uuidString))
-                let faceNormal = entity.orientation.act(SIMD3<Float>(0, 0, 1))
-                XCTAssertLessThan(simd_distance(faceNormal, [0, 0, 1]), 0.00001)
-                XCTAssertLessThan(simd_length(entity.visualBounds(relativeTo: entity).center), 0.00001)
-            }
+            try await Task.sleep(for: .milliseconds(400))
+            let labels = all(host).compactMap { ($0 as? NSButton)?.toolTip }
+            XCTAssertEqual(labels.contains(Page.home.rawValue), label != Page.home.rawValue)
+            XCTAssertEqual(labels.contains(Page.logs.rawValue), label == Page.home.rawValue)
+            XCTAssertFalse(all(host).compactMap { $0 as? RealitySurfaceAnchor }.contains { $0.style.shape.isNavigationSymbol })
+
         }
     }
 
@@ -401,7 +393,7 @@ private struct RealityInteractionView: View {
         XCTAssertEqual(scene.meshBuilds, 1)
     }
 
-    func testPageSlideMovesLiveSurfacesAndKeepsTitleStill() async throws {
+    func testReturnContractsLogPageAndKeepsTitleStill() async throws {
         let model = AppModel(dataDirectory: FileManager.default.temporaryDirectory)
         model.ready = true
         let content = ContentView(initialPage: .logs).environmentObject(model)
@@ -428,31 +420,19 @@ private struct RealityInteractionView: View {
         let title = try XCTUnwrap(anchors.first { $0.style.shape == .dashboard(.titleBar) && $0.style.level == 50 })
         let field = try XCTUnwrap(anchors.first { if case .well = $0.style.shape { return true }; return false })
         let titleX = title.convert(title.bounds, to: stage).midX
-        let initialX = field.convert(field.bounds, to: stage).midX
-        try select(.settings)
-        var intermediate: [CGFloat] = []
+        let initialWidth = field.convert(field.bounds, to: stage).width
+        try select(.home)
+        var widths = Set<Int>()
         for _ in 0..<30 {
             try await Task.sleep(for: .milliseconds(10))
             guard field.window != nil else { break }
-            let frame = field.convert(field.bounds, to: stage)
-            if frame.midX < initialX - 1 && frame.maxX > 1 {
-                intermediate.append(frame.midX)
-                let entity = try XCTUnwrap(stage.owner.root.findEntity(named: "surface-" + field.surfaceID.uuidString))
-                let renderedX = CGFloat(entity.position.x) * 1000 + stage.bounds.midX
-                XCTAssertLessThanOrEqual(renderedX, initialX - 0.1)
-            }
+            let width = field.convert(field.bounds, to: stage).width
+            if width < initialWidth - 1 { widths.insert(Int(width)) }
             XCTAssertEqual(title.convert(title.bounds, to: stage).midX, titleX, accuracy: 0.01)
         }
-        XCTAssertGreaterThan(Set(intermediate).count, 1)
-        try select(.profiles)
-        try await Task.sleep(for: .milliseconds(35))
-        try select(.logs)
-        try await Task.sleep(for: .milliseconds(850))
-        XCTAssertEqual(try button(.logs).accessibilityValue() as? String, "已选中")
-        let settled = views(host).compactMap { $0 as? RealitySurfaceAnchor }
-        XCTAssertTrue(settled.contains { if case .well = $0.style.shape { return true }; return false })
-        XCTAssertFalse(settled.contains { if case .cardPanel = $0.style.shape { return true }; return false })
-        XCTAssertEqual(title.convert(title.bounds, to: stage).midX, titleX, accuracy: 0.01)
+        XCTAssertGreaterThan(widths.count, 1)
+        XCTAssertNotNil(try button(.logs))
+
     }
 
     func testRingUpdatesOnlyItsVisibleIndexRange() throws {
@@ -566,7 +546,7 @@ private struct RealityInteractionView: View {
          {"id":"all","remarks":"全局代理","isActive":false}]
         """.utf8))
         model.profiles = try JSONDecoder().decode([Profile].self, from: Data("""
-        [{"indexId":"fixture","remarks":"RealityKit · 测试节点","protocol":"vless","address":"example.invalid","port":443,
+        [{"indexId":"fixture","remarks":"测试节点","protocol":"vless","address":"example.invalid","port":443,
         "network":"xhttp","streamSecurity":"tls","coreType":"Xray","delay":42,"isCurrent":true,"totalUp":1024,"totalDown":2048,"canTest":true}]
         """.utf8))
         let now = Date(), formatter = ISO8601DateFormatter()
