@@ -1073,7 +1073,14 @@ public actor NativeRuntimeHost: NativeBackend, NativeAPI {
         case ("/api/settings/dns/defaults", "GET"): return try reply(await store.builtin("dns-defaults"))
         case ("/api/editor-options", "GET"): return try reply(await store.builtin("editor-options"))
         case ("/api/status", "GET"): return try reply(await runtimeStatus())
-        case ("/api/operations", "GET"): return try reply((operation.map { [$0] } ?? []) + (subscriptionUpdate == nil ? [] : ["subscription-update"]) + (speedTest == nil ? [] : ["speedtest"]) + (updateName.map { [$0] } ?? []) + (regionTask == nil ? [] : ["regional-preset"]))
+        case ("/api/operations", "GET"):
+            var operations: [String] = []
+            if let operation { operations.append(operation) }
+            if subscriptionUpdate != nil { operations.append("subscription-update") }
+            if speedTest != nil { operations.append("speedtest") }
+            if let updateName { operations.append(updateName) }
+            if regionTask != nil { operations.append("regional-preset") }
+            return try reply(operations)
         case ("/api/macos/tun", "GET"): return try reply(await tunStatus(fresh: query["fresh"] == "true", verifyHelper: query["verifyHelper"] == "true"))
         case ("/api/macos/tun", "PUT"): try await setTunEnabled(input["enabled"].flag)
         case ("/api/core/start", "POST"): try await startTunCore()
