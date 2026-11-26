@@ -133,47 +133,15 @@ enum XrayFileProfile {
         }
         let decoder = JSONDecoder()
         decoder.allowsJSON5 = true
-        guard let doc = try? decoder.decode(SettingsValue.self, from: Data(contentsOf: url)), case .object = doc else {
+        guard let doc = try? decoder.decode(SettingsValue.self, from: Data(contentsOf: url)) else {
             throw ClientFailure("profile_config_file_invalid")
         }
+        if node["configType"].text == "outbound" {
+            _ = try FileProfileImport.customMembers(doc)
+        } else {
+            guard case .object = doc else { throw ClientFailure("profile_config_file_invalid") }
+        }
         return doc
-    }
-
-    static func outbound(_ source: SettingsValue, tag: String, via: String?, bind: String, strategy: SettingsValue) throws -> SettingsValue {
-        let placeholders = ["{{tag}}": tag, "{{detour}}": via ?? "", "{{interface}}": bind]
-        var used = Set<String>()
-        func replace(_ string: String) -> String {
-            var result = string
-            for (key, value) in placeholders where string.contains(key) {
-                used.insert(key)
-                result = result.replacingOccurrences(of: key, with: value)
-            }
-            return result
-        }
-        func walk(_ value: SettingsValue) throws -> SettingsValue {
-            switch value {
-            case let .string(text): return .string(replace(text))
-            case let .array(values): return .array(try values.map(walk))
-            case let .object(fields):
-                var replaced = [String: SettingsValue]()
-                for (k, v) in fields {
-                    guard replaced.updateValue(try walk(v), forKey: replace(k)) == nil else { throw ClientFailure("profile_config_file_invalid") }
-                }
-                return .object(replaced)
-            default: return value
-            }
-        }
-        var result = try walk(source)
-        guard !result["protocol"].text.isEmpty else { throw ClientFailure("profile_config_file_invalid") }
-        if !used.contains("{{tag}}") { result["tag"] = .string(tag) }
-        if result["targetStrategy"] == .null, strategy != .null { result["targetStrategy"] = strategy }
-        if let via, !used.contains("{{detour}}") { setSocketOption("dialerProxy", via, on: &result) }
-        if via == nil, case .object(var options) = result["streamSettings"]["sockopt"] {
-            options.removeValue(forKey: "dialerProxy")
-            result["streamSettings"]["sockopt"] = .object(options)
-        }
-        if !bind.isEmpty && !used.contains("{{interface}}") { setSocketOption("interface", bind, on: &result) }
-        return result
     }
 
     static func setSocketOption(_ key: String, _ value: String, on outbound: inout SettingsValue) {

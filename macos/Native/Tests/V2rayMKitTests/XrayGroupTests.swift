@@ -2,6 +2,22 @@ import XCTest
 @testable import V2rayMKit
 
 final class XrayGroupTests: XCTestCase {
+    func testSpeedTestScopesLegacyAndNestedCustomOutboundDetours() throws {
+        let id = UUID()
+        let entry = try SettingsValue.parse(#"{"tag":"proxy","protocol":"socks","proxySettings":{"tag":"middle","transportLayer":true}}"#)
+        let middle = try SettingsValue.parse(#"{"tag":"middle","protocol":"vless","streamSettings":{"xhttpSettings":{"extra":{"downloadSettings":{"sockopt":{"dialerProxy":"exit"}}}}}}"#)
+        let exit = try SettingsValue.parse(#"{"tag":"exit","protocol":"freedom"}"#)
+        let config = try NativeLatencyTest.privateConfiguration([entry, middle, exit], id: id, group: XrayGroupRouting(), pingURL: .null)
+        let scoped = config["outbounds"].items
+        XCTAssertEqual(scoped.map { $0["tag"].text }, ["proxy", "middle", "exit"].map { id.uuidString + "/" + $0 })
+        XCTAssertEqual(scoped[0]["proxySettings"]["tag"].text, id.uuidString + "/middle")
+        XCTAssertEqual(scoped[0]["proxySettings"]["transportLayer"], .bool(true))
+        XCTAssertEqual(scoped[1]["streamSettings"]["xhttpSettings"]["extra"]["downloadSettings"]["sockopt"]["dialerProxy"].text, id.uuidString + "/exit")
+        XCTAssertThrowsError(try NativeLatencyTest.privateConfiguration([entry, exit], id: id, group: XrayGroupRouting(), pingURL: .null)) {
+            XCTAssertEqual(($0 as? ClientFailure)?.code, "profile_chain_member_missing")
+        }
+    }
+
     func testSubscriptionLinksRequireAUniqueRemarkInEitherDirection() throws {
         func node(_ id: String, _ name: String) -> SettingsValue {
             .object(["indexId": .string(id), "remarks": .string(name), "subid": .string(id)])
@@ -196,7 +212,8 @@ final class XrayGroupTests: XCTestCase {
             XCTFail("Raw custom configuration entered the helper path")
         } catch let error as ClientFailure { XCTAssertEqual(error.code, "mac_tun_generated_core_required") }
         let custom = try SettingsValue.parse(#"{"protocol":"socks","name":"{{tag}}","streamSettings":{"xhttpSettings":{"extra":{"downloadSettings":{}}}}}"#)
-        let outbound = try XrayFileProfile.outbound(custom, tag: "tag with quotes \"inside\"", via: "first", bind: "en0", strategy: .string("UseIPv4"))
+        var tags = XrayCustomOutboundTags(reserving: [])
+        let outbound = try XCTUnwrap(XrayFileProfile.outbounds(custom, tag: "tag with quotes \"inside\"", via: "first", bind: "en0", strategy: .string("UseIPv4"), tags: &tags).first)
         XCTAssertEqual(outbound["name"].text, "tag with quotes \"inside\"")
         XCTAssertEqual(outbound["tag"], .null)
         XCTAssertEqual(outbound["streamSettings"]["sockopt"]["dialerProxy"].text, "first")

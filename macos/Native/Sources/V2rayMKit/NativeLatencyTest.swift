@@ -26,24 +26,12 @@ enum NativeLatencyTest {
             throw ClientFailure("speedtest_invalid_profile")
         }
         let prefix = id.uuidString + "/"
-        func scopeStream(_ stream: inout SettingsValue) throws {
-            let detour = stream["sockopt"]["dialerProxy"].text
-            if !detour.isEmpty {
-                guard tags.contains(detour) else { throw ClientFailure("profile_chain_member_missing") }
-                stream["sockopt"]["dialerProxy"] = .string(prefix + detour)
-            }
-            for transport in ["xhttpSettings", "splithttpSettings"] {
-                for key in ["extra", ""] {
-                    var container = key.isEmpty ? stream[transport] : stream[transport][key]
-                    guard case .object = container["downloadSettings"] else { continue }
-                    try scopeStream(&container["downloadSettings"])
-                    if key.isEmpty { stream[transport] = container } else { stream[transport][key] = container }
-                }
-            }
-        }
         let scoped = try outbounds.map { original in
             var item = original
-            if case .object = item["streamSettings"] { try scopeStream(&item["streamSettings"]) }
+            try XrayFileProfile.remapReferences(in: &item) { target in
+                guard tags.contains(target) else { throw ClientFailure("profile_chain_member_missing") }
+                return prefix + target
+            }
             item["tag"] = .string(prefix + original["tag"].text)
             return item
         }

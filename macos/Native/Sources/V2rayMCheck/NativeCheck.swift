@@ -288,7 +288,11 @@ import V2rayMKit
                 case "proxy", "tun":
                     let file = directory.appendingPathComponent(action + ".json")
                     let config = try JSONDecoder().decode(SettingsValue.self, from: Data(contentsOf: file))
-                    try await core.start(config: config, assets: directory, tunnel: action == "tun" ? tunnel : nil)
+                    do { try await core.start(config: config, assets: directory, tunnel: action == "tun" ? tunnel : nil) }
+                    catch let failure as ClientFailure {
+                        if let detail = failure.detail { FileHandle.standardError.write(Data((detail + "\n").utf8)) }
+                        throw failure
+                    }
                 case "stop": try await core.stop()
                 default: throw ClientFailure("fixture_command_invalid")
                 }
@@ -325,9 +329,10 @@ import V2rayMKit
             FileHandle.standardOutput.write(try JSONEncoder().encode(documents))
             return
         }
-        if args.count == 4 && args[1] == "--generate-client" {
+        if args.count == 4 && ["--generate-client", "--generate-tun-client"].contains(args[1]) {
             let store = NativeConfigurationStore(dataDirectory: URL(fileURLWithPath: args[2], isDirectory: true))
-            let config = try await store.generateXrayConfiguration(nodeID: args[3], metricsPort: nil)
+            let config = try await store.generateXrayConfiguration(nodeID: args[3], metricsPort: nil,
+                tunnelInterface: args[1] == "--generate-tun-client" ? "utun9999" : nil)
             FileHandle.standardOutput.write(try JSONEncoder().encode(config))
             return
         }

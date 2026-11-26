@@ -2,7 +2,7 @@ import XCTest
 @testable import V2rayMKit
 
 final class XrayConfigurationTests: XCTestCase {
-    func testGeneratedClientMatchesPackagedBackendExport() throws {
+    func testGeneratedClientMatchesReviewedReference() throws {
         func fixture(_ name: String) throws -> SettingsValue {
             let file = try XCTUnwrap(Bundle.module.url(forResource: name, withExtension: "json", subdirectory: "Fixtures"))
             return try JSONDecoder().decode(SettingsValue.self, from: Data(contentsOf: file))

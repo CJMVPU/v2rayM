@@ -39,22 +39,14 @@ struct XrayDNS {
         let region = expected.last(where: { $0.lowercased().hasPrefix("geoip:") }).map { String($0.dropFirst(6)) }
         var directDomains: [String] = [], proxyDomains: [String] = [], directSites: [String] = []
         var proxySites: [String] = [], regional: [String] = []
-        var last: [String: SettingsValue] = [:]
+        var useDirectFallback = false
         for rule in rules {
             let fields = try StoredRoutingRule.fields(of: rule)
             if fields["enabled"] == .bool(false) || ["1", "routing"].contains(fields["ruleType"]?.text.lowercased()) { continue }
-            // An empty editor row or a domain list made entirely of comments
-            // produces no Xray routing rule and cannot choose the fallback DNS.
-            let domains = fields["domain"]?.items ?? []
-            let hasOtherList = ["ip", "process"].contains { !(fields[$0]?.items ?? []).isEmpty }
-            let hasBaseSelector = ["network", "port"].contains { !(fields[$0]?.text ?? "").isEmpty }
-                || ["inboundTag", "protocol"].contains { !(fields[$0]?.items ?? []).isEmpty }
-            guard hasOtherList || domains.contains(where: { !$0.text.hasPrefix("#") })
-                    || (domains.isEmpty && hasBaseSelector) else { continue }
-            last = fields
             let tag = (fields["outboundProfileId"]?.text ?? "").isEmpty ? fields["outboundTag"]?.text : "proxy"
+            if tag == "direct", Self.isDNSCatchAll(fields) { useDirectFallback = true }
             if tag == "block" { continue }
-            for item in last["domain"]?.items ?? [] {
+            for item in fields["domain"]?.items ?? [] {
                 let name = item.text.replacingOccurrences(of: "<COMMA>", with: ",")
                 if name.hasPrefix("#") { continue }
                 let site = name.hasPrefix("geosite:") || name.hasPrefix("ext:")
@@ -74,16 +66,21 @@ struct XrayDNS {
             let host = Self.parts(address)?.host ?? address
             return Self.isDomain(host) ? "full:" + host : nil
         }
+        let routes = config["routing"]["rules"].items
+        let inboundTags = Set(routes.flatMap { $0["inboundTag"].items.map(\.text) })
         var servers: [SettingsValue] = [], directTags: [String] = []
         func append(_ addresses: [String], domains: [String], direct: Bool = false,
                     expected: [String] = [], fallback: Bool = false) {
             guard !domains.isEmpty || fallback else { return }
-            for address in addresses {
+            for (index, address) in addresses.enumerated() {
                 var server = Self.server(address: address, domains: unique(domains))
                 if fallback { server["skipFallback"] = .bool(false) }
+                else if expected.isEmpty && index == addresses.count - 1 { server["finalQuery"] = .bool(true) }
                 if !expected.isEmpty { server["expectedIPs"] = strings(unique(expected)) }
                 if direct {
-                    let tag = "direct-dns-\(directTags.count + 1)"
+                    // Keep an old numbered tag only when a saved route actually targets it.
+                    let legacy = "direct-dns-\(directTags.count + 1)"
+                    let tag = inboundTags.contains(legacy) ? legacy : "direct-dns"
                     directTags.append(tag)
                     server["tag"] = .string(tag)
                 }
@@ -105,13 +102,13 @@ struct XrayDNS {
         append(remote, domains: proxySites)
         append(direct, domains: directSites, direct: true)
         append(direct, domains: regional, direct: true, expected: expected)
-        let ips = last["ip"]?.items ?? []
-        if (last["outboundProfileId"]?.text ?? "").isEmpty, last["outboundTag"]?.text == "direct", (last["domain"]?.items ?? []).isEmpty,
-           ["process", "inboundTag", "protocol"].allSatisfy({ (last[$0]?.items ?? []).isEmpty }), ips.isEmpty || ips.contains(.string("0.0.0.0/0")),
-           ["", "0-65535", "1-65535"].contains(last["port"]?.text ?? ""), ["","tcp,udp","udp,tcp"].contains(last["network"]?.text ?? "") {
+        // A regional direct answer must pass expectedIPs. The explicitly matched
+        // remote group may answer outside that region and terminates this match.
+        append(remote, domains: regional)
+        if useDirectFallback {
             append(direct, domains: [], direct: true, fallback: true)
         } else { servers += remote.map(Self.resolver) }
-        var dns: SettingsValue = .object(["servers": .array(servers), "tag": .string("dns-module")])
+        var dns: SettingsValue = .object(["servers": .array(servers), "tag": .string("dns-module"), "disableFallbackIfMatch": .bool(true)])
         if simple["ServeStale"].flag { dns["serveStale"] = .bool(true) }
         if simple["ParallelQuery"].flag { dns["enableParallelQuery"] = .bool(true) }
         if simple["BlockAAAAQuery"].flag { dns["queryStrategy"] = .string("UseIPv4") }
@@ -127,14 +124,29 @@ struct XrayDNS {
         hosts.merge(overrides) { _, user in user }
         if !hosts.isEmpty { dns["hosts"] = .object(hosts.mapValues(strings)) }
         config["dns"] = dns
-        var routes = config["routing"]["rules"].items
-        if !directTags.isEmpty {
-            let before = routes.firstIndex(where: Self.catchAll) ?? routes.count
-            routes.insert(.object(["type": .string("field"), "inboundTag": strings(directTags),
-                                   "outboundTag": .string("direct")]), at: before)
+        config["routing"]["rules"] = .array(Self.routeDirectDNS(unique(directTags), through: routes) + [Self.defaultDNSRoute(in: config)])
+    }
+
+    /// A saved rule explicitly naming a DNS inbound can override its generated route.
+    /// Keep the rest of a mixed-inbound rule in its original position for regular traffic.
+    private static func routeDirectDNS(_ tags: [String], through rules: [SettingsValue]) -> [SettingsValue] {
+        guard !tags.isEmpty else { return rules }
+        var overrides = [SettingsValue](), remaining = [SettingsValue]()
+        for var rule in rules {
+            let inbounds = rule["inboundTag"].items
+            let explicit = inbounds.filter { tags.contains($0.text) || $0.text == "direct-dns" }
+            guard !explicit.isEmpty else { remaining.append(rule); continue }
+            var override = rule
+            override["inboundTag"] = explicit.contains(.string("direct-dns")) ? .array(tags.map(SettingsValue.string)) : .array(explicit)
+            overrides.append(override)
+            let other = inbounds.filter { !explicit.contains($0) }
+            if !other.isEmpty {
+                rule["inboundTag"] = .array(other)
+                remaining.append(rule)
+            }
         }
-        routes.append(Self.defaultDNSRoute(in: config))
-        config["routing"]["rules"] = .array(routes)
+        let direct: SettingsValue = .object(["type": .string("field"), "inboundTag": .array(tags.map(SettingsValue.string)), "outboundTag": .string("direct")])
+        return overrides + [direct] + remaining
     }
 
     private static func defaultDNSRoute(in config: SettingsValue) -> SettingsValue {
@@ -216,11 +228,16 @@ struct XrayDNS {
     }
     private func strings(_ values: [String]) -> SettingsValue { .array(values.map(SettingsValue.string)) }
 
-    private static func catchAll(_ rule: SettingsValue) -> Bool {
-        (rule["outboundTag"].text == "proxy" || rule["balancerTag"].text == "proxy-balancer")
-            && ["inboundTag", "domain", "ip", "protocol", "process"].allSatisfy { rule[$0].items.isEmpty }
-            && ["", "0-65535", "1-65535"].contains(rule["port"].text)
-            && ["", "tcp,udp", "udp,tcp"].contains(rule["network"].text)
+    private static func isDNSCatchAll(_ rule: [String: SettingsValue]) -> Bool {
+        let ips = rule["ip"]?.items ?? []
+        let network = rule["network"]?.text ?? ""
+        let port = rule["port"]?.text ?? ""
+        // The native rule expander omits empty editor rows.
+        return (!ips.isEmpty || !port.isEmpty || !network.isEmpty)
+            && ["inboundTag", "domain", "protocol", "process"].allSatisfy { (rule[$0]?.items ?? []).isEmpty }
+            && (ips.isEmpty || ips.contains(.string("0.0.0.0/0")) || ips.contains(.string("::/0")))
+            && ["", "0-65535", "1-65535"].contains(port)
+            && ["", "tcp,udp", "udp,tcp"].contains(network)
     }
 }
 

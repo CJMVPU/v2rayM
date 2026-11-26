@@ -90,6 +90,10 @@ struct XrayClientConfiguration {
             }
         }
         if !directStrategy.isEmpty && (rawDNS || directStrategy != "AsIs") { applyStrategy(directStrategy, to: &direct) }
+        let templateText = template[tunnelInterface == nil ? "Config" : "TunConfig"].text
+        let templateTags = template["Enabled"].flag ? (try? SettingsValue.parse(templateText))?["outbounds"].items.map { $0["tag"].text } ?? [] : []
+        var privateTags = XrayCustomOutboundTags(reserving: Set(hops.map(\.tag) + templateTags + ["direct", "block", "dns"]))
+        var expanded = [[SettingsValue]]()
         for index in proxies.indices {
             let proxyStrategy = simple["Strategy4Proxy"].text, dial = simple["Strategy4ProxyDial"].text
             if !rawDNS && !proxyStrategy.isEmpty && proxyStrategy != "AsIs" { proxies[index]["targetStrategy"] = .string(proxyStrategy) }
@@ -100,10 +104,11 @@ struct XrayClientConfiguration {
                 || (inet_pton(AF_INET6, host, &address6) == 1 && withUnsafeBytes(of: &address6) { Array($0) == Array(repeating: UInt8(0), count: 15) + [1] })
             let physical = !local && hops[index].via == nil
             if usedNodes[index]["configType"].text == "outbound" {
-                guard usedNodes[index]["coreType"].text == "xray" else { throw ClientFailure("xray_only_profile_required") }
+                guard usedNodes[index]["coreType"] == .null || usedNodes[index]["coreType"].text == "xray" else { throw ClientFailure("xray_only_profile_required") }
                 let file = try XrayFileProfile.document(usedNodes[index], directory: profileDirectory)
-                proxies[index] = try XrayFileProfile.outbound(file, tag: hops[index].tag, via: hops[index].via,
-                                                             bind: physical ? bind : "", strategy: proxies[index]["targetStrategy"])
+                expanded.append(try XrayFileProfile.outbounds(file, tag: hops[index].tag, via: hops[index].via,
+                                                              bind: physical ? bind : "", strategy: proxies[index]["targetStrategy"], tags: &privateTags))
+                continue
             } else if physical {
                 if !bind.isEmpty {
                     proxies[index]["streamSettings"]["sockopt"]["interface"] = .string(bind)
@@ -113,15 +118,16 @@ struct XrayClientConfiguration {
                 }
                 if !basic["SendThrough"].text.isEmpty { proxies[index]["sendThrough"] = basic["SendThrough"] }
             }
+            expanded.append([proxies[index]])
         }
         let fragment = XrayFragmentation(settings: settings, entryTags: entryTags)
-        let primary = try fragment.apply(to: proxies.prefix(primaryCount))
+        let primary = try fragment.apply(to: expanded.prefix(primaryCount).flatMap { $0 }[...])
         if let diagnosticID {
             return try NativeLatencyTest.privateConfiguration(primary, id: diagnosticID, group: groupRouting, pingURL: settings["SpeedTestItem"]["SpeedPingTestUrl"])
         }
         var outbounds = primary + [direct, .object(["tag": .string("block"), "protocol": .string("blackhole")])]
         if tunnelInterface != nil { outbounds.append(.object(["tag": .string("dns"), "protocol": .string("dns")])) }
-        outbounds += try fragment.apply(to: proxies.dropFirst(primaryCount))
+        outbounds += try fragment.apply(to: expanded.dropFirst(primaryCount).flatMap { $0 }[...])
         var config: SettingsValue = .object(["log": log, "routing": routing, "inbounds": .array(inbounds), "outbounds": .array(outbounds)])
         for (key, value) in groupRouting.probes { config[key] = value }
         var domains: [String] = []
@@ -171,7 +177,7 @@ struct XrayClientConfiguration {
             let builtin = ["direct","block","dns"].contains(outbound["tag"].text)
             if builtin && template["AddProxyOnly"].flag { continue }
             let detour = template["ProxyDetour"].text
-            if !builtin && !detour.isEmpty && outbound["streamSettings"]["sockopt"]["dialerProxy"].text.isEmpty {
+            if !builtin && !detour.isEmpty && outbound["streamSettings"]["sockopt"]["dialerProxy"].text.isEmpty && outbound["proxySettings"]["tag"].text.isEmpty {
                 outbound["streamSettings"]["sockopt"]["dialerProxy"] = .string(detour)
                 if case .object = outbound["streamSettings"]["xhttpSettings"]["extra"]["downloadSettings"] {
                     outbound["streamSettings"]["xhttpSettings"]["extra"]["downloadSettings"]["sockopt"]["dialerProxy"] = .string(detour)

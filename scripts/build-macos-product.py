@@ -54,6 +54,10 @@ def main():
         shipped_library = app / 'Contents/Frameworks/libV2rayMXray.dylib'
         run([sys.executable, ROOT / 'scripts/test-embedded-custom-pair.py', shipped_library])
         run([sys.executable, ROOT / 'scripts/test-embedded-xray.py', checker, shipped_library])
+        run([sys.executable, ROOT / 'scripts/test-embedded-dns.py', '--app', app, '--checker', checker])
+        env['V2RAYM_TEST_SIGNED_APP'] = str(app)
+        run(['swift', 'test', '--disable-sandbox', '--package-path', ROOT / 'macos/Native',
+             '--scratch-path', env['NATIVE_SCRATCH_PATH'], '--configuration', 'release', '--filter', 'CustomOutboundChainTests'])
         run([sys.executable, ROOT / 'scripts/smoke-macos-app.py', app, checker])
         run([sys.executable, ROOT / 'scripts/test-macos-tun-local.py', '--check-only', '--app', app,
              '--expect-app-version', source['version'], '--result-dir', output / 'native-host-preflight'])

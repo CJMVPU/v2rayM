@@ -114,7 +114,8 @@
         "domains": [
           "full:cloudflare-dns.com"
         ],
-        "skipFallback": true
+        "skipFallback": true,
+        "finalQuery": true
       },
       {
         "address": "119.29.29.29",
@@ -126,14 +127,16 @@
           "domain:onedns.net"
         ],
         "skipFallback": true,
-        "tag": "direct-dns-1"
+        "tag": "direct-dns",
+        "finalQuery": true
       },
       {
         "address": "https://cloudflare-dns.com/dns-query",
         "domains": [
           "geosite:google"
         ],
-        "skipFallback": true
+        "skipFallback": true,
+        "finalQuery": true
       },
       {
         "address": "119.29.29.29",
@@ -142,15 +145,24 @@
           "geosite:cn"
         ],
         "skipFallback": true,
-        "tag": "direct-dns-2"
+        "tag": "direct-dns",
+        "finalQuery": true
       },
       "https://cloudflare-dns.com/dns-query"
     ],
-    "tag": "dns-module"
+    "tag": "dns-module",
+    "disableFallbackIfMatch": true
   },
   "routing": {
     "domainStrategy": "AsIs",
     "rules": [
+      {
+        "type": "field",
+        "inboundTag": [
+          "direct-dns"
+        ],
+        "outboundTag": "direct"
+      },
       {
         "type": "field",
         "port": "1",
@@ -251,14 +263,6 @@
         "domain": [
           "geosite:cn"
         ]
-      },
-      {
-        "type": "field",
-        "inboundTag": [
-          "direct-dns-1",
-          "direct-dns-2"
-        ],
-        "outboundTag": "direct"
       },
       {
         "type": "field",

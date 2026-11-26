@@ -58,8 +58,28 @@ enum FileProfileImport {
          "Remarks": .text(name), "DisplayLog": .integer(1), pending: .text(try value.json())]
     }
 
+    /// Arrays are a single CustomOutbound only inside a typed inner URI or an existing profile file.
+    /// Untyped JSON arrays remain import batches.
+    static func customMembers(_ value: SettingsValue) throws -> [SettingsValue] {
+        let members: [SettingsValue]
+        if case let .array(values) = value { members = values } else { members = [value] }
+        guard !members.isEmpty else { throw ClientFailure("profile_config_file_invalid") }
+        var tags = Set<String>()
+        for member in members {
+            guard case .object = member, protocols.contains(member["protocol"].text.lowercased()) else {
+                throw ClientFailure("profile_config_file_invalid")
+            }
+            let tag = member["tag"]
+            if tag == .null { continue }
+            guard case let .string(name) = tag, name.isEmpty || tags.insert(name).inserted else {
+                throw ClientFailure("profile_config_file_invalid")
+            }
+        }
+        return members
+    }
+
     static func attachOutbound(_ value: SettingsValue, to row: inout RuntimeDatabase.Row) throws {
-        guard case .object = value, protocols.contains(value["protocol"].text.lowercased()) else { throw ClientFailure("profile_config_file_invalid") }
+        _ = try customMembers(value)
         row["Address"] = nil
         row[pending] = .text(try value.json())
     }
