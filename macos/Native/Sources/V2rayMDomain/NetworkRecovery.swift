@@ -22,7 +22,7 @@ public struct NetworkRecovery {
         restartSubmitted = false; restartBaseline = nil
     }
     public func action(desiredMode: ProxyMode, systemProxyEnabled: Bool, tunEnabled: Bool,
-                       coreRunning: Bool, runtimeState: String, coreStartedAt: String?) -> Action {
+                       coreRunning: Bool, runtimeState: String, coreIdentity: String?, lostTun: Bool = false) -> Action {
         guard active, desiredMode != .off, !["starting", "stopping"].contains(runtimeState) else { return .wait }
         // User intent survives failed transitions and is not inferred from a
         // temporarily stopped process or from the persisted TUN switch.
@@ -30,13 +30,13 @@ public struct NetworkRecovery {
             return .reconcileMode
         }
         let coreStopped = !coreRunning && ["stopped", "faulted"].contains(runtimeState)
-        guard needsRestart || coreStopped else { return .verify }
-        if restartSubmitted, coreRunning, let coreStartedAt, coreStartedAt != restartBaseline { return .verify }
+        guard needsRestart || coreStopped || lostTun else { return .verify }
+        if !lostTun, restartSubmitted, coreRunning, let coreIdentity, coreIdentity != restartBaseline { return .verify }
         return .restart
     }
-    public mutating func submitted(startedAt: String?, generation: Int) {
+    public mutating func submitted(identity: String?, generation: Int) {
         guard self.generation == generation else { return }
-        restartBaseline = startedAt; restartSubmitted = true
+        restartBaseline = identity; restartSubmitted = true
     }
     public mutating func restarted(generation: Int) {
         if self.generation == generation { needsRestart = false }

@@ -12,7 +12,7 @@ import V2rayMKit
             ("queued", nil, true, nil),
             ("checking", "\"phase\":\"checking\"", true, nil),
             ("downloading", "\"phase\":\"downloading\",\"downloadedBytes\":50,\"totalBytes\":100,\"version\":\"v26.11.9\"", true, nil),
-            ("unknown-length", "\"phase\":\"downloading\",\"downloadedBytes\":50", true, nil),
+            ("unknown-length", "\"phase\":\"downloading\",\"downloadedBytes\":4587520,\"completedFiles\":1,\"totalFiles\":2", true, nil),
             ("completed", "\"phase\":\"completed\",\"isComplete\":true,\"success\":true,\"version\":\"v26.11.9\",\"detail\":\"已安装同版本修复版，无需更新\"", false, nil),
             ("failed", "\"phase\":\"failed\",\"isComplete\":true,\"detail\":\"下载失败：请检查连接。详细说明包含多行内容。\\n旧版本仍可继续使用。\"", false, nil),
             ("validation", "\"phase\":\"awaiting-validation\",\"isComplete\":true,\"version\":\"v26.11.10-preview-long-version\"", false, nil),
@@ -23,10 +23,10 @@ import V2rayMKit
             let model = AppModel(dataDirectory: URL(fileURLWithPath: "/tmp/v2raym-layout-fixture"))
             model.ready = true
             model.moduleUpdateActive = active
-            model.moduleScope = active ? .all : nil
+            model.moduleScope = active ? .geo : nil
             model.moduleUpdateError = error
             if let fields {
-                var object: [String: Any] = ["coreType": "Xray", "phase": "checking", "isComplete": false, "success": false, "batch": false]
+                var object: [String: Any] = ["coreType": "GeoFiles", "phase": "checking", "isComplete": false, "success": false, "batch": false]
                 let overrides = try XCTUnwrap(JSONSerialization.jsonObject(with: Data("{\(fields)}".utf8)) as? [String: Any])
                 object.merge(overrides) { _, new in new }
                 model.moduleObservation.progress = [try JSONDecoder().decode(ModuleUpdateProgress.self,

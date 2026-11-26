@@ -5,8 +5,11 @@ struct ProfileEditor: View {
     let profile: Profile
     @EnvironmentObject private var model: AppModel
     var homeRequest = 0
+    var didLoad: (() -> Void)?
     var goHome: (() -> Void)?
-    @State private var returningHome = false
+    private enum Navigation { case list, home, reload }
+    @State private var navigation = Navigation.list
+    @State private var needsReload = false
     let close: () -> Void
     @State private var value = SettingsValue.object([:])
     @State private var original = SettingsValue.object([:])
@@ -17,12 +20,11 @@ struct ProfileEditor: View {
     @State private var discard = false
     @State private var section = "基本信息"
     private var dirty: Bool { loaded && value != original }
-    private var path: String { "/api/profiles/\(profile.id)" }
     private var simple: Bool { !["custom", "outbound", "policygroup", "proxychain"].contains(value["configType"].text.lowercased()) }
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Button { requestReturn(home: false) } label: {
+                Button { request(.list) } label: {
                     RealityLabel(title: "节点", asset: .back)
                 }.disabled(saving)
                 Divider().frame(height: 20)
@@ -66,7 +68,15 @@ struct ProfileEditor: View {
                             field("指纹", "fingerprint")
                             field("Reality 公钥", "publicKey")
                             field("Short ID", "shortId")
-                            Toggle("允许不安全证书", isOn: Binding(get: { value["allowInsecure"].text == "true" }, set: { value["allowInsecure"] = .string($0 ? "true" : "false") })).toggleStyle(RealityToggleStyle())
+                            if value["streamSecurity"].text == "tls" {
+                                field("证书校验名称", "verifyPeerCertByName")
+                                if value["cert"].text.isEmpty { field("证书 SHA-256", "certSha") }
+                                else { Text("此节点使用已导入的 PEM 证书校验对端。").font(AppFont.caption).foregroundStyle(DashboardTheme.muted) }
+                                if ["true","1"].contains(value["allowInsecure"].text.lowercased()) {
+                                    Text("已保留旧版“允许不安全证书”标记。当前 Xray 仍会校验证书。")
+                                        .font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
+                                }
+                            }
                         } else {
                             Text("协议扩展（JSON）").foregroundStyle(DashboardTheme.muted)
                             TextEditor(text: binding("protoExtra")).scrollIndicators(.never).scrollContentBackground(.hidden).padding(5).modifier(RealityEditorSurface()).frame(height: 115)
@@ -86,26 +96,32 @@ struct ProfileEditor: View {
                 Text(result).font(AppFont.caption).foregroundStyle(failed ? DashboardTheme.warning : DashboardTheme.muted)
                     .lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
                 InlineActivityIndicator(active: saving)
+                if needsReload && loaded {
+                    Button("重新载入") { request(.reload) }.disabled(saving)
+                }
                 Button("保存节点") { Task { await save() } }
                     .disabled(!loaded || saving || !model.ready || model.busy || model.moduleUpdateActive || !dirty)
             }.frame(height: 32)
         }.padding(16).frame(maxWidth: .infinity, maxHeight: .infinity).font(AppFont.body)
-            .background(HiddenScrollbars())
             .buttonStyle(HoverButtonStyle())
-            .task { await load() }
-            .onChange(of: homeRequest) { requestReturn(home: true) }
+            .task { await load(); if !Task.isCancelled { didLoad?() } }
+            .onChange(of: homeRequest) { request(.home) }
             .confirmationDialog("放弃未保存的修改？", isPresented: $discard) {
                 Button("放弃修改", role: .destructive) { finishReturn() }
                 Button("继续编辑", role: .cancel) {}
             }
     }
-    private func requestReturn(home: Bool) {
+    private func request(_ destination: Navigation) {
         guard !saving else { return }
-        returningHome = home
+        navigation = destination
         if dirty { discard = true } else { finishReturn() }
     }
     private func finishReturn() {
-        if returningHome, let goHome { goHome() } else { close() }
+        switch navigation {
+        case .list: close()
+        case .home: (goHome ?? close)()
+        case .reload: Task { saving = true; await load(); saving = false }
+        }
     }
     private func binding(_ key: String) -> Binding<String> {
         Binding(get: { value[key].text }, set: { value[key] = .string($0) })
@@ -131,17 +147,21 @@ struct ProfileEditor: View {
     }
     @MainActor private func load() async {
         failed = false; result = ""
-        do { value = try await model.settingsRead(path); original = value; loaded = true }
+        do { value = try await model.profileDocument(id: profile.id); original = value; loaded = true; needsReload = false }
         catch { failed = true; result = error.localizedDescription }
     }
     @MainActor private func save() async {
+        guard !saving else { return }
         saving = true; failed = false
         defer { saving = false }
         do {
             let input = simple ? try ProfileDocument(value).validated() : value
-            try await model.settingsWrite(path, body: input)
-            value = try await model.settingsRead(path); original = value
+            value = try await model.saveProfile(id: profile.id, original: original, edited: input)
+            original = value; needsReload = false
             result = "节点已保存；正在使用此节点时会自动应用。"
-        } catch { failed = true; result = error.localizedDescription }
+        } catch {
+            if (error as? ClientFailure)?.code == "profile_edit_conflict" { needsReload = true }
+            failed = true; result = error.localizedDescription
+        }
     }
 }

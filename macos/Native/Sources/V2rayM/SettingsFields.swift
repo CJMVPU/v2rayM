@@ -39,7 +39,8 @@ extension SettingsFields {
     func multiline(_ title: String, _ root: Binding<SettingsValue>, _ key: String, array: Bool = false) -> some View {
         let binding = value(root, key)
         let content = Binding<String>(get: { array ? binding.wrappedValue.items.map(\.text).joined(separator: "\n") : binding.wrappedValue.text }, set: {
-            binding.wrappedValue = array ? .array($0.components(separatedBy: .newlines).filter { !$0.isEmpty }.map(SettingsValue.string)) : .string($0)
+            // Keep unfinished lines in the draft so pressing Return advances the caret.
+            binding.wrappedValue = array ? .array($0.components(separatedBy: .newlines).map(SettingsValue.string)) : .string($0)
         })
         return VStack(alignment: .leading, spacing: 4) {
             Text(title).foregroundStyle(DashboardTheme.muted)

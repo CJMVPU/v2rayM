@@ -13,12 +13,10 @@ public struct LaunchPolicy {
     public let bundle: URL
     public let stateRoot: URL
     private let validate: (URL, String) throws -> Void
-    private let verifiedCore: ((String) throws -> VerifiedCoreSource?)?
-
-    public init(bundle: URL, stateRoot: URL, validate: @escaping (URL, String) throws -> Void,
-                verifiedCore: ((String) throws -> VerifiedCoreSource?)? = nil) {
-        self.bundle = bundle; self.stateRoot = stateRoot; self.validate = validate
-        self.verifiedCore = verifiedCore
+    public init(bundle: URL, stateRoot: URL, validate: @escaping (URL, String) throws -> Void) {
+        self.bundle = bundle
+        self.stateRoot = stateRoot
+        self.validate = validate
     }
 
     public func prepare(_ request: HelperRequest) throws -> PreparedLaunch {
@@ -63,8 +61,7 @@ public struct LaunchPolicy {
                                                 attributes: [.posixPermissions: 0o700])
         do {
             let name = "xray"
-            let approved = try verifiedCore?(kind)
-            let source = approved?.url ?? bundle.appendingPathComponent("Contents/Resources/Backend/bin/\(kind)/\(name)")
+            let source = bundle.appendingPathComponent("Contents/Resources/Backend/bin/\(kind)/\(name)")
             let executable = directory.appendingPathComponent(name)
             try FileManager.default.copyItem(at: source, to: executable)
             let values = try executable.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
@@ -72,11 +69,10 @@ public struct LaunchPolicy {
                 throw HelperFailure("core_must_be_regular_file")
             }
             // Verify the private copy actually executed, closing the user-writable bundle race.
-            if let approved {
-                guard try OfficialCorePolicy.hashFile(executable) == approved.sha256 else {
-                    throw HelperFailure("installed_core_digest_mismatch")
-                }
-            } else { try validate(executable, kind) }
+            try validate(executable, kind)
+            if let expected = request.bundledCoreSHA256, try OfficialCorePolicy.hashFile(executable) != expected {
+                throw HelperFailure("bundled_core_digest_mismatch")
+            }
             try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
             for (name, bytes) in resources {
                 let target = directory.appendingPathComponent(name)

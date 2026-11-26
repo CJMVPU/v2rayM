@@ -31,9 +31,13 @@ public enum RecoveryAttemptResult: Equatable { case waiting, completed, proxyRec
         state = runtime.observation
         guard state.desiredMode != .off else { runtime.recovery.cancel(); return .waiting }
         guard !state.updating else { return .waiting }
-        let action = runtime.recovery.action(desiredMode: state.desiredMode, systemProxyEnabled: state.systemProxyEnabled,
-            tunEnabled: state.tunEnabled, coreRunning: state.coreRunning, runtimeState: state.runtimeState, coreStartedAt: state.coreStartedAt)
-        let previousCoreStart = state.coreStartedAt
+        func decision(_ state: RecoveryObservation) -> NetworkRecovery.Action {
+            runtime.recovery.action(desiredMode: state.desiredMode, systemProxyEnabled: state.systemProxyEnabled,
+                tunEnabled: state.tunEnabled, coreRunning: state.coreRunning, runtimeState: state.runtimeState,
+                coreIdentity: state.coreIdentity, lostTun: state.lostTun)
+        }
+        let action = decision(state)
+        let previousCore = state.coreIdentity
         switch action {
         case .wait: return .waiting
         case .reconcileMode:
@@ -43,7 +47,8 @@ public enum RecoveryAttemptResult: Equatable { case waiting, completed, proxyRec
             try await runtime.checkBeforeConnecting()
             guard try current() else { return .waiting }
             state = runtime.observation
-            runtime.recovery.submitted(startedAt: state.coreStartedAt, generation: generation)
+            guard !state.updating, decision(state) == .restart else { return .waiting }
+            runtime.recovery.submitted(identity: state.coreIdentity, generation: generation)
             try await runtime.startOrRestartCore(restart: state.runtimeState == "running" || state.runtimeState == "faulted")
             guard try current() else { return .waiting }
             runtime.recovery.restarted(generation: generation)
@@ -55,8 +60,8 @@ public enum RecoveryAttemptResult: Equatable { case waiting, completed, proxyRec
             guard try current() else { return .waiting }
             if action == .reconcileMode, runtime.recovery.needsRestart {
                 // Reattaching a system preference may reuse the same Core. A
-                // physical network change still requires a new process instance.
-                guard let started = runtime.observation.coreStartedAt, started != previousCoreStart else { return .waiting }
+                // physical network change still requires a new core session.
+                guard let identity = runtime.observation.coreIdentity, identity != previousCore else { return .waiting }
                 runtime.recovery.restarted(generation: generation)
             }
         }

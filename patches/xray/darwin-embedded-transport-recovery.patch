@@ -1,0 +1,274 @@
+diff --git a/app/dns/nameserver_doh.go b/app/dns/nameserver_doh.go
+index 0c1ac37..534c21d 100644
+--- a/app/dns/nameserver_doh.go
++++ b/app/dns/nameserver_doh.go
+@@ -4,10 +4,12 @@ import (
+ 	"bytes"
+ 	"context"
+ 	"crypto/tls"
++	stderrors "errors"
+ 	"fmt"
+ 	"io"
+ 	"net/http"
+ 	"net/url"
++	"sync"
+ 	"time"
+ 
+ 	utls "github.com/refraction-networking/utls"
+@@ -31,7 +33,10 @@ import (
+ // thus most of the DOH implementation is copied from udpns.go
+ type DoHNameServer struct {
+ 	cacheController *CacheController
++	clientMu        sync.Mutex
+ 	httpClient      *http.Client
++	newHTTPClient   func() *http.Client
++	firstTimeout    time.Time
+ 	dohURL          string
+ 	clientIP        net.IP
+ }
+@@ -49,11 +54,20 @@ func NewDoHNameServer(url *url.URL, dispatcher routing.Dispatcher, h2c bool, dis
+ 		dohURL:          url.String(),
+ 		clientIP:        clientIP,
+ 	}
+-	s.httpClient = &http.Client{
++	s.newHTTPClient = func() *http.Client { return s.makeHTTPClient(url.Hostname(), dispatcher, h2c) }
++	s.httpClient = s.newHTTPClient()
++	return s
++}
++
++func (s *DoHNameServer) makeHTTPClient(hostname string, dispatcher routing.Dispatcher, h2c bool) *http.Client {
++	return &http.Client{
+ 		Transport: &http2.Transport{
+ 			IdleConnTimeout: net.ConnIdleTimeout,
+ 			ReadIdleTimeout: net.ChromeH2KeepAlivePeriod,
+ 			DialTLSContext: func(ctx context.Context, network, addr string, cfg *tls.Config) (net.Conn, error) {
++				// The pooled dial can outlive the request that initiated it.
++				ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
++				defer cancel()
+ 				dest, err := net.ParseDestination(network + ":" + addr)
+ 				if err != nil {
+ 					return nil, err
+@@ -63,14 +77,9 @@ func NewDoHNameServer(url *url.URL, dispatcher routing.Dispatcher, h2c bool, dis
+ 					dnsCtx := toDnsContext(ctx, s.dohURL)
+ 					if h2c {
+ 						dnsCtx = session.ContextWithMitmAlpn11(dnsCtx, false) // for insurance
+-						dnsCtx = session.ContextWithMitmServerName(dnsCtx, url.Hostname())
++						dnsCtx = session.ContextWithMitmServerName(dnsCtx, hostname)
+ 					}
+ 					link, err := dispatcher.Dispatch(dnsCtx, dest)
+-					select {
+-					case <-ctx.Done():
+-						return nil, ctx.Err()
+-					default:
+-					}
+ 					if err != nil {
+ 						return nil, err
+ 					}
+@@ -98,9 +107,14 @@ func NewDoHNameServer(url *url.URL, dispatcher routing.Dispatcher, h2c bool, dis
+ 						return nil, err
+ 					}
+ 				}
++				if err := ctx.Err(); err != nil {
++					conn.Close()
++					return nil, err
++				}
+ 				if !h2c {
+-					conn = utls.UClient(conn, &utls.Config{ServerName: url.Hostname()}, utls.HelloChrome_Auto)
++					conn = utls.UClient(conn, &utls.Config{ServerName: hostname}, utls.HelloChrome_Auto)
+ 					if err := conn.(*utls.UConn).HandshakeContext(ctx); err != nil {
++						conn.Close()
+ 						return nil, err
+ 					}
+ 				}
+@@ -108,7 +122,6 @@ func NewDoHNameServer(url *url.URL, dispatcher routing.Dispatcher, h2c bool, dis
+ 			},
+ 		},
+ 	}
+-	return s
+ }
+ 
+ // Name implements Server.
+@@ -235,9 +248,42 @@ func (s *DoHNameServer) dohHTTPSContext(ctx context.Context, b []byte) ([]byte,
+ 	utils.TryDefaultHeadersWith(req.Header, "fetch")
+ 	req.Header.Set("X-Padding", utils.H2Base62Pad(crypto.RandBetween(100, 1000)))
+ 
++	s.clientMu.Lock()
+ 	hc := s.httpClient
++	s.clientMu.Unlock()
++	started := time.Now()
++	response, err := exchangeDOH(hc, req.WithContext(ctx))
++	s.recordExchange(hc, started, err)
++	return response, err
++}
++
++// Count independent failures. Parallel A/AAAA queries from a single burst
++// must not retire a resolver. Late results from a drained pool are irrelevant.
++func (s *DoHNameServer) recordExchange(hc *http.Client, started time.Time, err error) {
++	s.clientMu.Lock()
++	if hc != s.httpClient {
++		s.clientMu.Unlock()
++		return
++	}
++	if err == nil {
++		s.firstTimeout = time.Time{}
++	} else if stderrors.Is(err, context.DeadlineExceeded) {
++		if s.firstTimeout.IsZero() {
++			s.firstTimeout = time.Now()
++		} else if started.After(s.firstTimeout) {
++			s.httpClient = s.newHTTPClient()
++			s.firstTimeout = time.Time{}
++			s.clientMu.Unlock()
++			hc.CloseIdleConnections()
++			errors.LogWarning(context.Background(), "renewing DoH transport after consecutive query timeouts: ", s.Name())
++			return
++		}
++	}
++	s.clientMu.Unlock()
++}
+ 
+-	resp, err := hc.Do(req.WithContext(ctx))
++func exchangeDOH(hc *http.Client, req *http.Request) ([]byte, error) {
++	resp, err := hc.Do(req)
+ 	if err != nil {
+ 		return nil, err
+ 	}
+diff --git a/transport/internet/splithttp/client.go b/transport/internet/splithttp/client.go
+index 7dc7eac..64823a9 100644
+--- a/transport/internet/splithttp/client.go
++++ b/transport/internet/splithttp/client.go
+@@ -9,6 +9,7 @@ import (
+ 	"net/http/httptrace"
+ 	"sync"
+ 	"sync/atomic"
++	"time"
+ 
+ 	"github.com/xtls/xray-core/common"
+ 	"github.com/xtls/xray-core/common/buf"
+@@ -30,10 +31,11 @@ type DialerClient interface {
+ 
+ // implements splithttp.DialerClient in terms of direct network connections
+ type DefaultDialerClient struct {
+-	transportConfig *Config
+-	client          *http.Client
+-	closed          atomic.Bool
+-	httpVersion     string
++	transportConfig       *Config
++	client                *http.Client
++	closed                atomic.Bool
++	httpVersion           string
++	responseHeaderTimeout time.Duration
+ 	// pool of net.Conn, created using dialUploadConn
+ 	poolMu         sync.Mutex
+ 	idleUploads    []*H1Conn
+@@ -98,20 +100,41 @@ func (c *DefaultDialerClient) OpenStream(ctx context.Context, url string, sessio
+ 	if body != nil {
+ 		method = c.transportConfig.GetNormalizedUplinkHTTPMethod() // stream-up/one
+ 	}
+-	req, err := http.NewRequestWithContext(context.WithoutCancel(ctx), method, url, body)
++	// XHTTP stream-down and stream-one flush response headers before the
++	// application sends any data. Bound that phase, never the stream lifetime.
++	reqCtx := context.WithoutCancel(ctx)
++	var cancel context.CancelCauseFunc
++	if !uploadOnly && c.responseHeaderTimeout > 0 {
++		reqCtx, cancel = context.WithCancelCause(reqCtx)
++	}
++	req, err := http.NewRequestWithContext(reqCtx, method, url, body)
+ 	if err != nil {
++		if cancel != nil {
++			cancel(err)
++		}
+ 		errors.LogInfoInner(ctx, err, "failed to create HTTP request for "+url)
+ 		return nil, nil, nil, err
+ 	}
+ 	c.transportConfig.FillStreamRequest(req, sessionId, "")
+ 
+-	wrc = &WaitReadCloser{wait: done.New()}
++	wrc = &WaitReadCloser{wait: done.New(), cancel: cancel}
+ 	go func() {
++		var timer *time.Timer
++		if cancel != nil {
++			timer = time.AfterFunc(c.responseHeaderTimeout, func() { cancel(context.DeadlineExceeded) })
++		}
+ 		resp, err := c.client.Do(req)
++		if timer != nil {
++			timer.Stop()
++		}
+ 		if err != nil {
+-			if !uploadOnly { // stream-down is enough
++			if !uploadOnly && context.Cause(reqCtx) != context.Canceled { // local stream closure keeps the pool usable
+ 				c.closed.Store(true)
+-				errors.LogInfoInner(ctx, err, "failed to "+method+" "+url)
++				if context.Cause(reqCtx) == context.DeadlineExceeded {
++					errors.LogWarning(ctx, "XHTTP timed out waiting for HTTP/2 response headers; retiring pooled client")
++				} else {
++					errors.LogInfoInner(ctx, err, "failed to "+method+" "+url)
++				}
+ 			}
+ 			gotConn.Close()
+ 			common.Close(body)
+@@ -223,6 +246,7 @@ func (c *DefaultDialerClient) PostPacket(ctx context.Context, url string, sessio
+ // HTTP/1.1 and HTTP/2 will close itself, we only handle HTTP/3 here
+ 
+ type WaitReadCloser struct {
++	cancel context.CancelCauseFunc
+ 	wait   *done.Instance
+ 	reader atomic.Pointer[io.ReadCloser]
+ }
+@@ -249,6 +273,9 @@ func (w *WaitReadCloser) Read(b []byte) (int, error) {
+ }
+ 
+ func (w *WaitReadCloser) Close() error {
++	if w.cancel != nil {
++		w.cancel(context.Canceled)
++	}
+ 	w.wait.Close()
+ 	if p := w.reader.Swap(nil); p != nil {
+ 		return (*p).Close()
+diff --git a/transport/internet/splithttp/dialer.go b/transport/internet/splithttp/dialer.go
+index 191905e..f750202 100644
+--- a/transport/internet/splithttp/dialer.go
++++ b/transport/internet/splithttp/dialer.go
+@@ -149,14 +149,18 @@ func createHTTPClient(owner *core.Instance, dest net.Destination, streamSettings
+ 		}
+ 
+ 		if gotlsConfig != nil {
+-			if fingerprint := tls.GetFingerprint(tlsConfig.Fingerprint); fingerprint != nil {
++			fingerprint := tls.GetFingerprint(tlsConfig.Fingerprint)
++			if fingerprint != nil {
+ 				conn = tls.UClient(conn, gotlsConfig, fingerprint)
+-				if err := conn.(*tls.UConn).HandshakeContext(ctxInner); err != nil {
+-					return nil, err
+-				}
+ 			} else {
+ 				conn = tls.Client(conn, gotlsConfig)
+ 			}
++			if httpVersion == "2" || fingerprint != nil {
++				if err := conn.(tls.Interface).HandshakeContext(ctxInner); err != nil {
++					conn.Close()
++					return nil, err
++				}
++			}
+ 		}
+ 
+ 		return conn, nil
+@@ -273,7 +277,9 @@ func createHTTPClient(owner *core.Instance, dest net.Destination, streamSettings
+ 		}
+ 		transport = &http2.Transport{
+ 			DialTLSContext: func(ctxInner context.Context, network string, addr string, cfg *gotls.Config) (net.Conn, error) {
+-				return dialContext(ctxInner)
++				ctx, cancel := context.WithTimeout(ctxInner, 15*time.Second)
++				defer cancel()
++				return dialContext(ctx)
+ 			},
+ 			IdleConnTimeout: net.ConnIdleTimeout,
+ 			ReadIdleTimeout: keepAlivePeriod,
+@@ -303,6 +309,9 @@ func createHTTPClient(owner *core.Instance, dest net.Destination, streamSettings
+ 		dialUploadConn: dialContext,
+ 	}
+ 
++	if httpVersion == "2" {
++		client.responseHeaderTimeout = 30 * time.Second
++	}
+ 	return client
+ }
+ 

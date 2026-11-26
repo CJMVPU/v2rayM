@@ -2,83 +2,124 @@ import Foundation
 import Darwin
 import OSLog
 import TunShared
+import TunNetworkControl
 
 final class SessionEndpoint: NSObject, TunHelperProtocol {
-    let session: TunSession
-    let updates: TrustedCoreStore
     let queue = DispatchQueue(label: "v2rayM.tun.session")
     let cancellation = HelperCancellation()
     let recovery: SessionRecoveryStore
+    let limiter: SlotLimiter
+    private let slot = UUID()
     private var sessionToken: String?
-    init(_ session: TunSession, updates: TrustedCoreStore, recovery: SessionRecoveryStore) {
-        self.session = session; self.updates = updates; self.recovery = recovery
+    private var lease: NetworkLease?
+    init(limiter: SlotLimiter, recovery: SessionRecoveryStore) {
+        self.limiter = limiter
+        self.recovery = recovery
     }
+
+    func openTunnel(_ parameters: Data, withReply reply: @escaping (Data, FileHandle?) -> Void) {
+        queue.async {
+            var accepted = false
+            do {
+                guard !self.cancellation.isCancelled, self.sessionToken == nil, parameters.count <= 1024 * 1024 else {
+                    throw HelperFailure("tunnel_request_invalid")
+                }
+                let plan = try JSONDecoder().decode(TunnelNetworkPlan.self, from: parameters)
+                guard self.limiter.acquire(self.slot) else { throw HelperFailure("tunnel_busy") }
+                guard self.recovery.begin(plan.token.uuidString) else {
+                    self.limiter.release(self.slot)
+                    throw HelperFailure("session_token_invalid")
+                }
+                accepted = true
+                self.sessionToken = plan.token.uuidString
+                let lease = try NetworkLease(plan)
+                self.lease = lease
+                var response = HelperResponse(state: "prepared")
+                response.leaseAccepted = true
+                response.tunnelInterface = lease.name
+                reply(try JSONEncoder().encode(response), lease.handle)
+            } catch {
+                var failure = HelperResponse(success: false, code: (error as? HelperFailure)?.description ?? "tunnel_prepare_failed", state: "faulted")
+                failure.leaseAccepted = accepted
+                reply((try? JSONEncoder().encode(failure)) ?? Data(), nil)
+            }
+        }
+    }
+
     func request(_ data: Data, withReply reply: @escaping (Data) -> Void) {
         queue.async {
-            guard !self.cancellation.isCancelled else {
-                reply((try? JSONEncoder().encode(HelperResponse(success: false, code: "session_disconnected", state: "unavailable"))) ?? Data())
-                return
-            }
             let response: HelperResponse
-            if let decoded = try? DecodedHelperRequest(data: data) {
-                let request = decoded.request
-                if request.action == "cleanup-status" {
+            do {
+                guard !self.cancellation.isCancelled, data.count <= 8192 else { throw HelperFailure("tunnel_request_invalid") }
+                let request = try DecodedHelperRequest(data: data).request
+                switch request.action {
+                case "status":
+                    var status = HelperResponse(state: self.lease?.active == true ? "running" : "idle")
+                    status.supportsTunnelDescriptor = true
+                    status.supportsTunnelIPv6Address = true
+                    response = status
+                case "activate-tunnel":
+                    guard let lease = self.lease, self.sessionToken == request.sessionToken else { throw HelperFailure("session_token_invalid") }
+                    try lease.activate(cancelled: { self.cancellation.isCancelled })
+                    response = HelperResponse(state: "running")
+                case "stop":
+                    try self.restore()
+                    response = HelperResponse(state: "stopped")
+                case "cleanup-status":
                     response = self.recovery.status(request.sessionToken)
-                } else if request.action == "start" {
-                    if self.sessionToken == nil && self.recovery.begin(request.sessionToken) {
-                        self.sessionToken = request.sessionToken
-                        response = self.session.handle(decoded)
-                    } else {
-                        response = HelperResponse(success: false, code: "session_token_invalid", state: "unavailable")
-                    }
-                } else if request.action.hasPrefix("update-") {
-                    response = self.updates.handle(request, cancellation: self.cancellation)
-                } else { response = self.session.handle(decoded) }
-            } else { response = self.session.handle(data) }
+                default: throw HelperFailure("unsupported_helper_action")
+                }
+            } catch {
+                response = HelperResponse(success: false, code: (error as? HelperFailure)?.description ?? "helper_operation_failed", state: "faulted")
+            }
             reply((try? JSONEncoder().encode(response)) ?? Data())
         }
     }
-    func stopAndWait(requireConfirmedRecovery: Bool = false) -> Bool {
+
+    private func restore() throws {
+        guard let token = sessionToken else { return }
+        try lease?.restore()
+        lease = nil
+        limiter.release(slot)
+        recovery.finish(token, confirmed: true)
+        sessionToken = nil
+    }
+
+    func stopAndWait() -> Bool {
         cancellation.cancel()
         return queue.sync {
-            let clean = session.disconnect(requireConfirmedRecovery: requireConfirmedRecovery)
-            if clean, let token = sessionToken { recovery.finish(token, confirmed: session.cleanupConfirmed) }
-            return clean
+            do { try restore(); return true } catch { return false }
         }
     }
 }
 
 final class ListenerDelegate: NSObject, NSXPCListenerDelegate {
     let signing: SigningPolicy
-    let policy: LaunchPolicy
-    let updates: TrustedCoreStore
-    let limiter = SlotLimiter()
+    let limiter = SlotLimiter(capacity: 1)
     let cleanup = SessionCleanupCoordinator()
     let recovery = SessionRecoveryStore()
     private let lock = NSLock()
     private var sessions: [UUID: SessionEndpoint] = [:]
     private var stopping = false
+    private var idleExit: DispatchWorkItem?
     init(signing: SigningPolicy) throws {
         guard geteuid() == 0 else { throw HelperFailure("root_daemon_required") }
         self.signing = signing
-        let updates = TrustedCoreStore(root: URL(fileURLWithPath: "/Library/Application Support/" + HelperIdentity.app + ".VerifiedCores"))
-        self.updates = updates
         let executable = try ExecutableLocation.current()
         let bundle = executable.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         guard bundle.pathExtension == "app", executable.lastPathComponent == "V2rayMHelper" else {
             throw HelperFailure("signed_app_bundle_required")
         }
-        policy = LaunchPolicy(bundle: bundle,
-            stateRoot: URL(fileURLWithPath: "/private/var/run/" + HelperIdentity.service),
-            validate: { try signing.validateCore($0, kind: $1) }, verifiedCore: updates.source)
         super.init()
     }
     func listener(_ listener: NSXPCListener, shouldAcceptNewConnection connection: NSXPCConnection) -> Bool {
-        connection.setCodeSigningRequirement(signing.requirement(identifiers: [HelperIdentity.app, HelperIdentity.app + ".bridge"]))
-        let endpoint = SessionEndpoint(TunSession(limiter: limiter, prepare: policy.prepare), updates: updates, recovery: recovery)
+        connection.setCodeSigningRequirement(signing.requirement(identifiers: [HelperIdentity.app]))
+        let endpoint = SessionEndpoint(limiter: limiter, recovery: recovery)
         let id = UUID()
         lock.lock()
         guard !stopping else { lock.unlock(); return false }
+        idleExit?.cancel()
+        idleExit = nil
         sessions[id] = endpoint
         lock.unlock()
         connection.exportedInterface = NSXPCInterface(with: TunHelperProtocol.self)
@@ -95,19 +136,31 @@ final class ListenerDelegate: NSObject, NSXPCListenerDelegate {
         endpoint.cancellation.cancel()
         cleanup.disconnect(id: id, cleanup: { endpoint.stopAndWait() }) { [weak self] in
             guard let self else { return }
-            self.lock.lock(); self.sessions.removeValue(forKey: id); self.lock.unlock()
+            self.lock.lock()
+            self.sessions.removeValue(forKey: id)
+            if self.sessions.isEmpty && !self.stopping {
+                let item = DispatchWorkItem { [weak self] in
+                    guard let self else { return }
+                    self.lock.lock()
+                    let idle = self.sessions.isEmpty && !self.stopping
+                    if idle { self.stopping = true }
+                    self.lock.unlock()
+                    if idle { exit(0) }
+                }
+                self.idleExit = item
+                DispatchQueue.global().asyncAfter(deadline: .now() + 15, execute: item)
+            }
+            self.lock.unlock()
         }
     }
     func shutdown() -> Bool {
         lock.lock(); stopping = true; let active = Array(sessions.values); lock.unlock()
         for endpoint in active { endpoint.cancellation.cancel() }
-        let clean = SessionShutdownCoordinator.stop(active.map { endpoint in { endpoint.stopAndWait(requireConfirmedRecovery: true) } })
+        let clean = SessionShutdownCoordinator.stop(active.map { endpoint in { endpoint.stopAndWait() } })
         if clean {
             lock.lock(); sessions.removeAll(); lock.unlock()
         }
-        // Retain unfinished owners until process exit. Closing the helper's SC
-        // session removes temporary DNS; launchd owns remaining process-group
-        // members. Neither is proof that the core restored all routes gracefully.
+        // Unfinished leases retain their descriptors and pending route deletions for retry.
         return clean
     }
 }

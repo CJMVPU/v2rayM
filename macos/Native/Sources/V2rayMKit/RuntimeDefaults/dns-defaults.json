@@ -1,0 +1,7 @@
+[
+  {
+    "coreType": "xray",
+    "normalDNS": "{\n  \"hosts\": {\n    \"dns.google\": \"8.8.8.8\",\n    \"proxy.example.com\": \"127.0.0.1\"\n  },\n  \"servers\": [\n    {\n      \"address\": \"1.1.1.1\",\n      \"skipFallback\": true,\n      \"domains\": [\n        \"geosite:google\"\n      ]\n    },\n    {\n      \"address\": \"223.5.5.5\",\n      \"skipFallback\": true,\n      \"domains\": [\n        \"geosite:cn\"\n      ],\n      \"expectIPs\": [\n        \"geoip:cn\"\n      ]\n    },\n    \"1.1.1.1\",\n    \"8.8.8.8\",\n    \"https://dns.google/dns-query\"\n  ]\n}",
+    "tunDNS": "{\n  \"hosts\": {\n    \"dns.google\": \"8.8.8.8\",\n    \"proxy.example.com\": \"127.0.0.1\"\n  },\n  \"servers\": [\n    {\n      \"address\": \"1.1.1.1\",\n      \"skipFallback\": true,\n      \"domains\": [\n        \"geosite:google\"\n      ]\n    },\n    {\n      \"address\": \"223.5.5.5\",\n      \"skipFallback\": true,\n      \"domains\": [\n        \"geosite:cn\"\n      ],\n      \"expectIPs\": [\n        \"geoip:cn\"\n      ]\n    },\n    \"1.1.1.1\",\n    \"8.8.8.8\",\n    \"https://dns.google/dns-query\"\n  ]\n}"
+  }
+]

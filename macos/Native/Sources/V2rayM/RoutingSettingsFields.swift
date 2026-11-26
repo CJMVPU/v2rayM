@@ -3,6 +3,7 @@ import V2rayMKit
 
 struct RoutingSettingsFields: SettingsFields {
     let routes: [SettingsValue]
+    let profiles: [Profile]
     @Binding var route: SettingsValue
     @Binding var rules: [SettingsValue]
     @Binding var routeID: String
@@ -12,6 +13,10 @@ struct RoutingSettingsFields: SettingsFields {
     let create: () -> Void
     let delete: () -> Void
     let activate: () -> Void
+    let importRoutes: () -> Void
+    let applyPreset: (String) -> Void
+    @State private var preset = "default"
+    private let regions = ["default":"默认", "russia":"俄罗斯", "iran":"伊朗"]
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             SettingsFormSection(title: "路由方案", subtitle: "保存修改后可切换或启用方案。") {
@@ -32,6 +37,16 @@ struct RoutingSettingsFields: SettingsFields {
                 }
                 field("方案名称", $route, "remarks")
                 choice("方案域名策略（默认继承）", $route, "domainStrategy", ["", "AsIs", "IPIfNonMatch", "IPOnDemand"])
+            }
+            SettingsFormSection(title: "预设", subtitle: "地区预设会更新 DNS、路由方案和 Geo 规则文件，并重新连接当前节点。") {
+                SettingsFieldRow(title: "地区") {
+                    RealityChoice(title: "地区", selection: $preset, values: ["default","russia","iran"]) { regions[$0] ?? $0 }
+                }
+                HStack {
+                    Spacer()
+                    Button("导入路由方案") { importRoutes() }.disabled(dirty)
+                    Button("应用地区预设") { applyPreset(preset) }.disabled(dirty)
+                }
             }
             SettingsFormSection(title: "匹配规则", subtitle: "规则按从上到下的顺序匹配，调整顺序后需要保存。") {
                 HStack {
@@ -58,7 +73,7 @@ struct RoutingSettingsFields: SettingsFields {
                     }
                     toggle("启用规则", rule, "enabled")
                     field("备注", rule, "remarks")
-                    choice("出口", rule, "outboundTag", ["proxy", "direct", "block"])
+                    outboundChoice(rule)
                     multiline("域名（每行一个，支持 domain:、full:、geosite:）", rule, "domain", array: true)
                     multiline("IP 与网段（每行一项，支持 geoip:）", rule, "ip", array: true)
                     field("目标端口（例如 80,443）", rule, "port")
@@ -72,4 +87,49 @@ struct RoutingSettingsFields: SettingsFields {
             }
         }
     }
+    private enum OutboundChoice: Hashable {
+        case builtin(String), profile(String), unresolved(String)
+    }
+
+    private func outboundChoice(_ rule: Binding<SettingsValue>) -> some View {
+        let targets = profiles.filter { $0.coreType.lowercased() == "xray" && $0.protocol.lowercased() != "custom" }
+        let byID = Dictionary(uniqueKeysWithValues: targets.map { ($0.id, $0) })
+        let standard = ["proxy", "direct", "block"]
+        let value = rule.wrappedValue
+        let id = value["outboundProfileId"].text
+        let tag = value["outboundTag"].text
+        let current: OutboundChoice
+        if !id.isEmpty { current = .profile(id) }
+        else if standard.contains(tag) || tag.isEmpty { current = .builtin(tag.isEmpty ? "proxy" : tag) }
+        else { current = .unresolved(tag) }
+        var choices = standard.map(OutboundChoice.builtin) + targets.map { .profile($0.id) }
+        if !choices.contains(current) { choices.append(current) }
+        return SettingsFieldRow(title: "出口") {
+            RealityChoice(title: "出口", selection: Binding(get: { current }, set: { choice in
+                var updated = rule.wrappedValue
+                switch choice {
+                case .builtin(let name):
+                    guard case .object(var fields) = updated else { return }
+                    fields.removeValue(forKey: "outboundProfileId")
+                    fields["outboundTag"] = .string(name)
+                    updated = .object(fields)
+                case .profile(let id):
+                    guard let profile = byID[id] else { return }
+                    updated["outboundProfileId"] = .string(id)
+                    updated["outboundTag"] = .string(profile.remarks)
+                case .unresolved: return
+                }
+                rule.wrappedValue = updated
+            }), values: choices) { choice in
+                switch choice {
+                case .builtin(let name): return settingsOptionLabel(name)
+                case .profile(let id):
+                    guard let profile = byID[id] else { return "节点缺失 · " + tag }
+                    return profile.remarks + " · " + String(id.suffix(8))
+                case .unresolved(let name): return "待确认 · " + name
+                }
+            }
+        }
+    }
+
 }

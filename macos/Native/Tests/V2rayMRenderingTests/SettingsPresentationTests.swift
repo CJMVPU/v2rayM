@@ -5,9 +5,51 @@ import V2rayMKit
 @testable import V2rayM
 
 @MainActor final class SettingsPresentationTests: XCTestCase {
+    func testSubmittedLineArraysExcludeBlankRowsWithoutChangingDraft() throws {
+        let values: SettingsValue = .array([.string("one"), .string(""), .string("two"), .string("")])
+        let clean: SettingsValue = .array([.string("one"), .string("two")])
+        var parameters = ParameterSettingsDraft()
+        parameters.settings["core"]["fragmentLengths"] = values
+        parameters.tunSettings["routeExcludeAddress"] = values
+        XCTAssertEqual(parameters.submission["core"]["fragmentLengths"], clean)
+        XCTAssertEqual(parameters.submission["nativeTun"]["routeExcludeAddress"], clean)
+        XCTAssertEqual(parameters.tunSettings["routeExcludeAddress"], values)
+        var route = RoutingSettingsDraft()
+        route.rules = [.object(["domain":values, "unknown":values])]
+        let submitted = try SettingsValue.parse(route.submission()["ruleSet"].text).items.first
+        XCTAssertEqual(submitted?["domain"], clean)
+        XCTAssertEqual(submitted?["unknown"], values)
+    }
+
+    func testPresetRefreshCommitsSelectedIdentityOnlyAfterAllReadsSucceed() async throws {
+        let old: SettingsValue = .object(["id": .string("old")])
+        let new: SettingsValue = .object(["id": .string("new"), "isActive": .bool(true)])
+        var draft = RoutingSettingsDraft(routes: [old], route: old, routeID: "old")
+        do {
+            draft = try await draft.refreshing(routes: [old, new], preferActive: true) { _ in throw ClientFailure("read_failed") }
+            XCTFail("Expected read failure")
+        } catch { }
+        XCTAssertEqual(draft.routes, [old])
+        XCTAssertEqual(draft.routeID, "old")
+        XCTAssertEqual(draft.saveMethod, "PUT")
+        draft = try await draft.refreshing(routes: [old, new], preferActive: true) { id in
+            XCTAssertEqual(id, "new"); return [.string("new rule")]
+        }
+        XCTAssertEqual(draft.routeID, "new")
+        XCTAssertEqual(draft.rules, [.string("new rule")])
+    }
+
     func testImportRetainsInputOnFailureAndAllowsRetry() async {
         let draft = ImportDraft()
+        XCTAssertTrue(draft.requestClose(home: true))
+        XCTAssertTrue(draft.returningHome)
         draft.content = "original input"
+        XCTAssertFalse(draft.requestClose(home: true))
+        XCTAssertTrue(draft.discard)
+        draft.discard = false
+        XCTAssertFalse(draft.requestClose(home: false))
+        XCTAssertFalse(draft.returningHome)
+        draft.discard = false
         let failed = await draft.submit { _ in throw ClientFailure("invalid_profile") }
         XCTAssertFalse(failed)
         XCTAssertEqual(draft.content, "original input")
@@ -18,6 +60,27 @@ import V2rayMKit
         XCTAssertNil(draft.error)
     }
 
+    func testNodeRowDescribesLatencyAndCurrentStatusIndependentlyOfSelection() throws {
+        let data = Data(#"{"indexId":"one","remarks":"Fixture","protocol":"socks","address":"127.0.0.1","port":1080,"network":"raw","coreType":"xray","delay":0,"isCurrent":false,"canTest":true}"#.utf8)
+        var profile = try JSONDecoder().decode(Profile.self, from: data)
+        for address in ["2001:db8::1", "[2001:db8::1]"] {
+            profile.address = address
+            let row = RealityProfileRow(profile: profile, selected: false, action: {})
+            XCTAssertTrue(row.accessibilitySummary.contains("服务器 [2001:db8::1]:1080"))
+        }
+        profile.address = "127.0.0.1"
+        for (value, label) in [(-1, "失败"), (0, "未测"), (71, "71 ms")] {
+            profile.delay = value
+            for current in [true, false] {
+                profile.isCurrent = current
+                let row = RealityProfileRow(profile: profile, selected: !current, action: {})
+                XCTAssertEqual(RealityProfileRow.delayLabel(value), label)
+                XCTAssertTrue(row.accessibilitySummary.contains("延迟 " + label))
+                XCTAssertEqual(row.accessibilitySummary.contains("当前节点"), current)
+            }
+        }
+    }
+
     func testImportCannotSubmitTwiceWhilePending() async {
         let draft = ImportDraft()
         draft.content = "test"
@@ -25,6 +88,8 @@ import V2rayMKit
         let first = Task { await draft.submit { _ in await withCheckedContinuation { continuation = $0 } } }
         while continuation == nil { await Task.yield() }
         XCTAssertTrue(draft.saving)
+        XCTAssertFalse(draft.requestClose(home: true))
+        XCTAssertFalse(draft.discard)
         let second = await draft.submit { _ in XCTFail("Duplicate submit") }
         XCTAssertFalse(second)
         continuation?.resume()
@@ -76,7 +141,7 @@ import V2rayMKit
         AppFont.register()
         let model = AppModel(dataDirectory: URL(fileURLWithPath: "/tmp/v2raym-ui-fixture"))
         model.ready = true
-        try await render(ImportPane(close: {}, save: { _ in }).environmentObject(model),
+        try await render(ImportPane(homeRequest: 0, goHome: {}, close: {}, save: { _ in }).environmentObject(model),
             name: "import", height: 568, directory: directory)
         model.routes = try JSONDecoder().decode([RoutingProfile].self, from: Data("""
             [{"id":"one","remarks":"绕过大陆","isActive":true},{"id":"two","remarks":"全局代理","isActive":false}]
@@ -112,8 +177,8 @@ import V2rayMKit
         let rule = try SettingsValue.parse("""
             {"remarks":"直连局域网","enabled":true,"outboundTag":"direct","ip":["geoip:private"]}
             """)
-        try await render(RoutingSettingsFields(routes: [route], route: .constant(route), rules: .constant([rule]),
-            routeID: .constant("one"), ruleIndex: .constant(0), dirty: .constant(false), select: { _ in }, create: {}, delete: {}, activate: {}).padding(16),
+        try await render(RoutingSettingsFields(routes: [route], profiles: [], route: .constant(route), rules: .constant([rule]),
+            routeID: .constant("one"), ruleIndex: .constant(0), dirty: .constant(false), select: { _ in }, create: {}, delete: {}, activate: {}, importRoutes: {}, applyPreset: { _ in }).padding(16),
             name: "routing", height: 1100, directory: directory)
     }
 

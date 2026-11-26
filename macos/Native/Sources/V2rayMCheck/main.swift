@@ -1,7 +1,7 @@
 import Foundation
 import Darwin
+import MachO
 import V2rayMKit
-import CryptoKit
 
 /// This development executable is not shipped in the .app. It exercises the same native
 /// controller/client as SwiftUI using a disposable data directory and loopback-only fixtures.
@@ -10,7 +10,7 @@ import CryptoKit
         do { try await run() }
         catch { FileHandle.standardError.write(Data(("Native check failed: " + error.localizedDescription + "\n").utf8)); exit(1) }
     }
-    static func checkProfileCatalog(_ api: APIClient, group: Subscription, profiles: [Profile]) async throws -> String {
+    static func checkProfileCatalog(_ api: any NativeAPI, group: Subscription, profiles: [Profile]) async throws -> String {
         guard let original = profiles.first else { throw ClientFailure("fixture_node_missing") }
         try await api.send("/api/profiles/copy", body: ProfileIDs([original.id, original.id]))
         let copied: [Profile] = try await api.value("/api/profiles?subscriptionId=")
@@ -70,7 +70,7 @@ import CryptoKit
         return copy.id
     }
 
-    static func checkSettingsEditor(_ api: APIClient) async throws {
+    static func checkSettingsEditor(_ api: any NativeAPI) async throws {
         let initial: SettingsValue = try await api.value("/api/settings")
         let beforePassive: RuntimeStatus = try await api.value("/api/status")
         var app = initial["app"]
@@ -83,7 +83,7 @@ import CryptoKit
         let passive: SettingsValue = try await api.value("/api/settings")
         try require(passive["app"]["enableStatistics"] == app["enableStatistics"]
             && passive["speedTest"]["speedTestTimeout"] == .number(15), "Single application and speed-test edits persist")
-        try require(beforePassive.coreProcessIds == afterPassive.coreProcessIds, "Passive settings and statistics refresh do not restart core")
+        try require(beforePassive.coreSessionID == afterPassive.coreSessionID, "Passive settings and statistics refresh do not restart core")
         var core = passive["core"]
         core["mux4RayConcurrency"] = .number(0)
         core["mux4RayXudpConcurrency"] = .number(0)
@@ -97,11 +97,11 @@ import CryptoKit
         try await api.send("/api/settings/core-types", method: "PUT", body: SettingsValue.object(["mappings": normalized["coreTypes"]]))
         try await api.send("/api/settings/routing", method: "PUT", body: SettingsValue.object(["domainStrategy": normalized["domainStrategy"]]))
         let afterRoundTrip: RuntimeStatus = try await api.value("/api/status")
-        try require(beforeRoundTrip.coreProcessIds == afterRoundTrip.coreProcessIds,
+        try require(beforeRoundTrip.coreSessionID == afterRoundTrip.coreSessionID,
             "Nullable Mux bulk save and unchanged mapping/strategy edits do not restart core")
     }
 
-    static func checkConfigurationProfiles(_ api: APIClient, running: Bool) async throws {
+    static func checkConfigurationProfiles(_ api: any NativeAPI, running: Bool) async throws {
         let profiles: SettingsValue = try await api.value("/api/settings/dns/profiles")
         guard var dns = profiles.items.first(where: { $0["coreType"].text.lowercased() == "xray" }) else { throw ClientFailure("dns_fixture_missing") }
         let beforeDns: RuntimeStatus = try await api.value("/api/status")
@@ -109,7 +109,7 @@ import CryptoKit
         dns["normalDNS"] = .string("{\"servers\":[\"9.9.9.9\"]}")
         try await api.send("/api/settings/dns/profiles/Xray", method: "PUT", body: dns)
         let afterDns: RuntimeStatus = try await api.value("/api/status")
-        try require(afterDns.coreRunning == running && (!running || beforeDns.coreProcessIds != afterDns.coreProcessIds),
+        try require(afterDns.coreRunning == running && (!running || beforeDns.coreSessionID != afterDns.coreSessionID),
             "Active DNS change applies to the running core and preserves stopped intent")
         dns["remarks"] = .string(dns["remarks"].text + " checked")
         dns["tunDNS"] = .string("{\"servers\":[\"8.8.4.4\"]}")
@@ -117,7 +117,7 @@ import CryptoKit
         let afterOtherMode: RuntimeStatus = try await api.value("/api/status")
         let savedProfiles: SettingsValue = try await api.value("/api/settings/dns/profiles")
         let savedDns = savedProfiles.items.first(where: { $0["id"] == dns["id"] })!
-        try require(savedDns["tunDNS"] == dns["tunDNS"] && afterOtherMode.coreProcessIds == afterDns.coreProcessIds,
+        try require(savedDns["tunDNS"] == dns["tunDNS"] && afterOtherMode.coreSessionID == afterDns.coreSessionID,
             "Editing TUN DNS and metadata preserves the active normal-mode core")
         let templates: SettingsValue = try await api.value("/api/settings/core-templates")
         guard var template = templates.items.first(where: { $0["coreType"].text.lowercased() == "xray" }),
@@ -128,11 +128,11 @@ import CryptoKit
         let afterTemplate: RuntimeStatus = try await api.value("/api/status")
         let savedTemplates: SettingsValue = try await api.value("/api/settings/core-templates")
         let savedTemplate = savedTemplates.items.first(where: { $0["id"] == template["id"] })!
-        try require(savedTemplate["tunConfig"] == template["tunConfig"] && afterTemplate.coreProcessIds == afterOtherMode.coreProcessIds,
+        try require(savedTemplate["tunConfig"] == template["tunConfig"] && afterTemplate.coreSessionID == afterOtherMode.coreSessionID,
             "Disabled template edits persist without restarting the core")
     }
 
-    static func checkSettings(_ api: APIClient, running: Bool, unavailablePort: Int? = nil) async throws {
+    static func checkSettings(_ api: any NativeAPI, running: Bool, unavailablePort: Int? = nil) async throws {
         var draft: SettingsValue = try await api.value("/api/settings")
         let oldHidden = draft["core"]["enableFinalFragment"]
         draft["application"] = draft["app"]
@@ -211,7 +211,7 @@ import CryptoKit
             let remainingRules: SettingsValue = try await api.value(path)
             try require(remainingRules.items.map { $0["id"].text } == ["fixture-a", "fixture-c"], "Routing append and delete preserve order")
             let afterRuleEdit: RuntimeStatus = try await api.value("/api/status")
-            try require(beforeRuleEdit.coreProcessIds == afterRuleEdit.coreProcessIds, "Inactive routing changes do not restart core")
+            try require(beforeRuleEdit.coreSessionID == afterRuleEdit.coreSessionID, "Inactive routing changes do not restart core")
         }
         let routes: SettingsValue = try await api.value("/api/settings/routing-profiles")
         if var route = routes.items.first(where: { $0["isActive"].flag }) {
@@ -226,13 +226,13 @@ import CryptoKit
             try await api.send("/api/settings/routing-profiles/\(id)", method: "PUT", body: route)
             try await api.perform("/api/settings/routing-profiles/\(id)/activate", method: "POST")
             let afterNoOp: RuntimeStatus = try await api.value("/api/status")
-            try require(beforeNoOp.coreProcessIds == afterNoOp.coreProcessIds, "Unchanged active profile save and activation do not restart core")
+            try require(beforeNoOp.coreSessionID == afterNoOp.coreSessionID, "Unchanged active profile save and activation do not restart core")
             if let first = savedRules.items.first {
                 let beforeMove: RuntimeStatus = try await api.value("/api/status")
                 try await api.send("/api/settings/routing-profiles/\(id)/rules/move", body: SettingsValue.object([
                     "ruleId": .string(first["id"].text), "direction": .string("top"), "position": .number(-1)]))
                 let afterMove: RuntimeStatus = try await api.value("/api/status")
-                try require(beforeMove.coreProcessIds == afterMove.coreProcessIds, "No-op active rule move does not restart core")
+                try require(beforeMove.coreSessionID == afterMove.coreSessionID, "No-op active rule move does not restart core")
             }
         }
         if running {
@@ -270,7 +270,7 @@ import CryptoKit
                 let afterPortEdit: SettingsValue = try await api.value("/api/settings")
                 let afterPortFailure: RuntimeStatus = try await api.value("/api/status")
                 try require(afterPortEdit["inbound"] == beforePortEdit["inbound"], "Preflight failure restores persisted inbound settings")
-                try require(afterPortFailure.coreRunning && afterPortFailure.coreProcessIds == restoredRuntime.coreProcessIds,
+                try require(afterPortFailure.coreRunning && afterPortFailure.coreSessionID == restoredRuntime.coreSessionID,
                     "Preflight failure keeps healthy original core process")
             }
         }
@@ -279,18 +279,75 @@ import CryptoKit
     }
     static func run() async throws {
         let args = CommandLine.arguments
-        guard args.count == 7, let apiPort = Int(args[3]), let fixturePort = Int(args[4]),
-              let proxyPort = Int(args[5]), let socksPort = Int(args[6]) else {
-            fatalError("V2rayMCheck <app> <temporary-data> <api-port> <http-fixture-port> <proxy-port> <socks-fixture-port>")
+        if args.count == 5 && args[1] == "--serve-embedded-fixture", let descriptor = Int32(args[4]), descriptor >= 0 {
+            let core = try EmbeddedXray(bundle: URL(fileURLWithPath: args[2]))
+            let directory = URL(fileURLWithPath: args[3], isDirectory: true)
+            let tunnel = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+            while let action = readLine() {
+                switch action {
+                case "proxy", "tun":
+                    let file = directory.appendingPathComponent(action + ".json")
+                    let config = try JSONDecoder().decode(SettingsValue.self, from: Data(contentsOf: file))
+                    try await core.start(config: config, assets: directory, tunnel: action == "tun" ? tunnel : nil)
+                case "stop": try await core.stop()
+                default: throw ClientFailure("fixture_command_invalid")
+                }
+                let version = core.version.components(separatedBy: .newlines).first ?? ""
+                let response: SettingsValue = .object(["action": .string(action), "pid": .number(Double(getpid())), "version": .string(version)])
+                FileHandle.standardOutput.write(try JSONEncoder().encode(response) + Data([10]))
+            }
+            try await core.stop()
+            return
+        }
+        if args.count == 7 && args[1] == "--check-geo-fixture",
+           let server = Int(args[4]), let proxy = Int(args[5]), let peer = Int(args[6]) {
+            try await checkGeoFixture(bundle: URL(fileURLWithPath: args[2]), data: URL(fileURLWithPath: args[3]),
+                                      serverPort: server, proxyPort: proxy, peerPort: peer)
+            return
+        }
+        if args.count == 6 && args[1] == "--check-custom-fixture", let target = Int(args[4]), let inbound = Int(args[5]) {
+            try await checkCustomFixture(bundle: URL(fileURLWithPath: args[2]), data: URL(fileURLWithPath: args[3]), target: target, inbound: inbound)
+            return
+        }
+        if args.count == 4 && args[1] == "--serve-group-edit-fixture" {
+            try await serveGroupEditFixture(bundle: URL(fileURLWithPath: args[2]), data: URL(fileURLWithPath: args[3]))
+            return
+        }
+        if args.count == 5 && args[1] == "--serve-host-fixture" {
+            try await serveHostFixture(data: URL(fileURLWithPath: args[2]), node: args[3],
+                                       bundle: URL(fileURLWithPath: args[4]))
+            return
+        }
+        if args.count == 4 && args[1] == "--export-fixture" {
+            let store = NativeConfigurationStore(dataDirectory: URL(fileURLWithPath: args[2]))
+            let documents = try await store.exportProfiles(.object(["profileIds": .array([.string(args[3])]),
+                "includeInnerUri": .bool(true), "includeClientConfig": .bool(true)]), metricsPort: 59280)
+            FileHandle.standardOutput.write(try JSONEncoder().encode(documents))
+            return
+        }
+        if args.count == 4 && args[1] == "--generate-client" {
+            let store = NativeConfigurationStore(dataDirectory: URL(fileURLWithPath: args[2], isDirectory: true))
+            let config = try await store.generateXrayConfiguration(nodeID: args[3], metricsPort: nil)
+            FileHandle.standardOutput.write(try JSONEncoder().encode(config))
+            return
+        }
+        guard args.count == 6, let fixturePort = Int(args[3]),
+              let proxyPort = Int(args[4]), let socksPort = Int(args[5]) else {
+            fatalError("V2rayMCheck <app> <temporary-data> <http-fixture-port> <proxy-port> <socks-fixture-port>")
         }
         let bundle = URL(fileURLWithPath: args[1]), data = URL(fileURLWithPath: args[2])
-        let backend = BackendController(bundle: bundle, dataDirectory: data, port: apiPort)
+        let backend = NativeRuntimeHost(bundle: bundle, dataDirectory: data, mayContactHelper: false, automaticMaintenance: false)
         do {
-            let api = try await backend.start()
+            let api = try await backend.startClient()
             async let initial: RuntimeStatus = api.value("/api/status")
             async let nodes: [Profile] = api.value("/api/profiles")
             async let subscriptions: [Subscription] = api.value("/api/subscriptions")
             let baseline = try await (initial, nodes, subscriptions)
+            let lazyCore = !(0..<_dyld_image_count()).contains { index in
+                _dyld_get_image_name(index).map { String(cString: $0).hasSuffix("/libV2rayMXray.dylib") } ?? false
+            }
+            try require(lazyCore && baseline.0.xrayAvailable && baseline.0.installedXrayVersion != nil,
+                        "Cold status reads the packaged version without mapping the Go library")
             try require(!baseline.0.coreRunning && baseline.1.isEmpty && baseline.2.isEmpty, "Fresh data isolation")
             let tunnel = try await api.tunStatus()
             try require(tunnel.platformSupported && !tunnel.enabled && !tunnel.isRunning,
@@ -299,10 +356,9 @@ import CryptoKit
             let disabled = try await api.tunStatus()
             try require(!disabled.enabled && disabled.privilegedCoreProcessIds.isEmpty,
                         "TUN can be disabled through the native API without starting a core")
-            // Verify loopback collision detection never authenticates against or stops another owner.
-            let collision = BackendController(bundle: bundle, dataDirectory: data.appendingPathComponent("collision"), port: apiPort)
-            do { _ = try await collision.start(); throw ClientFailure("collision_not_rejected") }
-            catch let failure as ClientFailure { try require(failure.code == "backend_identity" || failure.code == "backend_exited", "Collision rejected") }
+            let collision = NativeRuntimeHost(bundle: bundle, dataDirectory: data, mayContactHelper: false, automaticMaintenance: false)
+            do { _ = try await collision.startClient(); throw ClientFailure("collision_not_rejected") }
+            catch let failure as ClientFailure { try require(failure.code == "runtime_data_in_use", "Duplicate owner rejected") }
             let stillHealthy: RuntimeStatus = try await api.value("/api/status")
             try require(!stillHealthy.coreRunning, "Original backend survives collision")
             try await api.send("/api/subscriptions", body: SubscriptionInput(name: "Local fixture", url: "http://127.0.0.1:\(fixturePort)/subscription"))
@@ -344,12 +400,12 @@ import CryptoKit
                 var draft = ProfileDocument(original)
                 draft.value["remarks"] = .string("Edited node fixture")
                 draft.value["transportExtra"] = .string("{\"Path\":\"/preserved-path\",\"Host\":\"example.invalid\"}")
-                try await api.send(path, method: "PUT", body: try draft.validated())
+                try await api.saveProfile(id: item.id, original: original, edited: try draft.validated())
                 let saved: SettingsValue = try await api.value(path)
                 try require(saved["remarks"].text == "Edited node fixture" && saved["transportExtra"] == draft.value["transportExtra"], "Node editor saves identity and transport fields")
                 var retired = saved; retired["coreType"] = .number(24)
                 do {
-                    try await api.send(path, method: "PUT", body: retired)
+                    try await api.saveProfile(id: item.id, original: saved, edited: retired)
                     throw ClientFailure("retired_engine_accepted")
                 } catch let failure as ClientFailure {
                     try require(failure.code == "xray_only_profile_required", "Backend rejects retired engine without overwriting node")
@@ -366,7 +422,11 @@ import CryptoKit
                 if firstCoreLog == nil {
                     try await api.perform("/api/core/start")
                     let repeated: RuntimeStatus = try await api.value("/api/status")
-                    try require(repeated.coreProcessIds == status.coreProcessIds, "Starting the serving node is idempotent")
+                    try require(repeated.coreSessionID == status.coreSessionID, "Starting the serving node is idempotent")
+                    try await api.perform("/api/profiles/\(item.id)/select")
+                    let reselected: RuntimeStatus = try await api.value("/api/status")
+                    try require(reselected.coreSessionID != nil && reselected.coreSessionID == status.coreSessionID,
+                                "Selecting the already serving node preserves its connections")
                     do {
                         try await api.perform("/api/profiles/\(item.id)/select?connect=false")
                         throw ClientFailure("running_selection_without_connect_accepted")
@@ -380,20 +440,23 @@ import CryptoKit
                         try require(failure.code == "profile_not_found", "Missing node selection fails clearly")
                     }
                     let unchanged: RuntimeStatus = try await api.value("/api/status")
-                    try require(unchanged.coreProcessIds == status.coreProcessIds && unchanged.currentProfileId == item.id,
+                    try require(unchanged.coreSessionID == status.coreSessionID && unchanged.currentProfileId == item.id,
                         "Rejected selection preserves the serving core and selected node")
                 }
                 let editPath = "/api/profiles/\(item.id)"
                 var runningEdit: SettingsValue = try await api.value(editPath)
+                let originalEdit = runningEdit
                 let preservedTransport = runningEdit["transportExtra"]
                 runningEdit["remarks"] = .string("Running edit " + item.id)
-                try await api.send(editPath, method: "PUT", body: runningEdit)
+                try await api.saveProfile(id: item.id, original: originalEdit, edited: runningEdit)
                 let editedStatus: RuntimeStatus = try await api.value("/api/status")
                 let editedDocument: SettingsValue = try await api.value(editPath)
                 try require(editedStatus.coreRunning && editedStatus.currentProfileId == item.id
-                    && editedStatus.coreProcessIds != status.coreProcessIds
+                    && editedStatus.coreSessionID == status.coreSessionID
+                    && editedStatus.runningProfileName == runningEdit["remarks"].text
+                    && editedDocument["remarks"] == runningEdit["remarks"]
                     && editedDocument["transportExtra"] == preservedTransport,
-                    "Editing running node restarts core and preserves unexposed transport fields")
+                    "Renaming the serving node updates its live name and preserves the session and transport fields")
                 let curl = Process(); curl.executableURL = URL(fileURLWithPath: "/usr/bin/curl")
                 curl.arguments = ["--fail", "--silent", "--show-error", "--max-time", "10", "--noproxy", "", "--proxy", "http://127.0.0.1:\(proxyPort)", "http://native-check.invalid:\(fixturePort)/traffic"]
                 let output = Pipe(); curl.standardOutput = output; curl.standardError = FileHandle.nullDevice
@@ -437,52 +500,14 @@ import CryptoKit
                 try await Task.sleep(for: .milliseconds(200))
             }
             try require(cumulativeTraffic > 0, "Dashboard cumulative traffic increases with actual Xray proxy traffic")
-            if ProcessInfo.processInfo.environment["V2RAYM_CHECK_UPDATES"] == "1" {
-                let before: RuntimeStatus = try await api.value("/api/status")
-                let settings: ModuleUpdateSettings = try await api.value("/api/core-updates")
-                var input = settings.input; input.useProxy = false
-                try await api.send("/api/core-updates/settings", method: "PUT", body: input)
-                try await api.perform("/api/core-updates/Xray/update?useProxy=false")
-                var completed: ModuleUpdateProgress?
-                var phases = Set<String>()
-                for _ in 0..<750 {
-                    let progress: [ModuleUpdateProgress] = try await api.value("/api/core-updates/progress")
-                    if let current = progress.first(where: { $0.coreType == "Xray" }) {
-                        if phases.insert(current.phase).inserted { print("UPDATE: " + current.phase) }
-                        if current.isComplete { completed = current; break }
-                    }
-                    try await Task.sleep(for: .milliseconds(200))
-                }
-                try require(completed?.success == true, "Official Xray update completed: " + (completed?.detail ?? "timeout"))
-                for _ in 0..<100 {
-                    let operations: [String] = try await api.value("/api/operations")
-                    if !operations.contains(where: { $0.hasPrefix("core-update") }) { break }
-                    try await Task.sleep(for: .milliseconds(50))
-                }
-                let after: RuntimeStatus = try await api.value("/api/status")
-                try require(after.coreRunning && before.currentProfileId == after.currentProfileId
-                            && before.coreProcessIds != after.coreProcessIds, "Serving core restarts on the selected node after update")
-                let curl = Process(); curl.executableURL = URL(fileURLWithPath: "/usr/bin/curl")
-                curl.arguments = ["--fail", "--silent", "--max-time", "10", "--noproxy", "", "--proxy", "http://127.0.0.1:\(proxyPort)", "http://native-check.invalid:\(fixturePort)/traffic"]
-                let traffic = Pipe(); curl.standardOutput = traffic; curl.standardError = FileHandle.nullDevice
-                try curl.run(); let bytes = traffic.fileHandleForReading.readDataToEndOfFile(); curl.waitUntilExit()
-                try require(curl.terminationStatus == 0 && String(decoding: bytes, as: UTF8.self) == "v2rayM-local-traffic-ok", "Traffic survives automatic update replacement")
-                let bridge = Process(); bridge.executableURL = bundle.appendingPathComponent("Contents/MacOS/V2rayMHelperClient")
-                bridge.arguments = ["update"]
-                let inputPipe = Pipe(), outputPipe = Pipe(); bridge.standardInput = inputPipe; bridge.standardOutput = outputPipe
-                try bridge.run()
-                try inputPipe.fileHandleForWriting.write(contentsOf: Data("{\"action\":\"update-status\",\"core\":\"xray\"}\n".utf8))
-                try inputPipe.fileHandleForWriting.close()
-                let reply = outputPipe.fileHandleForReading.readDataToEndOfFile(); bridge.waitUntilExit()
-                let status = try JSONDecoder().decode(ApprovedUpdate.self, from: reply)
-                let executable = data.appendingPathComponent("bin/xray/xray")
-                let hash = SHA256.hash(data: try Data(contentsOf: executable)).map { String(format: "%02x", $0) }.joined()
-                try require(status.success && status.verifiedSHA256 == hash && status.previousVersionPresent == false,
-                            "Privileged and ordinary core hashes match; old privileged version removed")
-                let files = try FileManager.default.contentsOfDirectory(atPath: data.appendingPathComponent("bin").path)
-                try require(!files.contains(where: { $0.contains("-backup-") || $0.contains("-candidate-") || $0.contains("-package-") }),
-                            "Ordinary update backup and staging directories removed")
-            }
+            let beforePinCheck: RuntimeStatus = try await api.value("/api/status")
+            do {
+                try await api.perform("/api/core-updates/Xray/update")
+                throw ClientFailure("fixture_unexpected_update")
+            } catch let error as ClientFailure where error.code == "xray_bundled_with_app" {}
+            let afterPinCheck: RuntimeStatus = try await api.value("/api/status")
+            try require(afterPinCheck.coreRunning && beforePinCheck.coreSessionID == afterPinCheck.coreSessionID,
+                        "Standalone Xray update refused while the bundled process keeps serving")
             if ProcessInfo.processInfo.environment["V2RAYM_CHECK_RESOURCES"] == "1" {
                 for scope in ["rules", "geo"] {
                     let before: RuntimeStatus = try await api.value("/api/status")
@@ -498,7 +523,7 @@ import CryptoKit
                     try require(completed?.success == true, "Independent \(scope) update completed" + (completed?.detail.map { ": " + $0 } ?? ""))
                     let after: RuntimeStatus = try await api.value("/api/status")
                     try require(after.coreRunning && before.currentProfileId == after.currentProfileId
-                        && before.coreProcessIds != after.coreProcessIds, "Serving core reloads after \(scope) replacement")
+                        && before.coreSessionID != after.coreSessionID, "Serving core reloads after \(scope) replacement")
                     let curl = Process(); curl.executableURL = URL(fileURLWithPath: "/usr/bin/curl")
                     curl.arguments = ["--fail", "--silent", "--max-time", "10", "--noproxy", "", "--proxy", "http://127.0.0.1:\(proxyPort)", "http://native-check.invalid:\(fixturePort)/traffic"]
                     let output = Pipe(); curl.standardOutput = output; curl.standardError = FileHandle.nullDevice
@@ -532,12 +557,14 @@ import CryptoKit
             try require(remaining.isEmpty, "Delete subscription")
             let remainingNodes: [Profile] = try await api.value("/api/profiles?subscriptionId=")
             try require(remainingNodes.isEmpty, "Delete manual and subscription nodes")
-            await api.logout()
-            let renewed: RuntimeStatus = try await api.value("/api/status")
-            try require(!renewed.coreRunning, "Session reauthentication")
             try await backend.stop()
-            let alive = await backend.isRunning; try require(!alive, "Owned backend graceful exit")
-            print("Native integration passed: process ownership, authenticated API, subscriptions CRUD/update, node import/select/delete, real Xray traffic, stop and logout.")
+            let reopened = try await collision.startClient()
+            let renewed: RuntimeStatus = try await reopened.value("/api/status")
+            try require(!renewed.coreRunning, "A new native host reopens the data after shutdown")
+            try await collision.stop()
+            let alive = await backend.isRunning; try require(!alive, "Owned runtime graceful exit")
+            print("Native integration passed: process ownership, subscriptions, nodes, settings, Xray traffic and shutdown.")
+
         } catch {
             try? await backend.stop(); throw error
         }
@@ -547,12 +574,7 @@ import CryptoKit
         print("PASS: \(label)")
     }
 }
-private struct ApprovedUpdate: Decodable {
-    var success: Bool
-    var verifiedSHA256: String?
-    var previousVersionPresent: Bool?
-}
-private struct Inbound: Encodable {
+struct Inbound: Encodable {
     var localPort: Int
     let secondLocalPortEnabled = false, udpEnabled = true, sniffingEnabled = false
     let destOverride = ["http", "tls"], routeOnly = false, allowLANConn = false, newPort4LAN = false

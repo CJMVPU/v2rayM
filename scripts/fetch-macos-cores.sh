@@ -2,6 +2,8 @@
 set -euo pipefail
 rid="${1:?Usage: fetch-macos-cores.sh <osx-arm64|osx-x64> <new-destination-bin>}"
 destination="${2:?Specify a new destination directory}"
+mode="${3:-full}"
+[[ "$mode" == full || "$mode" == --data-only ]] || { echo "Unsupported extraction mode." >&2; exit 2; }
 case "$rid" in
   osx-arm64) bundle=v2rayN-macos-arm64 ;;
   osx-x64) bundle=v2rayN-macos-64 ;;
@@ -16,7 +18,7 @@ temporary_directory="$(mktemp -d)"
 trap 'rm -rf "$temporary_directory"' EXIT
 curl --fail --location --retry 3 --connect-timeout 15 --max-time 300 \
   "https://raw.githubusercontent.com/2dust/v2rayN-core-bin/$ref/$bundle.zip" --output "$temporary_directory/cores.zip"
-python3 - "$temporary_directory/cores.zip" "$bundle" "$destination" "$ref" <<'PY'
+python3 - "$temporary_directory/cores.zip" "$bundle" "$destination" "$ref" "$mode" <<'PY'
 from pathlib import Path, PurePosixPath
 import hashlib
 import json
@@ -30,7 +32,10 @@ with zipfile.ZipFile(archive) as source:
     if not files or len(files) > 4096 or sum(item.file_size for item in files) > 1024 ** 3:
         raise RuntimeError('Unexpected upstream bundle size.')
     names = {item.filename[len(prefix):] for item in files}
-    if not {'xray/xray', 'geoip.dat', 'geosite.dat'}.issubset(names):
+    selected = {'geoip.dat', 'geosite.dat'}
+    if sys.argv[5] == 'full':
+        selected.update({'xray/xray', 'xray/LICENSE'})
+    if not (selected - {'xray/LICENSE'}).issubset(names):
         raise RuntimeError('Upstream bundle lacks required cores or Geo data.')
     for item in files:
         relative = PurePosixPath(item.filename[len(prefix):])
@@ -38,7 +43,7 @@ with zipfile.ZipFile(archive) as source:
             raise RuntimeError('Unsafe upstream archive entry.')
     destination.mkdir(parents=True)
     for item in files:
-        if item.filename[len(prefix):] not in {'xray/xray', 'xray/LICENSE', 'geoip.dat', 'geosite.dat'}:
+        if item.filename[len(prefix):] not in selected:
             continue
         target = destination / item.filename[len(prefix):]
         target.parent.mkdir(parents=True, exist_ok=True)

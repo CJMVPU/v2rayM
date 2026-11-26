@@ -2,6 +2,23 @@ import XCTest
 @testable import V2rayMKit
 
 final class SubscriptionEditingTests: XCTestCase {
+    func testReadingSpecificSubscriptionIsIndependentOfUnrelatedMalformedRows() async throws {
+        let data = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: data) }
+        let store = NativeConfigurationStore(dataDirectory: data)
+        try await store.initializeRuntimeStore()
+        let good = try await store.saveSubscription(.object(["remarks": .string("Good")]), id: nil)
+        let bad = try await store.saveSubscription(.object(["remarks": .string("Other")]), id: nil)
+        let db = try RuntimeDatabase(url: data.appendingPathComponent("guiConfigs/guiNDB.db"), writable: true)
+        _ = try db.query("UPDATE SubItem SET AutoUpdateInterval='invalid' WHERE Id=?", [.text(bad.id)])
+        let read = try await store.subscription(id: good.id)
+        XCTAssertEqual(read, good)
+        do { _ = try await store.subscription(id: bad.id); XCTFail("Malformed record should report an error") }
+        catch is DecodingError {}
+        do { _ = try await store.subscription(id: "missing"); XCTFail("Missing record should report an error") }
+        catch let failure as ClientFailure { XCTAssertEqual(failure.code, "subscription_not_found") }
+    }
+
     func testBasicEditingRetainsAdvancedSubscriptionOptions() throws {
         let json = #"{"id":"fixture","remarks":"Original","url":"https://example.invalid/sub","enabled":true,"moreUrl":"https://example.invalid/more","filter":"keep-filter","autoUpdateInterval":60,"updateTime":0,"userAgent":"custom-agent","requestHeaders":"X-Fixture: value","convertTarget":"singbox","memo":"keep-memo","sort":7,"prevProfile":"before","nextProfile":"after","preSocksPort":10800,"customCoreType":"sing_box"}"#
         let original = try JSONDecoder().decode(Subscription.self, from: Data(json.utf8))

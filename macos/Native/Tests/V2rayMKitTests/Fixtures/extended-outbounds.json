@@ -1,0 +1,267 @@
+[
+  {
+    "node": {
+      "indexId": "wireGuard",
+      "configType": "wireGuard",
+      "configVersion": 4,
+      "address": "::1",
+      "port": 34567,
+      "network": "tcp",
+      "remarks": "wireGuard",
+      "password": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+      "username": "user",
+      "protoExtra": "{\"WgPublicKey\": \"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=\", \"WgReserved\": \"7,12,45\", \"WgDns\": \"::1,127.0.0.1\"}",
+      "transportExtra": "{}",
+      "streamSecurity": "",
+      "sni": "localhost"
+    },
+    "expected": {
+      "tag": "proxy",
+      "protocol": "wireguard",
+      "settings": {
+        "secretKey": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+        "address": [
+          "172.16.0.2/32"
+        ],
+        "peers": [
+          {
+            "endpoint": "[::1]:34567",
+            "publicKey": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
+          }
+        ],
+        "mtu": 1280,
+        "reserved": [
+          7,
+          12,
+          45
+        ],
+        "remoteDNS": [
+          "::1",
+          "127.0.0.1"
+        ]
+      },
+      "streamSettings": {
+        "network": "raw"
+      },
+      "mux": {
+        "enabled": false
+      }
+    }
+  },
+  {
+    "node": {
+      "indexId": "vMess",
+      "configType": "vMess",
+      "configVersion": 4,
+      "address": "::1",
+      "port": 34567,
+      "network": "tcp",
+      "remarks": "vMess",
+      "password": "61320c11-a520-4a42-8476-ab519ea9d44e",
+      "username": "user",
+      "protoExtra": "{\"VmessSecurity\": \"zero\", \"AlterId\": \"0\"}",
+      "transportExtra": "{}",
+      "streamSecurity": "",
+      "sni": "localhost"
+    },
+    "expected": {
+      "tag": "proxy",
+      "protocol": "vmess",
+      "settings": {
+        "address": "::1",
+        "port": 34567,
+        "email": "t@t.tt",
+        "id": "61320c11-a520-4a42-8476-ab519ea9d44e",
+        "alterId": 0,
+        "security": "zero"
+      },
+      "streamSettings": {
+        "network": "raw"
+      },
+      "mux": {
+        "enabled": false,
+        "concurrency": -1
+      }
+    }
+  },
+  {
+    "node": {
+      "indexId": "http",
+      "configType": "http",
+      "configVersion": 4,
+      "address": "::1",
+      "port": 34567,
+      "network": "tcp",
+      "remarks": "http",
+      "password": "test-password",
+      "username": "user",
+      "protoExtra": "{\"HttpHeaders\": \"{\\\"X-Test\\\":\\\"local\\\"}\"}",
+      "transportExtra": "{}",
+      "streamSecurity": "",
+      "sni": "localhost"
+    },
+    "expected": {
+      "tag": "proxy",
+      "protocol": "http",
+      "settings": {
+        "address": "::1",
+        "port": 34567,
+        "user": "user",
+        "pass": "test-password",
+        "level": 1,
+        "email": "t@t.tt",
+        "headers": {
+          "X-Test": "local"
+        }
+      },
+      "streamSettings": {
+        "network": "raw"
+      },
+      "mux": {
+        "enabled": false,
+        "concurrency": -1
+      }
+    }
+  },
+  {
+    "node": {
+      "indexId": "shadowsocks",
+      "configType": "shadowsocks",
+      "configVersion": 4,
+      "address": "::1",
+      "port": 34567,
+      "network": "tcp",
+      "remarks": "shadowsocks",
+      "password": "test-password",
+      "username": "user",
+      "protoExtra": "{\"SsMethod\": \"aes-128-gcm\", \"Uot\": true}",
+      "transportExtra": "{}",
+      "streamSecurity": "",
+      "sni": "localhost"
+    },
+    "expected": {
+      "tag": "proxy",
+      "protocol": "shadowsocks",
+      "settings": {
+        "address": "::1",
+        "port": 34567,
+        "level": 1,
+        "method": "aes-128-gcm",
+        "ota": false,
+        "password": "test-password",
+        "uot": true
+      },
+      "streamSettings": {
+        "network": "raw"
+      },
+      "mux": {
+        "enabled": false,
+        "concurrency": -1
+      }
+    }
+  },
+  {
+    "node": {
+      "indexId": "hysteria2",
+      "configType": "hysteria2",
+      "configVersion": 4,
+      "address": "::1",
+      "port": 34567,
+      "network": "tcp",
+      "remarks": "hysteria2",
+      "password": "test-password",
+      "username": "user",
+      "protoExtra": "{\"UpMbps\": 12, \"DownMbps\": 20, \"SalamanderPass\": \"fixture\", \"Ports\": \"34000-34003\", \"HopInterval\": \"7\"}",
+      "transportExtra": "{}",
+      "streamSecurity": "tls",
+      "sni": "localhost"
+    },
+    "expected": {
+      "tag": "proxy",
+      "protocol": "hysteria",
+      "settings": {
+        "address": "::1",
+        "port": 34567,
+        "version": 2
+      },
+      "streamSettings": {
+        "network": "hysteria",
+        "security": "tls",
+        "tlsSettings": {
+          "serverName": "localhost"
+        },
+        "hysteriaSettings": {
+          "version": 2,
+          "auth": "test-password"
+        },
+        "finalmask": {
+          "udp": [
+            {
+              "type": "salamander",
+              "settings": {
+                "password": "fixture"
+              }
+            },
+            {
+              "type": "udphop",
+              "settings": {
+                "mode": "intervallocal,intervalremote",
+                "interval": "7",
+                "remotePorts": "34000-34003"
+              }
+            }
+          ],
+          "quicParams": {
+            "congestion": "brutal",
+            "brutalUp": "12mbps",
+            "brutalDown": "20mbps"
+          }
+        }
+      },
+      "mux": {
+        "enabled": false
+      }
+    }
+  },
+  {
+    "node": {
+      "indexId": "masque",
+      "configType": "masque",
+      "configVersion": 4,
+      "address": "::1",
+      "port": 34567,
+      "network": "tcp",
+      "remarks": "masque",
+      "password": "test-password",
+      "username": "user",
+      "protoExtra": "{\"MasquePath\": \"/fixture\"}",
+      "transportExtra": "{}",
+      "streamSecurity": "tls",
+      "sni": "localhost"
+    },
+    "expected": {
+      "tag": "proxy",
+      "protocol": "masque",
+      "settings": {
+        "address": "::1",
+        "port": 34567
+      },
+      "streamSettings": {
+        "network": "masque",
+        "security": "tls",
+        "tlsSettings": {
+          "serverName": "localhost"
+        },
+        "masqueSettings": {
+          "path": "/fixture",
+          "headers": {
+            "Authorization": "Basic dXNlcjp0ZXN0LXBhc3N3b3Jk"
+          }
+        }
+      },
+      "mux": {
+        "enabled": false
+      }
+    }
+  }
+]

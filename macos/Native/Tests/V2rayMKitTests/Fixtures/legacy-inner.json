@@ -1,0 +1,105 @@
+[
+  {
+    "name": "legacy",
+    "inner": "v2rayn://vless/eyJJbmRleElkIjoiNWhzTVhnIiwiQ29uZmlnVHlwZSI6NSwiQ29uZmlnVmVyc2lvbiI6NCwiRGlzcGxheUxvZyI6dHJ1ZSwiUmVtYXJrcyI6ImxlZ2FjeSIsIkFkZHJlc3MiOiIxMjcuMC4wLjEiLCJQb3J0Ijo1OTA3MCwiUGFzc3dvcmQiOiIwMWI5NTZkZC0zYzUwLTQwYjYtYTMxNS1hNjQxY2UwM2RmZTAiLCJOZXR3b3JrIjoieGh0dHAiLCJTdHJlYW1TZWN1cml0eSI6InRscyIsIkFsbG93SW5zZWN1cmUiOiJmYWxzZSIsIlNuaSI6ImxvY2FsaG9zdCIsIkNlcnQiOiItLS0tLUJFR0lOIENFUlRJRklDQVRFLS0tLS1cbk1JSUMvakNDQWVhZ0F3SUJBZ0lVTFJiZk9HVlF2OFY0aGJpRmpuY3JVdXh2OHdFd0RRWUpLb1pJaHZjTkFRRUxcbkJRQXdGREVTTUJBR0ExVUVBd3dKYkc5allXeG9iM04wTUI0WERUSTJNVEV5TkRBMk1qWXpNRm9YRFRJMk1URXlcbk5UQTJNall6TUZvd0ZERVNNQkFHQTFVRUF3d0piRzlqWVd4b2IzTjBNSUlCSWpBTkJna3Foa2lHOXcwQkFRRUZcbkFBT0NBUThBTUlJQkNnS0NBUUVBMk1CZkRhczFodjVmVWFIbEZKdW1LRnRzYkpTVHFQNGtHb24rWllZTTdaSGxcbkZJVGZSbXVKR0tyWnZFcFQwakxCMGJUSVlubm04Wk9YaWU5TWpKQ2tIRzhiYXdDTEtLNzViRG9WaGZ0WEduOXJcbmtLdVZuQ01ycmF2K1oybG45UGdtK3FjYmdjb3AyRDl2dnhWTlNqZGpkVW5WSlQ4MlRUMU1vbStCK25iZXk0U0pcbjhZMXJiSy9iT1NGeS9OMm5PQ3FYaWNjdDJFNnJpS2NZbzdLLzZML3Q1VXFyRVk5V1lQTGhwWXVLVVljdnRlMVFcbnpwNjZXb3RQd25FdDBKcVRJUWRpczFCYmVxdWcyTTFSNUtCUzVSNTBwdVB5SWFqblJhM29ZTzNPQ3Y5aDhuMjdcbjh0dlE5c0cyUll1MDY0bTNpQm5mV1c1aXdQQlVsNmJiZHNSSjFvM0U5d0lEQVFBQm8wZ3dSakFkQmdOVkhRNEVcbkZnUVVUbEJ3aFdXenhnc3M5NWQxNXVzbGk2WmhHMWN3RHdZRFZSMFRBUUgvQkFVd0F3RUIvekFVQmdOVkhSRUVcbkRUQUxnZ2xzYjJOaGJHaHZjM1F3RFFZSktvWklodmNOQVFFTEJRQURnZ0VCQUM3R25hOEJNK0RSUmhGeS9VN1BcbllTazNWM2JxMlRJS3Y4NVhMclRDSytrREd5SzdOVWlWMnhkQmxpUjBob05DT2kzOUhabWZnc1dhc3RGTVBYaFBcbkRkMjJ0dkMxdXV3UWl5ZC80NWIvQklWYklhSXp0aCtUdEJPUkJ2aUc2UjlLS0NYbkg1Wnd6a3doU3FtUmtuUHRcbmRFZFlCUlJoSDIydVlZOVRWV2xuaUExWEZYUWIwclJYTGtheUV0MDNjd2dRenlsV1NGSHFpMHlhSkVicHR5eUpcbkg4QkJKa2dzWU1Ia2pPaFF2bmtWdUJtNzhuMVp6cGhOZHdISFc2VERnUSs0V01tT09nY1VBd0gvZXhjeDZoM2RcblRyS1lqNW9MdXgzdVdYWUljNVlkYzVEemFpZFdKUVhHdGN5M3ovKzlsTUFIY2JFYThFUExSTXZUeWhZN3BNRG5cbi9wQT1cbi0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS1cbiIsIkFsdGVySWQiOjAsIlByb3RvRXh0cmFPYmoiOnsiVmxlc3NFbmNyeXB0aW9uIjoibm9uZSIsIldnTXR1IjowfSwiVHJhbnNwb3J0RXh0cmFPYmoiOnsiUGF0aCI6Ii9maXh0dXJlIiwiWGh0dHBNb2RlIjoic3RyZWFtLW9uZSJ9fQ",
+    "expected": {
+      "tag": "proxy",
+      "protocol": "vless",
+      "settings": {
+        "address": "127.0.0.1",
+        "port": 59070,
+        "email": "t@t.tt",
+        "id": "01b956dd-3c50-40b6-a315-a641ce03dfe0",
+        "encryption": "none"
+      },
+      "streamSettings": {
+        "network": "xhttp",
+        "security": "tls",
+        "tlsSettings": {
+          "serverName": "localhost",
+          "certificates": [
+            {
+              "certificate": [
+                "-----BEGIN CERTIFICATE-----",
+                "MIIC/jCCAeagAwIBAgIULRbfOGVQv8V4hbiFjncrUuxv8wEwDQYJKoZIhvcNAQELBQAwFDESMBAGA1UEAwwJbG9jYWxob3N0MB4XDTI2MTEyNDA2MjYzMFoXDTI2MTEyNTA2MjYzMFowFDESMBAGA1UEAwwJbG9jYWxob3N0MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2MBfDas1hv5fUaHlFJumKFtsbJSTqP4kGon+ZYYM7ZHlFITfRmuJGKrZvEpT0jLB0bTIYnnm8ZOXie9MjJCkHG8bawCLKK75bDoVhftXGn9rkKuVnCMrrav+Z2ln9Pgm+qcbgcop2D9vvxVNSjdjdUnVJT82TT1Mom+B+nbey4SJ8Y1rbK/bOSFy/N2nOCqXicct2E6riKcYo7K/6L/t5UqrEY9WYPLhpYuKUYcvte1Qzp66WotPwnEt0JqTIQdis1Bbequg2M1R5KBS5R50puPyIajnRa3oYO3OCv9h8n278tvQ9sG2RYu064m3iBnfWW5iwPBUl6bbdsRJ1o3E9wIDAQABo0gwRjAdBgNVHQ4EFgQUTlBwhWWzxgss95d15usli6ZhG1cwDwYDVR0TAQH/BAUwAwEB/zAUBgNVHREEDTALgglsb2NhbGhvc3QwDQYJKoZIhvcNAQELBQADggEBAC7Gna8BM+DRRhFy/U7PYSk3V3bq2TIKv85XLrTCK+kDGyK7NUiV2xdBliR0hoNCOi39HZmfgsWastFMPXhPDd22tvC1uuwQiyd/45b/BIVbIaIzth+TtBORBviG6R9KKCXnH5ZwzkwhSqmRknPtdEdYBRRhH22uYY9TVWlniA1XFXQb0rRXLkayEt03cwgQzylWSFHqi0yaJEbptyyJH8BBJkgsYMHkjOhQvnkVuBm78n1ZzphNdwHHW6TDgQ+4WMmOOgcUAwH/excx6h3dTrKYj5oLux3uWXYIc5Ydc5DzaidWJQXGtcy3z/+9lMAHcbEa8EPLRMvTyhY7pMDn/pA=",
+                "-----END CERTIFICATE-----",
+                ""
+              ],
+              "usage": "verify"
+            }
+          ],
+          "disableSystemRoot": true
+        },
+        "xhttpSettings": {
+          "path": "/fixture",
+          "mode": "stream-one"
+        }
+      },
+      "mux": {
+        "enabled": false,
+        "concurrency": -1
+      }
+    }
+  },
+  {
+    "name": "trojan",
+    "inner": "v2rayn://trojan/eyJJbmRleElkIjoic0ZvTUFBIiwiQ29uZmlnVHlwZSI6NiwiQ29uZmlnVmVyc2lvbiI6NCwiRGlzcGxheUxvZyI6dHJ1ZSwiUmVtYXJrcyI6InRyb2phbiIsIkFkZHJlc3MiOiIxMjcuMC4wLjEiLCJQb3J0Ijo1OTA3MCwiUGFzc3dvcmQiOiJsb2NhbC1wYXNzIiwiTmV0d29yayI6InRjcCIsIlN0cmVhbVNlY3VyaXR5IjoidGxzIiwiQWxsb3dJbnNlY3VyZSI6ImZhbHNlIiwiU25pIjoibG9jYWxob3N0IiwiQ2VydCI6Ii0tLS0tQkVHSU4gQ0VSVElGSUNBVEUtLS0tLVxuTUlJQy9qQ0NBZWFnQXdJQkFnSVVMUmJmT0dWUXY4VjRoYmlGam5jclV1eHY4d0V3RFFZSktvWklodmNOQVFFTFxuQlFBd0ZERVNNQkFHQTFVRUF3d0piRzlqWVd4b2IzTjBNQjRYRFRJMk1URXlOREEyTWpZek1Gb1hEVEkyTVRFeVxuTlRBMk1qWXpNRm93RkRFU01CQUdBMVVFQXd3SmJHOWpZV3hvYjNOME1JSUJJakFOQmdrcWhraUc5dzBCQVFFRlxuQUFPQ0FROEFNSUlCQ2dLQ0FRRUEyTUJmRGFzMWh2NWZVYUhsRkp1bUtGdHNiSlNUcVA0a0dvbitaWVlNN1pIbFxuRklUZlJtdUpHS3JadkVwVDBqTEIwYlRJWW5ubThaT1hpZTlNakpDa0hHOGJhd0NMS0s3NWJEb1ZoZnRYR245clxua0t1Vm5DTXJyYXYrWjJsbjlQZ20rcWNiZ2NvcDJEOXZ2eFZOU2pkamRVblZKVDgyVFQxTW9tK0IrbmJleTRTSlxuOFkxcmJLL2JPU0Z5L04ybk9DcVhpY2N0MkU2cmlLY1lvN0svNkwvdDVVcXJFWTlXWVBMaHBZdUtVWWN2dGUxUVxuenA2NldvdFB3bkV0MEpxVElRZGlzMUJiZXF1ZzJNMVI1S0JTNVI1MHB1UHlJYWpuUmEzb1lPM09DdjloOG4yN1xuOHR2UTlzRzJSWXUwNjRtM2lCbmZXVzVpd1BCVWw2YmJkc1JKMW8zRTl3SURBUUFCbzBnd1JqQWRCZ05WSFE0RVxuRmdRVVRsQndoV1d6eGdzczk1ZDE1dXNsaTZaaEcxY3dEd1lEVlIwVEFRSC9CQVV3QXdFQi96QVVCZ05WSFJFRVxuRFRBTGdnbHNiMk5oYkdodmMzUXdEUVlKS29aSWh2Y05BUUVMQlFBRGdnRUJBQzdHbmE4Qk0rRFJSaEZ5L1U3UFxuWVNrM1YzYnEyVElLdjg1WExyVENLK2tER3lLN05VaVYyeGRCbGlSMGhvTkNPaTM5SFptZmdzV2FzdEZNUFhoUFxuRGQyMnR2QzF1dXdRaXlkLzQ1Yi9CSVZiSWFJenRoK1R0Qk9SQnZpRzZSOUtLQ1huSDVad3prd2hTcW1Sa25QdFxuZEVkWUJSUmhIMjJ1WVk5VFZXbG5pQTFYRlhRYjByUlhMa2F5RXQwM2N3Z1F6eWxXU0ZIcWkweWFKRWJwdHl5SlxuSDhCQkprZ3NZTUhrak9oUXZua1Z1Qm03OG4xWnpwaE5kd0hIVzZURGdRKzRXTW1PT2djVUF3SC9leGN4NmgzZFxuVHJLWWo1b0x1eDN1V1hZSWM1WWRjNUR6YWlkV0pRWEd0Y3kzei8rOWxNQUhjYkVhOEVQTFJNdlR5aFk3cE1EblxuL3BBPVxuLS0tLS1FTkQgQ0VSVElGSUNBVEUtLS0tLVxuIiwiQWx0ZXJJZCI6MH0",
+    "expected": {
+      "tag": "proxy",
+      "protocol": "trojan",
+      "settings": {
+        "address": "127.0.0.1",
+        "port": 59070,
+        "level": 1,
+        "ota": false,
+        "password": "local-pass"
+      },
+      "streamSettings": {
+        "network": "raw",
+        "security": "tls",
+        "tlsSettings": {
+          "serverName": "localhost",
+          "certificates": [
+            {
+              "certificate": [
+                "-----BEGIN CERTIFICATE-----",
+                "MIIC/jCCAeagAwIBAgIULRbfOGVQv8V4hbiFjncrUuxv8wEwDQYJKoZIhvcNAQELBQAwFDESMBAGA1UEAwwJbG9jYWxob3N0MB4XDTI2MTEyNDA2MjYzMFoXDTI2MTEyNTA2MjYzMFowFDESMBAGA1UEAwwJbG9jYWxob3N0MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2MBfDas1hv5fUaHlFJumKFtsbJSTqP4kGon+ZYYM7ZHlFITfRmuJGKrZvEpT0jLB0bTIYnnm8ZOXie9MjJCkHG8bawCLKK75bDoVhftXGn9rkKuVnCMrrav+Z2ln9Pgm+qcbgcop2D9vvxVNSjdjdUnVJT82TT1Mom+B+nbey4SJ8Y1rbK/bOSFy/N2nOCqXicct2E6riKcYo7K/6L/t5UqrEY9WYPLhpYuKUYcvte1Qzp66WotPwnEt0JqTIQdis1Bbequg2M1R5KBS5R50puPyIajnRa3oYO3OCv9h8n278tvQ9sG2RYu064m3iBnfWW5iwPBUl6bbdsRJ1o3E9wIDAQABo0gwRjAdBgNVHQ4EFgQUTlBwhWWzxgss95d15usli6ZhG1cwDwYDVR0TAQH/BAUwAwEB/zAUBgNVHREEDTALgglsb2NhbGhvc3QwDQYJKoZIhvcNAQELBQADggEBAC7Gna8BM+DRRhFy/U7PYSk3V3bq2TIKv85XLrTCK+kDGyK7NUiV2xdBliR0hoNCOi39HZmfgsWastFMPXhPDd22tvC1uuwQiyd/45b/BIVbIaIzth+TtBORBviG6R9KKCXnH5ZwzkwhSqmRknPtdEdYBRRhH22uYY9TVWlniA1XFXQb0rRXLkayEt03cwgQzylWSFHqi0yaJEbptyyJH8BBJkgsYMHkjOhQvnkVuBm78n1ZzphNdwHHW6TDgQ+4WMmOOgcUAwH/excx6h3dTrKYj5oLux3uWXYIc5Ydc5DzaidWJQXGtcy3z/+9lMAHcbEa8EPLRMvTyhY7pMDn/pA=",
+                "-----END CERTIFICATE-----",
+                ""
+              ],
+              "usage": "verify"
+            }
+          ],
+          "disableSystemRoot": true
+        }
+      },
+      "mux": {
+        "enabled": false,
+        "concurrency": -1
+      }
+    }
+  },
+  {
+    "name": "socks",
+    "inner": "v2rayn://socks/eyJJbmRleElkIjoiSmZNaUx3IiwiQ29uZmlnVHlwZSI6NCwiQ29uZmlnVmVyc2lvbiI6NCwiRGlzcGxheUxvZyI6dHJ1ZSwiUmVtYXJrcyI6InNvY2tzIiwiQWRkcmVzcyI6IjEyNy4wLjAuMSIsIlBvcnQiOjU5MDcwLCJQYXNzd29yZCI6ImxvY2FsLXBhc3MiLCJVc2VybmFtZSI6ImxvY2FsLXVzZXIiLCJOZXR3b3JrIjoidGNwIiwiQWxsb3dJbnNlY3VyZSI6ImZhbHNlIiwiQWx0ZXJJZCI6MH0",
+    "expected": {
+      "tag": "proxy",
+      "protocol": "socks",
+      "settings": {
+        "address": "127.0.0.1",
+        "port": 59070,
+        "user": "local-user",
+        "pass": "local-pass",
+        "level": 1,
+        "email": "t@t.tt"
+      },
+      "streamSettings": {
+        "network": "raw"
+      },
+      "mux": {
+        "enabled": false,
+        "concurrency": -1
+      }
+    }
+  }
+]

@@ -36,13 +36,23 @@ import AppKit
         return .terminateLater
     }
 }
-@main struct V2rayMApp: App {
+@main enum V2rayMEntry {
+    @MainActor static func main() async {
+        if CommandLine.arguments.dropFirst().first == "--tun-acceptance" {
+            exit(await TunAcceptance.run())
+        }
+        V2rayMApp.main()
+    }
+}
+
+struct V2rayMApp: App {
     init() { AppFont.register() }
     @StateObject private var model = AppModel()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     var body: some Scene {
         Window("v2rayM", id: "main") {
             ContentView().environmentObject(model)
+                .environment(\.presentsInitialDashboard, true)
                 .font(AppFont.body)
                 .preferredColorScheme(.dark)
                 .tint(DashboardTheme.accent)

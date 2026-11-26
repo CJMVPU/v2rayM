@@ -169,7 +169,7 @@ struct CachedRecentRow: NSViewRepresentable {
     private func synchronizeSurface() {
         surface.frame = bounds
         surface.configure(scene: sceneOwner, style: .init(shape: .panel(5),
-            color: NSColor(DashboardTheme.well), depth: 1.4, level: 30, parentID: parentID, rowOffset: rowOffset))
+            color: NSColor(DashboardTheme.well), depth: 1.4, level: 30, parentID: parentID, rowOffset: rowOffset, insidePage: true))
         if !turning, let displayed, let bitmap = image(displayed) { surface.textureImage = bitmap }
     }
     override func layout() {

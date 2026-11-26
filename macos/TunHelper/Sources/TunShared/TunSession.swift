@@ -98,10 +98,11 @@ public final class NativeCore: ManagedCore {
 public final class SlotLimiter {
     private let lock = NSLock()
     private var active = Set<UUID>()
-    public init() {}
+    private let capacity: Int
+    public init(capacity: Int = 2) { self.capacity = capacity }
     public func acquire(_ id: UUID) -> Bool {
         lock.lock(); defer { lock.unlock() }
-        guard active.count < 2 else { return false }
+        guard active.count < capacity else { return false }
         active.insert(id); return true
     }
     public func release(_ id: UUID) { lock.lock(); defer { lock.unlock() }; active.remove(id) }

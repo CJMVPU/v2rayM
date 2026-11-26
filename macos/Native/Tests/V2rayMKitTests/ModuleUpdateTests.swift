@@ -25,17 +25,43 @@ final class ModuleUpdateTests: XCTestCase {
         XCTAssertEqual(try progress("\"downloadedBytes\":150,\"totalBytes\":100").downloadFraction, 1)
         XCTAssertNil(try progress("\"downloadedBytes\":50,\"totalBytes\":null").downloadFraction)
     }
-    func testAllModulesAlwaysEnableNativePrereleasesAndExcludeTheBackend() throws {
-        let settings = try JSONDecoder().decode(ModuleUpdateSettings.self, from: Data(#"{"targets":[{"coreType":"Xray","canInstall":true},{"coreType":"mihomo","canInstall":true},{"coreType":"sing_box","canInstall":true},{"coreType":"v2rayN.WebAPI","canInstall":true},{"coreType":"hysteria2","canInstall":false}],"preRelease":false,"useProxy":true,"checkPreReleaseCoreTypes":["sing_box"]}"#.utf8))
-        XCTAssertEqual(Set(settings.nativeTargets), Set(["Xray", "GeoFiles"]))
-        XCTAssertEqual(Set(settings.input.checkPreReleaseCoreTypes ?? []), Set(["Xray"]))
-        XCTAssertTrue(settings.input.preRelease)
-        XCTAssertTrue(settings.input.useProxy)
+    func testGeoProgressCountsBothFilesAndKeepsCompletedWorkForUnknownLength() throws {
+        func fraction(_ files: Int, _ bytes: Int, _ total: String) throws -> Double? {
+            let payload = #"{"coreType":"GeoFiles","phase":"downloading","isComplete":false,"success":false,"batch":false,"totalFiles":2,"completedFiles":\#(files),"downloadedBytes":\#(bytes),"totalBytes":\#(total)}"#
+            return try JSONDecoder().decode(ModuleUpdateProgress.self, from: Data(payload.utf8)).downloadFraction
+        }
+        XCTAssertNil(try fraction(0, 0, "null"))
+        XCTAssertEqual(try fraction(0, 90, "100"), 0.45)
+        XCTAssertEqual(try fraction(1, 0, "null"), 0.5)
+        XCTAssertEqual(try fraction(1, 10, "100"), 0.55)
+        XCTAssertEqual(try fraction(2, 0, "null"), 1)
+    }
+    func testGeoDownloadLabelsTrackBytesWhenServerOmitsSize() throws {
+        func label(_ bytes: Int, phase: String = "downloading") throws -> String {
+            let value: [String: Any] = ["coreType": "GeoFiles", "phase": phase, "isComplete": false, "success": false,
+                                        "batch": false, "completedFiles": 1, "totalFiles": 2, "downloadedBytes": bytes]
+            return try JSONDecoder().decode(ModuleUpdateProgress.self, from: JSONSerialization.data(withJSONObject: value)).phaseLabel
+        }
+        XCTAssertTrue(try label(1_000_000).hasPrefix("下载 2/2"))
+        XCTAssertNotEqual(try label(1_000_000), try label(2_000_000))
+        XCTAssertEqual(try label(0, phase: "waiting-to-apply"), "等待应用规则")
+    }
+    func testOnlyGeoDataCanBeUpdatedSeparately() throws {
+        let original = SettingsValue.object(["CheckUpdateItem": .object([
+            "SelectedCoreTypes": .array([.string("Xray"), .string("GeoFiles")]),
+            "UpdateViaProxy": .bool(true)
+        ])])
+        let settings = NativeGeoUpdatePreferences.settings(original)
+        XCTAssertEqual(settings["geoFilesSelected"], .bool(true))
+        XCTAssertEqual(settings["useProxy"], .bool(true))
+        XCTAssertEqual(settings["targets"], .array([]))
+        let disabled = try NativeGeoUpdatePreferences.applying(.object(["selectedCoreTypes": .array([])]), to: original)
+        XCTAssertEqual(disabled["CheckUpdateItem"]["SelectedCoreTypes"], .array([.string("Xray")]))
+        XCTAssertThrowsError(try NativeGeoUpdatePreferences.applying(.object([
+            "selectedCoreTypes": .array([.string("Xray")])
+        ]), to: original))
     }
     func testIndividualButtonsOnlyWaitForTheirOwnModule() {
-        XCTAssertEqual(ModuleUpdateScope.xray.targets, ["Xray"])
-        XCTAssertFalse(ModuleUpdateScope.all.targets.contains("sing_box"))
-        XCTAssertEqual(ModuleUpdateScope.geo.targets, ["GeoFiles"])
-        XCTAssertEqual(ModuleUpdateScope.all.targets.count, 2)
+        XCTAssertEqual(ModuleUpdateScope.allCases.flatMap(\.targets), ["GeoFiles"])
     }
 }

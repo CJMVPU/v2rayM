@@ -3,21 +3,17 @@ import V2rayMDomain
 import V2rayMApplication
 
 public typealias ProxyMode = V2rayMDomain.ProxyMode
+public typealias ProxyEndpoints = V2rayMDomain.ProxyEndpoints
+public typealias ProxyEndpoint = V2rayMDomain.ProxyEndpoint
 public typealias ProxyConnection = V2rayMDomain.ProxyConnection
 public typealias ProxyModePreferences = V2rayMApplication.ProxyModePreferences
 public protocol ProxyModeBackend: TunBackend {
     func proxyConnection() async throws -> ProxyConnection
     func stopProxyCore() async throws
 }
-extension APIClient: ProxyModeBackend {
-    public func proxyConnection() async throws -> ProxyConnection {
-        let state: RuntimeStatus = try await value("/api/status")
-        return ProxyConnection(running: state.coreRunning, port: state.runningProxyPort)
-    }
-    public func stopProxyCore() async throws { try await perform("/api/core/stop") }
-}
+
 extension SystemProxyController: ProxyModePreferences {
-    public func enableProxy(port: Int) throws { try enable(port: port) }
+    public func enableProxy(endpoints: ProxyEndpoints) throws { try enable(endpoints: endpoints) }
     public func restoreProxy() throws { _ = try restore() }
 }
 public struct ProxyModeFailure: LocalizedError {
@@ -48,6 +44,7 @@ public enum ProxyModeSwitch {
         case .profileNotSelected: return ClientFailure("profile_not_selected")
         case .helperUnavailable: return ClientFailure("mac_tun_helper_unavailable")
         case .coreStartFailed: return ClientFailure("core_start_failed")
+        case .proxyListenerUnavailable: return ClientFailure("proxy_no_usable_listener")
         }
     }
     private struct ModeBackendAdapter: ProxyModeRuntime {

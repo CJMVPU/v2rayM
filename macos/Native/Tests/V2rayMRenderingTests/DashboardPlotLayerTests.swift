@@ -12,12 +12,14 @@ import SwiftUI
                 directUpload: Double(index % 17) * 40, directDownload: Double(index % 23) * 80, segment: index < 30 ? 1 : 2)
         }
     }
-    private func frameConfiguration(animate: Bool = true) -> TrendFrameConfiguration {
-        let points = samples()
-        let now = points.last!.date
-        return TrendFrameConfiguration(input: TrendLayerInput(points), replayInput: TrendLayerInput([]), retired: nil,
-            now: now, maximum: 300, animate: animate, presentationActive: true, replaying: false,
-            catchUp: nil, retirement: nil, scaleFrom: 100, scaleTo: 300, scaleChanged: now, sampleArrived: now)
+    private func frameConfiguration(animate: Bool = true, supplied: [TrafficTrendSample]? = nil,
+                                    at date: Date? = nil, resume: TrafficTrendCatchUp? = nil,
+                                    reduced: Bool = false) -> TrendFrameConfiguration {
+        let points = supplied ?? samples()
+        let now = date ?? points.last!.date
+        return TrendFrameConfiguration(input: TrendLayerInput(points), retired: nil,
+            now: now, maximum: 300, animate: animate, presentationActive: true, reduceMotion: reduced,
+            catchUp: resume, retirement: nil, scaleFrom: 100, scaleTo: 300, scaleChanged: now, sampleArrived: now)
     }
     func testNativeFrameInterpolationAndPausedDate() {
         let configuration = frameConfiguration()
@@ -47,11 +49,78 @@ import SwiftUI
         XCTAssertFalse(view.clock.isRunning)
         XCTAssertEqual(view.current.root.position, position)
         NotificationCenter.default.post(name: .dashboardDidThaw, object: window)
+        XCTAssertFalse(view.clock.isRunning, "A stale snapshot cannot scroll through the background interval")
+        let resume = TrafficTrendCatchUp(previous: TrafficTrend(), displayedAt: configuration.now, resumedAt: Date())
+        view.configure(frameConfiguration(resume: resume))
         XCTAssertTrue(view.clock.isRunning)
-        view.clock.onFrame?(configuration.now.addingTimeInterval(0.6))
-        XCTAssertNotEqual(view.current.root.position, position)
-        XCTAssertEqual(view.current.geometryBuilds, 1)
     }
+
+    private func assertSameDrawing(_ lhs: [RealityPlotStroke], _ rhs: [RealityPlotStroke],
+                                   file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertFalse(lhs.isEmpty, file: file, line: line)
+        XCTAssertEqual(lhs.count, rhs.count, file: file, line: line)
+        for (a, b) in zip(lhs, rhs) {
+            XCTAssertEqual(a.path, b.path, file: file, line: line)
+            XCTAssertEqual(a.color, b.color, file: file, line: line)
+            XCTAssertEqual(a.offset, b.offset, accuracy: 0.001, file: file, line: line)
+            XCTAssertEqual(a.opacity, b.opacity, accuracy: 0.001, file: file, line: line)
+        }
+    }
+
+    func testLongBackgroundBlendsEndpointsAndRepeatedSuspensionKeepsActualComposition() throws {
+        let view = TrendLayerView(frame: CGRect(x: 0, y: 0, width: 550, height: 100))
+        view.layout()
+        let earlier = samples()
+        let first = try XCTUnwrap(earlier.last?.date)
+        let latest = earlier.map { TrafficTrendSample(date: $0.date.addingTimeInterval(7 * 86400),
+            upload: $0.upload + 100, download: $0.download, directUpload: $0.directUpload,
+            directDownload: $0.directDownload, segment: $0.segment) }
+        let now = try XCTUnwrap(latest.last?.date)
+        view.configure(frameConfiguration(supplied: earlier, at: first), at: first)
+        let beforeHide = view.plotStrokes()
+        view.freeze(); view.thaw()
+        let resume = TrafficTrendCatchUp(previous: TrafficTrend(), displayedAt: first, resumedAt: now)
+        view.configure(frameConfiguration(supplied: [], at: now, resume: resume), at: now)
+        XCTAssertTrue(view.hasHeldFrame)
+        view.clock.onFrame?(now.addingTimeInterval(20))
+        XCTAssertTrue(view.hasHeldFrame, "An empty interval must hold the last chart")
+        assertSameDrawing(beforeHide, view.plotStrokes())
+        let ready = now.addingTimeInterval(21)
+        view.configure(frameConfiguration(supplied: latest, at: ready, resume: resume), at: ready)
+        XCTAssertEqual(view.blendFraction, 0)
+        view.clock.onFrame?(ready.addingTimeInterval(TrafficTrendCatchUp.duration / 2))
+        XCTAssertEqual(view.blendFraction, 0.5, accuracy: 0.001)
+        XCTAssertTrue(view.hasHeldFrame)
+        let middle = view.plotStrokes()
+        XCTAssertGreaterThan(middle.count, beforeHide.count, "Midpoint draws both endpoints")
+        XCTAssertTrue(middle.allSatisfy { abs($0.opacity - 0.5) < 0.001 })
+        view.freeze(); view.thaw()
+        let again = TrafficTrendCatchUp(holding: resume, resumedAt: ready.addingTimeInterval(50))
+        view.configure(frameConfiguration(supplied: latest, at: again.startedAt, resume: again), at: again.startedAt)
+        XCTAssertTrue(view.hasHeldFrame)
+        XCTAssertEqual(view.blendFraction, 0)
+        assertSameDrawing(middle, view.plotStrokes())
+        view.clock.onFrame?(again.startedAt.addingTimeInterval(1))
+        XCTAssertEqual(view.blendFraction, 1)
+        XCTAssertFalse(view.hasHeldFrame)
+        XCTAssertEqual(view.current.root.opacity, 1)
+    }
+
+    func testReducedMotionRetainsFrozenChartUntilValidTargetThenChangesImmediately() throws {
+        let view = TrendLayerView(frame: CGRect(x: 0, y: 0, width: 550, height: 100))
+        view.layout()
+        let earlier = samples(), now = Date()
+        view.configure(frameConfiguration(animate: false, supplied: earlier, reduced: true))
+        view.freeze(); view.thaw()
+        let resume = TrafficTrendCatchUp(previous: TrafficTrend(), displayedAt: now, resumedAt: now)
+        view.configure(frameConfiguration(animate: false, supplied: [], at: now, resume: resume, reduced: true))
+        XCTAssertTrue(view.hasHeldFrame)
+        view.configure(frameConfiguration(animate: false, supplied: earlier, at: now, resume: resume, reduced: true))
+        XCTAssertFalse(view.hasHeldFrame)
+        XCTAssertEqual(view.current.root.opacity, 1)
+        XCTAssertFalse(view.clock.isRunning)
+    }
+
     func testSteadyScrollingAndRevealReuseHistoryAndGrid() {
         let view = TrendLayerView(frame: CGRect(x: 0, y: 0, width: 550, height: 100))
         view.layout()
@@ -101,16 +170,6 @@ import SwiftUI
         var gaps = samples(2)
         gaps[1] = TrafficTrendSample(date: gaps[0].date.addingTimeInterval(12), upload: 0, download: 0, directUpload: 0, directDownload: 0, segment: 1)
         XCTAssertNil(TrendLayerGeometry(gaps).series[0].tail)
-    }
-    func testLongSleepUsesBoundedBucketsWithoutBridgingMissingHistory() {
-        let earlier = samples()
-        let later = earlier.map { TrafficTrendSample(date: $0.date.addingTimeInterval(7 * 86400),
-            upload: $0.upload, download: $0.download, directUpload: $0.directUpload,
-            directDownload: $0.directDownload, segment: $0.segment + 10) }
-        let input = TrendLayerInput(earlier + later)
-        XCTAssertEqual(input.selected(bucket: input.bucket(at: earlier.last!.date)), earlier)
-        XCTAssertEqual(input.selected(bucket: input.bucket(at: later.last!.date)), later)
-        XCTAssertTrue(input.selected(bucket: input.bucket(at: earlier.last!.date.addingTimeInterval(3600))).isEmpty)
     }
     func testProjectionPreservesStrokeWidthDotSizeAndLatestEndpoint() throws {
         let input = TrendLayerInput(samples(4)), group = TrendLayerGroup()

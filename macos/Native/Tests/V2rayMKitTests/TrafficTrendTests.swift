@@ -13,49 +13,38 @@ final class TrafficTrendTests: XCTestCase {
                 "sampledAt": formatter.string(from: Date(timeIntervalSince1970: time))]]
         return try JSONDecoder().decode(RuntimeStatus.self, from: JSONSerialization.data(withJSONObject: object))
     }
-    func testCatchUpRevealsRealHistoryMonotonicallyAndConvergesToLiveTime() throws {
+    func testResumeKeepsOnlyTheFrozenViewportAndUsesAFixedBlendDuration() throws {
         var trend = TrafficTrend()
-        let from = Date(timeIntervalSince1970: 1000)
-        trend.record(try state(at: 1000), now: from)
-        let frozen = trend
-        for t in stride(from: 1005.0, through: 1060.0, by: 5) { trend.record(try state(at: t), now: Date(timeIntervalSince1970: t)) }
-        let start = Date(timeIntervalSince1970: 1060)
-        let replay = try XCTUnwrap(TrafficTrendCatchUp(previous: frozen, displayedAt: from, latest: trend, resumedAt: start))
-        XCTAssertEqual(replay.displayDate(at: start), from)
-        var last = from
-        for tick in 0...120 {
-            let date = replay.displayDate(at: start.addingTimeInterval(replay.duration * Double(tick) / 120))
-            XCTAssertGreaterThanOrEqual(date, last); last = date
-            let points = TrafficTrendCatchUp.plotSamples(replay.samples, at: date)
-            XCTAssertTrue(points.allSatisfy { trend.samples.contains($0) })
+        for time in stride(from: 1000.0, through: 1600, by: 5) {
+            trend.record(try state(at: time), now: Date(timeIntervalSince1970: time))
         }
-        XCTAssertEqual(last.timeIntervalSince1970, 1060 + replay.duration, accuracy: 0.0001)
-        XCTAssertEqual(replay.samples, trend.samples)
-        XCTAssertEqual(trend.samples.count, 13, "Replay must not mutate or fabricate live samples")
+        let frozen = Date(timeIntervalSince1970: 1600)
+        for gap: TimeInterval in [1, 300, 604800] {
+            let resumed = frozen.addingTimeInterval(gap)
+            let transition = TrafficTrendCatchUp(previous: trend, displayedAt: frozen, resumedAt: resumed)
+            XCTAssertEqual(transition.samples, trend.plotSamples(at: frozen))
+            XCTAssertEqual(transition.displayDate, frozen)
+            XCTAssertEqual(transition.startedAt, resumed)
+            let repeated = TrafficTrendCatchUp(holding: transition, resumedAt: resumed.addingTimeInterval(10))
+            XCTAssertEqual(transition.samples, repeated.samples)
+            XCTAssertEqual(transition.displayDate, repeated.displayDate)
+        }
+        XCTAssertEqual(TrafficTrendCatchUp.progress(after: 0), 0)
+        XCTAssertEqual(TrafficTrendCatchUp.progress(after: TrafficTrendCatchUp.duration / 2), 0.5)
+        XCTAssertEqual(TrafficTrendCatchUp.progress(after: TrafficTrendCatchUp.duration), 1)
     }
 
-    func testCatchUpClipsContinuouslyWithoutBridgingGapsOrNodeChanges() throws {
+    func testSameSecondCoreRestartStartsANewSegment() throws {
         var trend = TrafficTrend()
-        for t in [1000.0, 1005, 1025] { trend.record(try state(at: t), now: Date(timeIntervalSince1970: t)) }
-        trend.record(try state(at: 1030, profile: "b"), now: Date(timeIntervalSince1970: 1030))
-        XCTAssertEqual(TrafficTrendCatchUp.plotSamples(trend.samples, at: Date(timeIntervalSince1970: 1002)).map(\.date), Array(trend.samples.prefix(2)).map(\.date))
-        XCTAssertEqual(TrafficTrendCatchUp.plotSamples(trend.samples, at: Date(timeIntervalSince1970: 1010)).count, 2)
-        XCTAssertEqual(TrafficTrendCatchUp.plotSamples(trend.samples, at: Date(timeIntervalSince1970: 1027)).count, 3)
-    }
-
-    func testLongAbsenceCatchUpIsBoundedAndStoppedCoreDoesNotScrollPastStop() throws {
-        var trend = TrafficTrend()
-        trend.record(try state(at: 1000), now: Date(timeIntervalSince1970: 1000))
-        let frozen = trend
-        for t in stride(from: 1005.0, through: 8000.0, by: 5) { trend.record(try state(at: t), now: Date(timeIntervalSince1970: t)) }
-        let stop = Date(timeIntervalSince1970: 8001)
-        trend.record(try state(at: 8001, running: false), now: stop)
-        let start = Date(timeIntervalSince1970: 8020)
-        let replay = try XCTUnwrap(TrafficTrendCatchUp(previous: frozen, displayedAt: Date(timeIntervalSince1970: 1000), latest: trend, resumedAt: start))
-        XCTAssertLessThanOrEqual(replay.duration, 2.4)
-        XCTAssertLessThanOrEqual(replay.samples.count, 2048)
-        XCTAssertEqual(replay.displayDate(at: start.addingTimeInterval(10)), stop)
-        XCTAssertEqual(trend.visible(at: start).last?.date, Date(timeIntervalSince1970: 8000))
+        var a = try state(at: 1000, upload: 60, download: 120)
+        var b = try state(at: 1005, upload: 120, download: 60)
+        a.coreSessionID = UUID()
+        b.coreSessionID = UUID()
+        b.coreStartedAt = a.coreStartedAt
+        trend.record(a, now: Date(timeIntervalSince1970: 1000))
+        trend.record(b, now: Date(timeIntervalSince1970: 1005))
+        XCTAssertEqual(trend.samples.count, 2)
+        XCTAssertNotEqual(trend.samples.first?.segment, trend.samples.last?.segment)
     }
 
     func testDirectTrafficHasIndependentRatesPeaksAndChartScale() throws {

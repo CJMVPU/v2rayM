@@ -1,0 +1,1290 @@
+--- a/app/dispatcher/default.go
++++ b/app/dispatcher/default.go
+@@ -93,6 +93,7 @@
+ 
+ // DefaultDispatcher is a default implementation of Dispatcher.
+ type DefaultDispatcher struct {
++	owner  *core.Instance
+ 	ohm    outbound.Manager
+ 	router routing.Router
+ 	policy policy.Manager
+@@ -102,7 +103,7 @@
+ 
+ func init() {
+ 	common.Must(common.RegisterConfig((*Config)(nil), func(ctx context.Context, config interface{}) (interface{}, error) {
+-		d := new(DefaultDispatcher)
++		d := &DefaultDispatcher{owner: core.FromContext(ctx)}
+ 		if err := core.RequireFeatures(ctx, func(om outbound.Manager, router routing.Router, pm policy.Manager, sm stats.Manager, dc dns.Client) error {
+ 			core.OptionalFeatures(ctx, func(fdns dns.FakeDNSEngine) {
+ 				d.fdns = fdns
+@@ -265,6 +266,9 @@
+ 
+ // Dispatch implements routing.Dispatcher.
+ func (d *DefaultDispatcher) Dispatch(ctx context.Context, destination net.Destination) (*transport.Link, error) {
++	if d.owner != nil {
++		ctx = d.owner.BindContext(ctx)
++	}
+ 	if !destination.IsValid() {
+ 		panic("Dispatcher: Invalid destination.")
+ 	}
+@@ -322,6 +326,9 @@
+ 
+ // DispatchLink implements routing.Dispatcher.
+ func (d *DefaultDispatcher) DispatchLink(ctx context.Context, destination net.Destination, outbound *transport.Link) error {
++	if d.owner != nil {
++		ctx = d.owner.BindContext(ctx)
++	}
+ 	if !destination.IsValid() {
+ 		return errors.New("Dispatcher: Invalid destination.")
+ 	}
+@@ -501,7 +508,7 @@
+ 				accessMessage.Detour = inTag + " >> " + tag
+ 			}
+ 		}
+-		log.Record(accessMessage)
++		log.RecordContext(ctx, accessMessage)
+ 	}
+ 
+ 	handler.Dispatch(ctx, link)
+--- a/app/dns/nameserver_cached.go
++++ b/app/dns/nameserver_cached.go
+@@ -29,12 +29,12 @@
+ 			if !go_errors.Is(err, errRecordNotFound) {
+ 				if ttl > 0 {
+ 					errors.LogDebugInner(ctx, err, cache.name, " cache HIT ", fqdn, " -> ", ips)
+-					log.Record(&log.DNSLog{Server: cache.name, Domain: fqdn, Result: ips, Status: log.DNSCacheHit, Elapsed: 0, Error: err})
++					log.RecordContext(ctx, &log.DNSLog{Server: cache.name, Domain: fqdn, Result: ips, Status: log.DNSCacheHit, Elapsed: 0, Error: err})
+ 					return ips, uint32(ttl), err
+ 				}
+ 				if cache.serveStale && (cache.serveExpiredTTL == 0 || cache.serveExpiredTTL < ttl) {
+ 					errors.LogDebugInner(ctx, err, cache.name, " cache OPTIMISTE ", fqdn, " -> ", ips)
+-					log.Record(&log.DNSLog{Server: cache.name, Domain: fqdn, Result: ips, Status: log.DNSCacheOptimiste, Elapsed: 0, Error: err})
++					log.RecordContext(ctx, &log.DNSLog{Server: cache.name, Domain: fqdn, Result: ips, Status: log.DNSCacheOptimiste, Elapsed: 0, Error: err})
+ 					go pull(ctx, s, fqdn, option)
+ 					return ips, 1, err
+ 				}
+@@ -123,7 +123,7 @@
+ 		rTTL = 1
+ 	}
+ 
+-	log.Record(&log.DNSLog{Server: s.getCacheController().name, Domain: fqdn, Result: ips, Status: log.DNSQueried, Elapsed: time.Since(start), Error: err})
++	log.RecordContext(ctx, &log.DNSLog{Server: s.getCacheController().name, Domain: fqdn, Result: ips, Status: log.DNSQueried, Elapsed: time.Since(start), Error: err})
+ 	return result{ips, rTTL, err}
+ }
+ 
+--- a/app/dns/nameserver_doh.go
++++ b/app/dns/nameserver_doh.go
+@@ -87,7 +87,7 @@
+ 						cnc.ConnectionOnClose(cc),
+ 					)
+ 				} else {
+-					log.Record(&log.AccessMessage{
++					log.RecordContext(ctx, &log.AccessMessage{
+ 						From:   "DNS",
+ 						To:     s.dohURL,
+ 						Status: log.AccessAccepted,
+--- a/app/dns/nameserver_local.go
++++ b/app/dns/nameserver_local.go
+@@ -23,7 +23,7 @@
+ 
+ 	if len(ips) > 0 {
+ 		errors.LogInfo(ctx, "Localhost got answer: ", domain, " -> ", ips)
+-		log.Record(&log.DNSLog{Server: s.Name(), Domain: domain, Result: ips, Status: log.DNSQueried, Elapsed: time.Since(start), Error: err})
++		log.RecordContext(ctx, &log.DNSLog{Server: s.Name(), Domain: domain, Result: ips, Status: log.DNSQueried, Elapsed: time.Since(start), Error: err})
+ 	}
+ 
+ 	return
+--- a/app/dns/nameserver_quic.go
++++ b/app/dns/nameserver_quic.go
+@@ -223,7 +223,7 @@
+ 	}
+ }
+ 
+-func (s *QUICNameServer) getConnection() (*quic.Conn, error) {
++func (s *QUICNameServer) getConnection(ctx context.Context) (*quic.Conn, error) {
+ 	var conn *quic.Conn
+ 	s.RLock()
+ 	conn = s.connection
+@@ -241,14 +241,14 @@
+ 	defer s.Unlock()
+ 
+ 	var err error
+-	conn, err = s.openConnection()
++	conn, err = s.openConnection(ctx)
+ 	if err != nil {
+ 		// This does not look too nice, but QUIC (or maybe quic-go)
+ 		// doesn't seem stable enough.
+ 		// Maybe retransmissions aren't fully implemented in quic-go?
+ 		// Anyways, the simple solution is to make a second try when
+ 		// it fails to open the QUIC connection.
+-		conn, err = s.openConnection()
++		conn, err = s.openConnection(ctx)
+ 		if err != nil {
+ 			return nil, err
+ 		}
+@@ -257,14 +257,14 @@
+ 	return conn, nil
+ }
+ 
+-func (s *QUICNameServer) openConnection() (*quic.Conn, error) {
++func (s *QUICNameServer) openConnection(ctx context.Context) (*quic.Conn, error) {
+ 	tlsConfig := tls.Config{}
+ 	quicConfig := &quic.Config{
+ 		HandshakeIdleTimeout: handshakeTimeout,
+ 	}
+ 	tlsConfig.ServerName = s.destination.Address.String()
+-	conn, err := quic.DialAddr(context.Background(), s.destination.NetAddr(), tlsConfig.GetTLSConfig(tls.WithNextProto("http/1.1", http2.NextProtoTLS, NextProtoDQ)), quicConfig)
+-	log.Record(&log.AccessMessage{
++	conn, err := quic.DialAddr(ctx, s.destination.NetAddr(), tlsConfig.GetTLSConfig(tls.WithNextProto("http/1.1", http2.NextProtoTLS, NextProtoDQ)), quicConfig)
++	log.RecordContext(ctx, &log.AccessMessage{
+ 		From:   "DNS",
+ 		To:     s.destination,
+ 		Status: log.AccessAccepted,
+@@ -278,7 +278,7 @@
+ }
+ 
+ func (s *QUICNameServer) openStream(ctx context.Context) (*quic.Stream, error) {
+-	conn, err := s.getConnection()
++	conn, err := s.getConnection(ctx)
+ 	if err != nil {
+ 		return nil, err
+ 	}
+--- a/app/log/log.go
++++ b/app/log/log.go
+@@ -39,7 +39,7 @@
+ 		mask4:  m4,
+ 		mask6:  m6,
+ 	}
+-	log.RegisterHandler(g)
++	log.RegisterContextHandler(ctx, g)
+ 
+ 	// start logger now,
+ 	// then other modules will be able to log during initialization
+--- a/app/proxyman/inbound/worker.go
++++ b/app/proxyman/inbound/worker.go
+@@ -132,7 +132,7 @@
+ }
+ 
+ func (w *tcpWorker) Start() error {
+-	ctx := context.Background()
++	ctx := w.ctx
+ 
+ 	if v, ok := w.proxy.(*hysteria_proxy.Server); ok {
+ 		ctx = hysteria.ContextWithValidator(ctx, v.HysteriaInboundValidator())
+@@ -412,7 +412,7 @@
+ 
+ func (w *udpWorker) Start() error {
+ 	w.activeConn = make(map[connID]*udpConn, 16)
+-	ctx := context.Background()
++	ctx := w.ctx
+ 	h, err := udp.ListenUDP(ctx, w.address, w.port, w.stream, udp.HubCapacity(256))
+ 	if err != nil {
+ 		return err
+@@ -523,7 +523,7 @@
+ }
+ 
+ func (w *dsWorker) Start() error {
+-	ctx := context.Background()
++	ctx := w.ctx
+ 	hub, err := internet.ListenUnix(ctx, w.address, w.stream, func(conn stat.Connection) {
+ 		go w.callback(conn)
+ 	})
+--- a/app/proxyman/outbound/handler.go
++++ b/app/proxyman/outbound/handler.go
+@@ -55,6 +55,7 @@
+ 
+ // Handler implements outbound.Handler.
+ type Handler struct {
++	owner           *core.Instance
+ 	tag             string
+ 	senderSettings  *proxyman.SenderConfig
+ 	streamSettings  *internet.MemoryStreamConfig
+@@ -72,6 +73,7 @@
+ 	v := core.MustFromContext(ctx)
+ 	uplinkCounter, downlinkCounter := getStatCounter(v, config.Tag)
+ 	h := &Handler{
++		owner:           v,
+ 		tag:             config.Tag,
+ 		uplinkCounter:   uplinkCounter,
+ 		downlinkCounter: downlinkCounter,
+@@ -176,6 +178,9 @@
+ 
+ // Dispatch implements proxy.Outbound.Dispatch.
+ func (h *Handler) Dispatch(ctx context.Context, link *transport.Link) {
++	if h.owner != nil {
++		ctx = h.owner.BindContext(ctx)
++	}
+ 	outbounds := session.OutboundsFromContext(ctx)
+ 	ob := outbounds[len(outbounds)-1]
+ 	content := session.ContentFromContext(ctx)
+@@ -184,7 +189,7 @@
+ 		if ob.Target.Network == net.Network_UDP && ob.OriginalTarget.Address != nil {
+ 			strategy = strategy.GetDynamicStrategy(ob.OriginalTarget.Address.Family())
+ 		}
+-		ips, err := internet.LookupForIP(ob.Target.Address.Domain(), strategy, nil)
++		ips, err := internet.LookupForIP(ctx, ob.Target.Address.Domain(), strategy, nil)
+ 		if err != nil {
+ 			errors.LogInfoInner(ctx, err, "failed to resolve ip for target ", ob.Target.Address.Domain())
+ 			if h.senderSettings.TargetStrategy.ForceIP() {
+@@ -266,6 +271,9 @@
+ 
+ // Dial implements internet.Dialer.
+ func (h *Handler) Dial(ctx context.Context, dest net.Destination) (stat.Connection, error) {
++	if h.owner != nil {
++		ctx = h.owner.BindContext(ctx)
++	}
+ 	if h.senderSettings != nil && h.senderSettings.Via != nil {
+ 		outbounds := session.OutboundsFromContext(ctx)
+ 		ob := outbounds[len(outbounds)-1]
+@@ -329,6 +337,8 @@
+ 
+ // Close implements common.Closable.
+ func (h *Handler) Close() error {
++	h.streamSettings.ClosePooledTransports()
++	common.Close(h.xudp)
+ 	common.Close(h.mux)
+ 	common.Close(h.proxy)
+ 	return nil
+--- a/app/router/condition.go
++++ b/app/router/condition.go
+@@ -371,7 +371,15 @@
+ 
+ 	pid, name, absPath, err := net.FindProcess(network, srcIP, uint16(srcPort), dstIP, uint16(dstPort))
+ 	if err != nil {
+-		logProcessLookupFailure(err)
++		source := ctx
++		if resolvableContext != nil {
++			source = resolvableContext.Context
++		}
++		var logContext context.Context
++		if scoped, ok := source.(interface{ LogContext() context.Context }); ok {
++			logContext = scoped.LogContext()
++		}
++		logProcessLookupFailureContext(logContext, err)
+ 		return false
+ 	}
+ 	if m.MatchXraySelf {
+--- a/app/router/process_lookup_log.go
++++ b/app/router/process_lookup_log.go
+@@ -31,19 +31,20 @@
+ 
+ var processLookupMisses processLookupMissWindow
+ 
+-func logProcessLookupFailure(err error) {
++func logProcessLookupFailure(err error) { logProcessLookupFailureContext(nil, err) }
++func logProcessLookupFailureContext(ctx context.Context, err error) {
+ 	switch {
+ 	case stderrors.Is(err, net.ErrNotLocal):
+ 		return
+ 	case stderrors.Is(err, net.ErrProcessNotFound):
+ 		// Keep full per-flow diagnostics in debug logs, and a bounded visible
+ 		// warning. Never guess an owner or change the rule's no-match result.
+-		errors.LogDebug(context.Background(), "Process owner unavailable; continuing routing rules: ", err)
++		errors.LogDebug(ctx, "Process owner unavailable; continuing routing rules: ", err)
+ 		if count := processLookupMisses.record(time.Now()); count != 0 {
+-			errors.LogWarning(context.Background(), "Process owner unavailable for ", count,
++			errors.LogWarning(ctx, "Process owner unavailable for ", count,
+ 				" lookup(s) since last report; process rules did not match, continuing remaining routing rules. Further misses are aggregated for 60s; enable debug for each flow.")
+ 		}
+ 	default:
+-		errors.LogError(context.Background(), "Unable to query local process: ", err)
++		errors.LogError(ctx, "Unable to query local process: ", err)
+ 	}
+ }
+--- a/app/router/script.go
++++ b/app/router/script.go
+@@ -34,7 +34,7 @@
+ 		256,
+ 		func(L *lua.LState) {
+ 			geodata.RegisterLua(L)
+-			log.RegisterLua(L)
++			log.RegisterScopedLua(router.ctx, L)
+ 			router.RegisterLua(L)
+ 			dns.RegisterLua(L, router.dns)
+ 		},
+--- a/common/errors/errors.go
++++ b/common/errors/errors.go
+@@ -125,7 +125,7 @@
+ }
+ 
+ func doLog(ctx context.Context, inner error, severity log.Severity, msg ...interface{}) {
+-	if log.GetSeverity() < severity {
++	if log.ContextSeverity(ctx) < severity {
+ 		return
+ 	}
+ 	pc, _, _, _ := runtime.Caller(2)
+@@ -148,7 +148,7 @@
+ 			err.prefix = append(err.prefix, id)
+ 		}
+ 	}
+-	log.Record(&log.GeneralMessage{
++	log.RecordContext(ctx, &log.GeneralMessage{
+ 		Severity: severity,
+ 		Content:  err,
+ 	})
+--- a/common/log/log.go
++++ b/common/log/log.go
+@@ -1,6 +1,7 @@
+ package log // import "github.com/xtls/xray-core/common/log"
+ 
+ import (
++	"context"
+ 	"sync/atomic"
+ 
+ 	"github.com/xtls/xray-core/common/serial"
+@@ -28,8 +29,33 @@
+ }
+ 
+ // Record writes a message into log stream.
+-func Record(msg Message) {
+-	if h := logHandler.Load(); h != nil {
++func Record(msg Message) { RecordContext(nil, msg) }
++
++type scopeKey struct{}
++type Scope struct{ handler atomic.Pointer[Handler] }
++
++func (s *Scope) Bind(ctx context.Context) context.Context {
++	return context.WithValue(ctx, scopeKey{}, s)
++}
++
++// ScopeContext keeps just the owning log sink when routing strips session details.
++func ScopeContext(ctx context.Context) context.Context {
++	if scope, ok := ctx.Value(scopeKey{}).(*Scope); ok {
++		return scope.Bind(context.Background())
++	}
++	return context.Background()
++}
++func handlerFor(ctx context.Context) *atomic.Pointer[Handler] {
++	if ctx != nil {
++		if scope, ok := ctx.Value(scopeKey{}).(*Scope); ok {
++			return &scope.handler
++		}
++	}
++	return &logHandler
++}
++
++func RecordContext(ctx context.Context, msg Message) {
++	if h := handlerFor(ctx).Load(); h != nil {
+ 		(*h).Handle(msg)
+ 	}
+ }
+@@ -39,8 +65,9 @@
+ 	Severity() Severity
+ }
+ 
+-func GetSeverity() Severity {
+-	if h := logHandler.Load(); h != nil {
++func GetSeverity() Severity { return ContextSeverity(nil) }
++func ContextSeverity(ctx context.Context) Severity {
++	if h := handlerFor(ctx).Load(); h != nil {
+ 		if sh, ok := (*h).(SeverityLogger); ok {
+ 			return sh.Severity()
+ 		}
+@@ -52,9 +79,10 @@
+ var logHandler atomic.Pointer[Handler]
+ 
+ // RegisterHandler registers a new handler as current log handler. Previous registered handler will be discarded.
+-func RegisterHandler(handler Handler) {
++func RegisterHandler(handler Handler) { RegisterContextHandler(nil, handler) }
++func RegisterContextHandler(ctx context.Context, handler Handler) {
+ 	if handler == nil {
+ 		panic("Log handler is nil")
+ 	}
+-	logHandler.Store(&handler)
++	handlerFor(ctx).Store(&handler)
+ }
+--- a/common/log/lua.go
++++ b/common/log/lua.go
+@@ -1,6 +1,7 @@
+ package log
+ 
+ import (
++	"context"
+ 	"path/filepath"
+ 	"strings"
+ 
+@@ -8,7 +9,8 @@
+ )
+ 
+ // RegisterLua makes xray.log available to require in an LState.
+-func RegisterLua(L *lua.LState) {
++func RegisterLua(L *lua.LState) { RegisterScopedLua(nil, L) }
++func RegisterScopedLua(ctx context.Context, L *lua.LState) {
+ 	L.PreloadModule("xray.log", func(L *lua.LState) int {
+ 		module := L.CreateTable(0, 4)
+ 		var source, prefix string // cache
+@@ -19,7 +21,7 @@
+ 			"Error":   Severity_Error,
+ 		} {
+ 			module.RawSetString(name, L.NewFunction(func(L *lua.LState) int {
+-				if GetSeverity() < severity {
++				if ContextSeverity(ctx) < severity {
+ 					return 0
+ 				}
+ 				var content strings.Builder
+@@ -36,7 +38,7 @@
+ 				for i := 1; i <= L.GetTop(); i++ {
+ 					content.WriteString(luaLogString(L, L.Get(i)))
+ 				}
+-				Record(&GeneralMessage{
++				RecordContext(ctx, &GeneralMessage{
+ 					Severity: severity,
+ 					Content:  content.String(),
+ 				})
+--- a/common/platform/platform.go
++++ b/common/platform/platform.go
+@@ -5,6 +5,7 @@
+ 	"path/filepath"
+ 	"strconv"
+ 	"strings"
++	"sync/atomic"
+ )
+ 
+ const (
+@@ -39,7 +40,17 @@
+ 	}
+ }
+ 
++// Only Xray reads these overrides. Configuration files cannot write to the
++// surrounding macOS application's environment or inherit the next session.
++var embeddedFlags atomic.Pointer[map[string]string]
++
++func SetEmbeddedFlags(flags map[string]string) { embeddedFlags.Store(&flags) }
+ func (f EnvFlag) GetValue(defaultValue func() string) string {
++	if flags := embeddedFlags.Load(); flags != nil {
++		if value, ok := (*flags)[f.Name]; ok {
++			return value
++		}
++	}
+ 	if v, found := os.LookupEnv(f.Name); found {
+ 		return v
+ 	}
+--- a/core/context.go
++++ b/core/context.go
+@@ -36,8 +36,15 @@
+ For third party code, usage enabled by creating a context to interact with Xray's internal component is unsupported,
+ and may break at any time.
+ */
+-func toContext(ctx context.Context, v *Instance) context.Context {
++func toContext(ctx context.Context, v *Instance) context.Context { return v.BindContext(ctx) }
++
++// BindContext preserves request deadlines and cancellation, including for transports
++// that deliver a fresh context, while restoring the owning graph's DNS and log sink.
++func (v *Instance) BindContext(ctx context.Context) context.Context {
+ 	if FromContext(ctx) != v {
++		if v.scoped {
++			ctx = v.logScope.Bind(v.dialerScope.Bind(ctx))
++		}
+ 		ctx = context.WithValue(ctx, xrayKey, v)
+ 	}
+ 	return ctx
+--- a/core/xray.go
++++ b/core/xray.go
+@@ -7,6 +7,7 @@
+ 
+ 	"github.com/xtls/xray-core/common"
+ 	"github.com/xtls/xray-core/common/errors"
++	"github.com/xtls/xray-core/common/log"
+ 	"github.com/xtls/xray-core/common/platform"
+ 	"github.com/xtls/xray-core/common/serial"
+ 	"github.com/xtls/xray-core/features"
+@@ -87,7 +88,11 @@
+ 	running                    bool
+ 	resolveLock                sync.Mutex
+ 
+-	ctx context.Context
++	ctx         context.Context
++	scoped      bool
++	cone        bool
++	logScope    log.Scope
++	dialerScope internet.DialerScope
+ }
+ 
+ // Instance state
+@@ -177,6 +182,18 @@
+ 	return server, nil
+ }
+ 
++// NewScoped constructs an embedded feature graph. The host prepares the shared
++// immutable environment before constructing either half of a pre-SOCKS session.
++func NewScoped(config *Config, cone bool) (*Instance, error) {
++	s := &Instance{scoped: true, cone: cone}
++	s.ctx = s.BindContext(context.Background())
++	if done, err := initInstanceWithConfig(config, s); done {
++		_ = s.Close()
++		return nil, err
++	}
++	return s, nil
++}
++
+ func NewWithContext(ctx context.Context, config *Config) (*Instance, error) {
+ 	server := &Instance{ctx: ctx}
+ 
+@@ -189,11 +206,16 @@
+ }
+ 
+ func initInstanceWithConfig(config *Config, server *Instance) (bool, error) {
+-	if err := platform.ReloadEnvSettings(); err != nil {
+-		return true, errors.New("failed to reload environment settings").Base(err)
+-	}
+-	server.ctx = context.WithValue(server.ctx, "cone",
+-		platform.NewEnvFlag(platform.UseCone).GetValue(func() string { return "" }) != "true")
++	if !server.scoped {
++		if err := platform.ReloadEnvSettings(); err != nil {
++			return true, errors.New("failed to reload environment settings").Base(err)
++		}
++	}
++	cone := server.cone
++	if !server.scoped {
++		cone = platform.NewEnvFlag(platform.UseCone).GetValue(func() string { return "" }) != "true"
++	}
++	server.ctx = context.WithValue(server.ctx, "cone", cone)
+ 
+ 	for _, appSettings := range config.App {
+ 		settings, err := appSettings.GetInstance()
+@@ -229,7 +251,11 @@
+ 		}
+ 	}
+ 
+-	internet.InitSystemDialer(
++	initDialer := internet.InitSystemDialer
++	if server.scoped {
++		initDialer = server.dialerScope.Init
++	}
++	initDialer(
+ 		server.GetFeature(dns.ClientType()).(dns.Client),
+ 		func() outbound.Manager {
+ 			obm, _ := server.GetFeature(outbound.ManagerType()).(outbound.Manager)
+--- a/features/routing/session/context.go
++++ b/features/routing/session/context.go
+@@ -3,6 +3,7 @@
+ import (
+ 	"context"
+ 
++	"github.com/xtls/xray-core/common/log"
+ 	"github.com/xtls/xray-core/common/net"
+ 	"github.com/xtls/xray-core/common/session"
+ 	"github.com/xtls/xray-core/features/routing"
+@@ -10,10 +11,13 @@
+ 
+ // Context is an implementation of routing.Context, which is a wrapper of context.context with session info.
+ type Context struct {
++	logger   context.Context
+ 	Inbound  *session.Inbound
+ 	Outbound *session.Outbound
+ 	Content  *session.Content
+ }
++
++func (ctx *Context) LogContext() context.Context { return ctx.logger }
+ 
+ // GetInboundTag implements routing.Context.
+ func (ctx *Context) GetInboundTag() string {
+@@ -156,6 +160,7 @@
+ 	outbounds := session.OutboundsFromContext(ctx)
+ 	ob := outbounds[len(outbounds)-1]
+ 	return &Context{
++		logger:   log.ScopeContext(ctx),
+ 		Inbound:  session.InboundFromContext(ctx),
+ 		Outbound: ob,
+ 		Content:  session.ContentFromContext(ctx),
+--- a/infra/conf/common.go
++++ b/infra/conf/common.go
+@@ -6,6 +6,7 @@
+ 	"math"
+ 	"strconv"
+ 	"strings"
++	"sync/atomic"
+ 
+ 	"github.com/xtls/xray-core/common/errors"
+ 	"github.com/xtls/xray-core/common/net"
+@@ -13,6 +14,24 @@
+ 	"github.com/xtls/xray-core/common/protocol"
+ )
+ 
++// Embedded configuration parsing is serialized by the native host. Only the two
++// JSON types supporting env: substitutions see these job-local variables.
++var embeddedVariables atomic.Pointer[map[string]string]
++
++func SetEmbeddedVariables(variables map[string]string) { embeddedVariables.Store(&variables) }
++func configVariable(name string) string {
++	flag := platform.NewEnvFlag(name)
++	if vars := embeddedVariables.Load(); vars != nil {
++		if s, ok := (*vars)[name]; ok {
++			return s
++		}
++		if s, ok := (*vars)[flag.AltName]; ok {
++			return s
++		}
++	}
++	return flag.GetValue(func() string { return "" })
++}
++
+ type StringList []string
+ 
+ func NewStringList(raw []string) *StringList {
+@@ -57,7 +76,7 @@
+ 		return errors.New("invalid address: ", string(data)).Base(err)
+ 	}
+ 	if strings.HasPrefix(rawStr, "env:") {
+-		rawStr = platform.NewEnvFlag(rawStr[4:]).GetValue(func() string { return "" })
++		rawStr = configVariable(rawStr[4:])
+ 	}
+ 	v.Address = net.ParseAddress(rawStr)
+ 
+@@ -133,7 +152,7 @@
+ 
+ func parseStringPort(s string) (net.Port, net.Port, error) {
+ 	if strings.HasPrefix(s, "env:") {
+-		s = platform.NewEnvFlag(s[4:]).GetValue(func() string { return "" })
++		s = configVariable(s[4:])
+ 	}
+ 
+ 	pair := strings.SplitN(s, "-", 2)
+--- a/infra/conf/xray.go
++++ b/infra/conf/xray.go
+@@ -3,7 +3,7 @@
+ import (
+ 	"context"
+ 	"encoding/json"
+-	"os"
++
+ 	"path/filepath"
+ 	"strings"
+ 
+@@ -596,10 +596,8 @@
+ 
+ // Build implements Buildable.
+ func (c *Config) Build() (*core.Config, error) {
+-	for key, value := range c.Env {
+-		if err := os.Setenv(key, value); err != nil {
+-			return nil, errors.New("failed to apply environment configuration").Base(err)
+-		}
++	if len(c.Env) > 0 {
++		return nil, errors.New("embedded Xray does not allow a configuration to set the application environment")
+ 	}
+ 
+ 	if err := PostProcessConfigureFile(c); err != nil {
+--- a/proxy/freedom/freedom.go
++++ b/proxy/freedom/freedom.go
+@@ -321,7 +321,7 @@
+ 		if destination.Address.Family().IsDomain() {
+ 			if defaultRule != nil || len(h.finalRules) > 0 {
+ 				if strategy := h.resolveStrategy; strategy.HasStrategy() {
+-					ips, err := internet.LookupForIP(destination.Address.Domain(), strategy, outGateway)
++					ips, err := internet.LookupForIP(ctx, destination.Address.Domain(), strategy, outGateway)
+ 					if err != nil { // non-force may still dial with system DNS
+ 						errors.LogInfoInner(ctx, err, "failed to get IP address for domain ", destination.Address.Domain())
+ 						if strategy.ForceIP() {
+@@ -430,7 +430,7 @@
+ 				writer = buf.NewWriter(conn)
+ 			}
+ 		} else {
+-			writer = NewPacketWriter(conn, h, defaultRule, UDPOverride, destination, outGateway)
++			writer = NewPacketWriter(ctx, conn, h, defaultRule, UDPOverride, destination, outGateway)
+ 			if h.config.Noises != nil {
+ 				errors.LogDebug(ctx, "NOISE", h.config.Noises)
+ 				writer = &NoisePacketWriter{
+@@ -559,7 +559,7 @@
+ }
+ 
+ // DialDest means the dial target used in the dialer when creating conn
+-func NewPacketWriter(conn net.Conn, h *Handler, defaultRule *FinalRule, UDPOverride net.Destination, DialDest net.Destination, outGateway net.Address) buf.Writer {
++func NewPacketWriter(ctx context.Context, conn net.Conn, h *Handler, defaultRule *FinalRule, UDPOverride net.Destination, DialDest net.Destination, outGateway net.Address) buf.Writer {
+ 	iConn := conn
+ 	statConn, ok := iConn.(*stat.CounterConnection)
+ 	if ok {
+@@ -577,6 +577,7 @@
+ 			resolvedUDPAddr.Store(DialDest.Address.Domain(), net.DestinationFromAddr(conn.RemoteAddr()).Address)
+ 		}
+ 		return &PacketWriter{
++			ctx:               ctx,
+ 			PacketConnWrapper: c,
+ 			Counter:           counter,
+ 			Handler:           h,
+@@ -590,6 +591,7 @@
+ }
+ 
+ type PacketWriter struct {
++	ctx context.Context
+ 	*net.PacketConnWrapper
+ 	stats.Counter
+ 	*Handler
+@@ -626,7 +628,7 @@
+ 				} else {
+ 					shouldUseSystemResolver := true
+ 					if strategy := w.Handler.resolveStrategy; strategy.HasStrategy() {
+-						ips, err := internet.LookupForIP(b.UDP.Address.Domain(), strategy, w.OutGateway)
++						ips, err := internet.LookupForIP(w.ctx, b.UDP.Address.Domain(), strategy, w.OutGateway)
+ 						if err != nil {
+ 							// drop packet if resolve failed when forceIP
+ 							if strategy.ForceIP() {
+--- a/proxy/hysteria/server.go
++++ b/proxy/hysteria/server.go
+@@ -132,7 +132,7 @@
+ 		common.Must(conn.SetReadDeadline(time.Now().Add(sessionPolicy.Timeouts.Handshake)))
+ 		addr, err := ReadTCPRequest(conn)
+ 		if err != nil {
+-			log.Record(&log.AccessMessage{
++			log.RecordContext(ctx, &log.AccessMessage{
+ 				From:   conn.RemoteAddr(),
+ 				To:     "",
+ 				Status: log.AccessRejected,
+--- a/proxy/masque/server.go
++++ b/proxy/masque/server.go
+@@ -273,7 +273,7 @@
+ 	user := s.validator.get(name, pass)
+ 	if user == nil {
+ 		sconn.Reject(http.StatusUnauthorized, http.Header{"WWW-Authenticate": {authenticateHeader}})
+-		log.Record(&log.AccessMessage{
++		log.RecordContext(ctx, &log.AccessMessage{
+ 			From:   conn.RemoteAddr(),
+ 			To:     "",
+ 			Status: log.AccessRejected,
+--- a/proxy/shadowsocks/server.go
++++ b/proxy/shadowsocks/server.go
+@@ -158,7 +158,7 @@
+ 			if err != nil {
+ 				if inbound.Source.IsValid() {
+ 					errors.LogInfoInner(ctx, err, "dropping invalid UDP packet from: ", inbound.Source)
+-					log.Record(&log.AccessMessage{
++					log.RecordContext(ctx, &log.AccessMessage{
+ 						From:   inbound.Source,
+ 						To:     "",
+ 						Status: log.AccessRejected,
+@@ -206,7 +206,7 @@
+ 	bufferedReader := buf.BufferedReader{Reader: buf.NewReader(conn)}
+ 	request, bodyReader, err := ReadTCPSession(s.validator, &bufferedReader)
+ 	if err != nil {
+-		log.Record(&log.AccessMessage{
++		log.RecordContext(ctx, &log.AccessMessage{
+ 			From:   conn.RemoteAddr(),
+ 			To:     "",
+ 			Status: log.AccessRejected,
+--- a/proxy/socks/server.go
++++ b/proxy/socks/server.go
+@@ -123,7 +123,7 @@
+ 	defer common.CloseIfExists(tempUDPConn)
+ 	if err != nil {
+ 		if inbound.Source.IsValid() {
+-			log.Record(&log.AccessMessage{
++			log.RecordContext(ctx, &log.AccessMessage{
+ 				From:   inbound.Source,
+ 				To:     "",
+ 				Status: log.AccessRejected,
+--- a/proxy/trojan/server.go
++++ b/proxy/trojan/server.go
+@@ -176,7 +176,7 @@
+ 	if firstLen < 58 || first.Byte(56) != '\r' {
+ 		// invalid protocol
+ 		err = errors.New("not trojan protocol")
+-		log.Record(&log.AccessMessage{
++		log.RecordContext(ctx, &log.AccessMessage{
+ 			From:   conn.RemoteAddr(),
+ 			To:     "",
+ 			Status: log.AccessRejected,
+@@ -189,7 +189,7 @@
+ 		if user == nil {
+ 			// invalid user, let's fallback
+ 			err = errors.New("not a valid user")
+-			log.Record(&log.AccessMessage{
++			log.RecordContext(ctx, &log.AccessMessage{
+ 				From:   conn.RemoteAddr(),
+ 				To:     "",
+ 				Status: log.AccessRejected,
+@@ -208,7 +208,7 @@
+ 
+ 	clientReader := &ConnReader{Reader: bufferedReader}
+ 	if err := clientReader.ParseHeader(); err != nil {
+-		log.Record(&log.AccessMessage{
++		log.RecordContext(ctx, &log.AccessMessage{
+ 			From:   conn.RemoteAddr(),
+ 			To:     "",
+ 			Status: log.AccessRejected,
+--- a/proxy/vless/inbound/inbound.go
++++ b/proxy/vless/inbound/inbound.go
+@@ -511,7 +511,7 @@
+ 		}
+ 
+ 		if errors.Cause(err) != io.EOF {
+-			log.Record(&log.AccessMessage{
++			log.RecordContext(ctx, &log.AccessMessage{
+ 				From:   connection.RemoteAddr(),
+ 				To:     "",
+ 				Status: log.AccessRejected,
+--- a/proxy/vmess/inbound/inbound.go
++++ b/proxy/vmess/inbound/inbound.go
+@@ -241,7 +241,7 @@
+ 	request, err := svrSession.DecodeRequestHeader(reader, isDrain)
+ 	if err != nil {
+ 		if errors.Cause(err) != io.EOF {
+-			log.Record(&log.AccessMessage{
++			log.RecordContext(ctx, &log.AccessMessage{
+ 				From:   connection.RemoteAddr(),
+ 				To:     "",
+ 				Status: log.AccessRejected,
+--- a/proxy/wireguard/client.go
++++ b/proxy/wireguard/client.go
+@@ -125,13 +125,13 @@
+ 	bind := &bind{}
+ 	logger := &device.Logger{
+ 		Verbosef: func(format string, args ...any) {
+-			log.Record(&log.GeneralMessage{
++			log.RecordContext(ctx, &log.GeneralMessage{
+ 				Severity: log.Severity_Debug,
+ 				Content:  fmt.Sprintf(format, args...),
+ 			})
+ 		},
+ 		Errorf: func(format string, args ...any) {
+-			log.Record(&log.GeneralMessage{
++			log.RecordContext(ctx, &log.GeneralMessage{
+ 				Severity: log.Severity_Error,
+ 				Content:  fmt.Sprintf(format, args...),
+ 			})
+--- a/proxy/wireguard/server.go
++++ b/proxy/wireguard/server.go
+@@ -280,13 +280,13 @@
+ 	}
+ 	logger := &device.Logger{
+ 		Verbosef: func(format string, args ...any) {
+-			log.Record(&log.GeneralMessage{
++			log.RecordContext(s.ctx, &log.GeneralMessage{
+ 				Severity: log.Severity_Debug,
+ 				Content:  fmt.Sprintf(format, args...),
+ 			})
+ 		},
+ 		Errorf: func(format string, args ...any) {
+-			log.Record(&log.GeneralMessage{
++			log.RecordContext(s.ctx, &log.GeneralMessage{
+ 				Severity: log.Severity_Error,
+ 				Content:  fmt.Sprintf(format, args...),
+ 			})
+--- a/transport/internet/dialer.go
++++ b/transport/internet/dialer.go
+@@ -84,7 +84,25 @@
+ 	obm       outbound.Manager
+ )
+ 
+-func LookupForIP(domain string, strategy DomainStrategy, localAddr net.Address) ([]net.IP, error) {
++type scopeKey struct{}
++type DialerScope struct {
++	dns       dns.Client
++	outbounds outbound.Manager
++}
++
++func (s *DialerScope) Bind(ctx context.Context) context.Context {
++	return context.WithValue(ctx, scopeKey{}, s)
++}
++func dialerFeatures(ctx context.Context) (dns.Client, outbound.Manager) {
++	if s, ok := ctx.Value(scopeKey{}).(*DialerScope); ok {
++		return s.dns, s.outbounds
++	}
++	return dnsClient, obm
++}
++func (s *DialerScope) Init(dc dns.Client, om outbound.Manager) { s.dns, s.outbounds = dc, om }
++
++func LookupForIP(ctx context.Context, domain string, strategy DomainStrategy, localAddr net.Address) ([]net.IP, error) {
++	dnsClient, _ := dialerFeatures(ctx)
+ 	if dnsClient == nil {
+ 		return nil, errors.New("DNS client not initialized")
+ 	}
+@@ -253,7 +271,7 @@
+ 		if outboundName == "freedom" && dest.Network == net.Network_UDP && origTargetAddr != nil && src == nil {
+ 			finalStrategy = finalStrategy.GetDynamicStrategy(origTargetAddr.Family())
+ 		}
+-		ips, err := LookupForIP(dest.Address.Domain(), finalStrategy, src)
++		ips, err := LookupForIP(ctx, dest.Address.Domain(), finalStrategy, src)
+ 		if err != nil {
+ 			errors.LogErrorInner(ctx, err, "failed to resolve ip")
+ 			if sockopt.DomainStrategy.ForceIP() {
+@@ -268,6 +286,7 @@
+ 	}
+ 
+ 	if len(sockopt.DialerProxy) > 0 {
++		_, obm := dialerFeatures(ctx)
+ 		if obm == nil {
+ 			return nil, errors.New("there is no outbound manager for dialerProxy")
+ 		}
+--- a/transport/internet/grpc/dial.go
++++ b/transport/internet/grpc/dial.go
+@@ -12,6 +12,7 @@
+ 	"github.com/xtls/xray-core/common/net"
+ 	"github.com/xtls/xray-core/common/session"
+ 	"github.com/xtls/xray-core/common/utils"
++	"github.com/xtls/xray-core/core"
+ 	"github.com/xtls/xray-core/transport/internet"
+ 	"github.com/xtls/xray-core/transport/internet/grpc/encoding"
+ 	"github.com/xtls/xray-core/transport/internet/reality"
+@@ -119,6 +120,9 @@
+ 			}
+ 			address := net.ParseAddress(rawHost)
+ 
++			if owner := core.FromContext(ctx); owner != nil {
++				gctx = owner.BindContext(gctx)
++			}
+ 			gctx = c.ContextWithID(gctx, c.IDFromContext(ctx))
+ 			gctx = session.ContextWithOutbounds(gctx, session.OutboundsFromContext(ctx))
+ 			gctx = session.ContextWithTimeoutOnly(gctx, true)
+@@ -197,7 +201,20 @@
+ 		setUserAgent(conn, userAgent)
+ 		conn.Connect()
+ 	}
+-	globalDialerMap[dialerConf{dest, streamSettings}] = conn
++	if err != nil {
++		return nil, err
++	}
++	key := dialerConf{dest, streamSettings}
++	if !streamSettings.TrackPooledTransport("grpc/"+dest.String(), func() {
++		globalDialerAccess.Lock()
++		delete(globalDialerMap, key)
++		globalDialerAccess.Unlock()
++		_ = conn.Close()
++	}) {
++		_ = conn.Close()
++		return nil, errors.New("outbound closed")
++	}
++	globalDialerMap[key] = conn
+ 	return conn, err
+ }
+ 
+--- a/transport/internet/hysteria/dialer.go
++++ b/transport/internet/hysteria/dialer.go
+@@ -360,6 +360,15 @@
+ 				finalMask:    streamSettings.FinalMask,
+ 				quicParams:   streamSettings.QuicParams,
+ 			}
++			if !streamSettings.TrackPooledTransport("hysteria/"+dest.String(), func() {
++				manager.Lock()
++				delete(manager.m, dialerConfKey)
++				manager.Unlock()
++				c.clean(true)
++			}) {
++				manager.Unlock()
++				return nil, errors.New("outbound closed")
++			}
+ 			manager.m[dialerConfKey] = c
+ 		}
+ 		manager.Unlock()
+--- a/transport/internet/memory_settings.go
++++ b/transport/internet/memory_settings.go
+@@ -3,6 +3,7 @@
+ import (
+ 	"context"
+ 	"reflect"
++	"sync"
+ 
+ 	"github.com/xtls/xray-core/common"
+ 	"github.com/xtls/xray-core/common/net"
+@@ -11,7 +12,42 @@
+ )
+ 
+ // MemoryStreamConfig is a parsed form of StreamConfig. It is used to reduce the number of Protobuf parses.
++type streamLifetime struct {
++	sync.Mutex
++	closed  bool
++	release map[string]func()
++}
++
++func (s *MemoryStreamConfig) TrackPooledTransport(key string, release func()) bool {
++	if s == nil || s.lifetime == nil {
++		return true
++	}
++	life := s.lifetime
++	life.Lock()
++	defer life.Unlock()
++	if life.closed {
++		return false
++	}
++	life.release[key] = release
++	return true
++}
++func (s *MemoryStreamConfig) ClosePooledTransports() {
++	if s == nil || s.lifetime == nil {
++		return
++	}
++	life := s.lifetime
++	life.Lock()
++	life.closed = true
++	release := life.release
++	life.release = nil
++	life.Unlock()
++	for _, close := range release {
++		close()
++	}
++}
++
+ type MemoryStreamConfig struct {
++	lifetime         *streamLifetime
+ 	Destination      *net.Destination
+ 	ProtocolName     string
+ 	ProtocolSettings interface{}
+@@ -31,6 +67,7 @@
+ 	}
+ 
+ 	mss := &MemoryStreamConfig{
++		lifetime:         &streamLifetime{release: make(map[string]func())},
+ 		ProtocolName:     s.GetEffectiveProtocol(),
+ 		ProtocolSettings: ets,
+ 	}
+--- a/transport/internet/splithttp/client.go
++++ b/transport/internet/splithttp/client.go
+@@ -10,7 +10,6 @@
+ 	"sync"
+ 	"sync/atomic"
+ 
+-	"github.com/apernet/quic-go/http3"
+ 	"github.com/xtls/xray-core/common"
+ 	"github.com/xtls/xray-core/common/buf"
+ 	"github.com/xtls/xray-core/common/errors"
+@@ -36,10 +35,48 @@
+ 	closed          atomic.Bool
+ 	httpVersion     string
+ 	// pool of net.Conn, created using dialUploadConn
+-	uploadRawPool  *sync.Pool
++	poolMu         sync.Mutex
++	idleUploads    []*H1Conn
+ 	dialUploadConn func(ctxInner context.Context) (net.Conn, error)
+ }
+ 
++func (c *DefaultDialerClient) Close() error {
++	c.closed.Store(true)
++	c.poolMu.Lock()
++	idle := c.idleUploads
++	c.idleUploads = nil
++	c.poolMu.Unlock()
++	for _, conn := range idle {
++		_ = conn.Close()
++	}
++	c.client.CloseIdleConnections()
++	if closer, ok := c.client.Transport.(io.Closer); ok {
++		return closer.Close()
++	}
++	return nil
++}
++func (c *DefaultDialerClient) takeUpload() *H1Conn {
++	c.poolMu.Lock()
++	defer c.poolMu.Unlock()
++	last := len(c.idleUploads) - 1
++	if last < 0 {
++		return nil
++	}
++	conn := c.idleUploads[last]
++	c.idleUploads[last] = nil
++	c.idleUploads = c.idleUploads[:last]
++	return conn
++}
++func (c *DefaultDialerClient) returnUpload(conn *H1Conn) {
++	c.poolMu.Lock()
++	if !c.closed.Load() && len(c.idleUploads) < 32 {
++		c.idleUploads = append(c.idleUploads, conn)
++		c.poolMu.Unlock()
++		return
++	}
++	c.poolMu.Unlock()
++	_ = conn.Close()
++}
+ func (c *DefaultDialerClient) IsClosed() bool {
+ 	return c.closed.Load()
+ }
+@@ -128,33 +165,36 @@
+ 		requestBuff.Grow(512 + int(req.ContentLength))
+ 		common.Must(req.Write(requestBuff))
+ 
+-		var uploadConn any
+ 		var h1UploadConn *H1Conn
+ 
+ 		for {
+-			uploadConn = c.uploadRawPool.Get()
+-			newConnection := uploadConn == nil
++			if c.closed.Load() {
++				return io.ErrClosedPipe
++			}
++			h1UploadConn = c.takeUpload()
++			newConnection := h1UploadConn == nil
+ 			if newConnection {
+ 				newConn, err := c.dialUploadConn(context.WithoutCancel(ctx))
+ 				if err != nil {
+ 					return err
+ 				}
+ 				h1UploadConn = NewH1Conn(newConn)
+-				uploadConn = h1UploadConn
++
+ 			} else {
+-				h1UploadConn = uploadConn.(*H1Conn)
+ 
+ 				// TODO: Replace 0 here with a config value later
+ 				// Or add some other condition for optimization purposes
+ 				if h1UploadConn.UnreadedResponsesCount > 0 {
+ 					resp, err := http.ReadResponse(h1UploadConn.RespBufReader, req)
+ 					if err != nil {
++						_ = h1UploadConn.Close()
+ 						c.closed.Store(true)
+ 						return fmt.Errorf("error while reading response: %s", err.Error())
+ 					}
+ 					io.Copy(io.Discard, resp.Body)
+ 					defer resp.Body.Close()
+ 					if resp.StatusCode != 200 {
++						_ = h1UploadConn.Close()
+ 						return fmt.Errorf("got non-200 error response code: %d", resp.StatusCode)
+ 					}
+ 				}
+@@ -167,25 +207,20 @@
+ 			// the connection has been closed in the meantime.
+ 			if err == nil {
+ 				break
+-			} else if newConnection {
++			}
++			_ = h1UploadConn.Close()
++			if newConnection {
+ 				return err
+ 			}
+ 		}
+ 
+-		c.uploadRawPool.Put(uploadConn)
++		c.returnUpload(h1UploadConn)
+ 	}
+ 
+ 	return nil
+ }
+ 
+ // HTTP/1.1 and HTTP/2 will close itself, we only handle HTTP/3 here
+-func (c *DefaultDialerClient) Close() error {
+-	transport := c.client.Transport
+-	if h3Transport, ok := transport.(*http3.Transport); ok {
+-		h3Transport.Close()
+-	}
+-	return nil
+-}
+ 
+ type WaitReadCloser struct {
+ 	wait   *done.Instance
+--- a/transport/internet/splithttp/dialer.go
++++ b/transport/internet/splithttp/dialer.go
+@@ -23,6 +23,7 @@
+ 	"github.com/xtls/xray-core/common/net"
+ 	"github.com/xtls/xray-core/common/net/cnc"
+ 	"github.com/xtls/xray-core/common/signal/done"
++	"github.com/xtls/xray-core/core"
+ 	"github.com/xtls/xray-core/transport/internet"
+ 	"github.com/xtls/xray-core/transport/internet/browser_dialer"
+ 	"github.com/xtls/xray-core/transport/internet/hysteria/congestion"
+@@ -69,9 +70,22 @@
+ 			xmuxConfig = *transportConfig.Xmux
+ 		}
+ 
++		owner := core.FromContext(ctx)
+ 		xmuxManager = NewXmuxManager(xmuxConfig, func() XmuxConn {
+-			return createHTTPClient(dest, streamSettings)
++			return createHTTPClient(owner, dest, streamSettings)
+ 		})
++		if !streamSettings.TrackPooledTransport("xhttp/"+dest.String(), func() {
++			globalDialerAccess.Lock()
++			delete(globalDialerMap, key)
++			clients := xmuxManager.xmuxClients
++			xmuxManager.xmuxClients = nil
++			globalDialerAccess.Unlock()
++			for _, c := range clients {
++				common.Close(c.XmuxConn)
++			}
++		}) {
++			return nil, nil
++		}
+ 		globalDialerMap[key] = xmuxManager
+ 	}
+ 
+@@ -98,7 +112,7 @@
+ 	return "2"
+ }
+ 
+-func createHTTPClient(dest net.Destination, streamSettings *internet.MemoryStreamConfig) DialerClient {
++func createHTTPClient(owner *core.Instance, dest net.Destination, streamSettings *internet.MemoryStreamConfig) DialerClient {
+ 	tlsConfig := tls.ConfigFromStreamSettings(streamSettings)
+ 	realityConfig := reality.ConfigFromStreamSettings(streamSettings)
+ 
+@@ -116,6 +130,9 @@
+ 	transportConfig := streamSettings.ProtocolSettings.(*Config)
+ 
+ 	dialContext := func(ctxInner context.Context) (net.Conn, error) {
++		if owner != nil {
++			ctxInner = owner.BindContext(ctxInner)
++		}
+ 		var conn net.Conn
+ 		var err error
+ 		if streamSettings.FinalMask != nil {
+@@ -192,6 +209,9 @@
+ 			QUICConfig:      quicConfig,
+ 			TLSClientConfig: gotlsConfig,
+ 			Dial: func(ctx context.Context, addr string, tlsCfg *gotls.Config, cfg *quic.Config) (*quic.Conn, error) {
++				if owner != nil {
++					ctx = owner.BindContext(ctx)
++				}
+ 				var pktConn net.PacketConn
+ 				var udpAddr net.Addr
+ 				if streamSettings.FinalMask != nil {
+@@ -278,8 +298,8 @@
+ 		client: &http.Client{
+ 			Transport: transport,
+ 		},
+-		httpVersion:    httpVersion,
+-		uploadRawPool:  &sync.Pool{},
++		httpVersion: httpVersion,
++
+ 		dialUploadConn: dialContext,
+ 	}
+ 
+@@ -328,6 +348,9 @@
+ 	requestURL.RawQuery = transportConfiguration.GetNormalizedQuery()
+ 
+ 	httpClient, xmuxClient := getHTTPClient(ctx, dest, streamSettings)
++	if httpClient == nil {
++		return nil, errors.New("outbound closed")
++	}
+ 
+ 	mode := transportConfiguration.Mode
+ 	if mode == "" || mode == "auto" {
+@@ -354,6 +377,10 @@
+ 		globalDialerAccess.Lock()
+ 		if streamSettings.DownloadSettings == nil {
+ 			streamSettings.DownloadSettings = common.Must2(internet.ToMemoryStreamConfig(transportConfiguration.DownloadSettings))
++			if !streamSettings.TrackPooledTransport("xhttp/download-settings", streamSettings.DownloadSettings.ClosePooledTransports) {
++				globalDialerAccess.Unlock()
++				return nil, errors.New("outbound closed")
++			}
+ 			if streamSettings.SocketSettings != nil && streamSettings.SocketSettings.Penetrate {
+ 				streamSettings.DownloadSettings.SocketSettings = streamSettings.SocketSettings
+ 			}
+@@ -392,6 +419,9 @@
+ 		requestURL2.Path = config2.GetNormalizedPath()
+ 		requestURL2.RawQuery = config2.GetNormalizedQuery()
+ 		httpClient2, xmuxClient2 = getHTTPClient(ctx, dest2, memory2)
++		if httpClient2 == nil {
++			return nil, errors.New("outbound closed")
++		}
+ 		errors.LogInfo(ctx, fmt.Sprintf("XHTTP is downloading from %s, mode %s, HTTP version %s, host %s", dest2, "stream-down", httpVersion2, requestURL2.Host))
+ 	}
+ 
+@@ -512,6 +542,12 @@
+ 				if dynamicXmuxClient != nil && (dynamicXmuxClient.LeftRequests.Add(-1) <= 0 ||
+ 					(dynamicXmuxClient.UnreusableAt != time.Time{} && lastWrite.After(dynamicXmuxClient.UnreusableAt))) {
+ 					dynamicHTTPClient, dynamicXmuxClient = getHTTPClient(ctx, dest, streamSettings)
++					if dynamicHTTPClient == nil {
++						buf.ReleaseMulti(chunk)
++						wroteRequest.Close()
++						uploadPipeReader.Interrupt()
++						return
++					}
+ 				}
+ 
+ 				go func(hClient DialerClient) {
+--- a/app/router/router.go
++++ b/app/router/router.go
+@@ -258,7 +258,9 @@
+ 	}
+ 	r.mu.Lock()
+ 	defer r.mu.Unlock()
+-	closeWebhooks(*r.rules.Load())
++	if rules := r.rules.Load(); rules != nil {
++		closeWebhooks(*rules)
++	}
+ 	return nil
+ }
+ 

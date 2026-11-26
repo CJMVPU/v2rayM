@@ -63,6 +63,19 @@ import V2rayMDomain
         await NativePollingService().poll(runtime)
         XCTAssertEqual(runtime.calls, ["host", "disconnect"])
     }
+    func testLiveCoreLostTunnelRequiresAffirmativeEvidenceForCurrentSession() async {
+        let session = UUID()
+        for observed in [nil, UUID(), session] {
+            let runtime = PollingRuntime()
+            runtime.connection.request(.tun)
+            runtime.observation = RecoveryObservation(awake: true, networkAvailable: true, desiredMode: .tun,
+                systemProxyEnabled: false, tunEnabled: true, tunRunning: false, coreRunning: true,
+                runtimeState: "faulted", coreStartedAt: nil, updating: false, proxyNeedsRecovery: false,
+                coreSessionID: session, inactiveTunSessionID: observed)
+            await NativePollingService().poll(runtime)
+            XCTAssertEqual(runtime.calls.contains("begin"), observed == session)
+        }
+    }
     func testModuleCompletionNeedsEveryTargetAndNoOwnedUpdateInFlight() {
         XCTAssertFalse(NativeModuleUpdateCompletion.finished(starting: true, operations: [], targets: ["Xray"], terminalTargets: ["Xray"]))
         XCTAssertFalse(NativeModuleUpdateCompletion.finished(starting: false, operations: ["geo-update"], targets: ["GeoFiles"], terminalTargets: ["GeoFiles"]))

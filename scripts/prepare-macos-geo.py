@@ -30,6 +30,8 @@ def digest(path):
 def verify(output=OUTPUT):
     pinned = json.loads((ROOT / 'contracts/macos-build-inputs.json').read_text())['geolocation']
     manifest = json.loads((output / 'geodata-manifest.json').read_text())
+    if manifest.get('formatVersion') != 2:
+        raise ValueError('Rebuild offline geolocation tables in format 2')
     if manifest['input']['sha256'] != pinned['sha256'] or manifest['input']['sourceURL'] != pinned['sourceURL']:
         raise ValueError('Geo input does not match the reviewed input lock')
     for name in ['ipv4.bin', 'ipv6.bin', 'places.bin']:

@@ -37,15 +37,16 @@ final class GlobeTelemetryTests: XCTestCase {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        let ranges: [UInt8] = [1,1,1,0, 1,1,1,255, 0,0,0,0, 8,8,8,8, 8,8,8,8, 0,0,0,1]
-        try Data(ranges).write(to: root.appendingPathComponent("ipv4.bin"))
-        try Data().write(to: root.appendingPathComponent("ipv6.bin"))
+        let ranges: [UInt8] = [1,1,1,0, 0,0,0,0, 1,1,2,0, 255,255,255,255,
+                               8,8,8,8, 0,0,0,1, 8,8,8,9, 255,255,255,255]
+        try rangeTable(ranges, width: 4).write(to: root.appendingPathComponent("ipv4.bin"))
+        try rangeTable([], width: 16).write(to: root.appendingPathComponent("ipv6.bin"))
         try encodePlaces([GlobePlace(city: "A", latitude: 1, longitude: 2), GlobePlace(city: "B", latitude: 3, longitude: 4)])
             .write(to: root.appendingPathComponent("places.bin"))
         let db = try GlobeGeoDatabase(directory: root)
         XCTAssertEqual(db.lookup("1.1.1.0")?.city, "A")
         XCTAssertEqual(db.lookup("1.1.1.255")?.city, "A")
         XCTAssertEqual(db.lookup("8.8.8.8")?.city, "B")
-        XCTAssertNil(db.lookup("8.8.8.9")); XCTAssertNil(db.lookup("1.1.0.255"))
+        XCTAssertNil(db.lookup("1.1.2.0")); XCTAssertNil(db.lookup("8.8.8.9")); XCTAssertNil(db.lookup("1.1.0.255"))
     }
 }

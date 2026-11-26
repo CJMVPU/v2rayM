@@ -165,8 +165,8 @@
   AppModel 适配器仅在代际仍匹配时发布恢复读取的 operations/TUN 状态。
   `NativeShutdownService` 固定排空任务、恢复系统代理、确认 TUN 停止、停止所属后端的顺序；
   `TunnelStopEvidence` 要求 stopped 状态与空的所属进程集合同时成立，缺少 API 时不能跳过已启用 TUN 的停止确认。
-  `NativeModuleUpdateService` 管理读取更新计划、按运行状态选择代理、保存偏好和提交更新；
-  目标与预发布规则在 `NativeModuleUpdatePlan`，HTTP 路径与进度文案留在适配器。
+  `NativeModuleUpdateService` 提交单项更新。下载时后台按已保存的偏好和当前代理状态选择连接方式。
+  `ModuleUpdateScope` 将独立更新限定为 GeoFiles，`NativeGeoUpdatePreferences` 读写更新偏好并保留旧配置中的其他选择。
   提交前取消不继续更新，后端已经接受的提交不因客户端随后取消而误报撤销。
   `ProxyModeService` 通过领域 `TunModeState`、`ProxyConnection` 和后端/偏好端口编排互斥模式切换及失败补偿。
   Kit 只转换 HTTP/helper 状态、提供系统接口与映射用户错误；断开路径保持单向关闭，失败不重启旧模式。

@@ -77,53 +77,92 @@ public actor SystemProxyController {
     private static let managedGroups = [["HTTPEnable", "HTTPProxy", "HTTPPort"],
         ["HTTPSEnable", "HTTPSProxy", "HTTPSPort"], ["SOCKSEnable", "SOCKSProxy", "SOCKSPort"],
         ["ProxyAutoConfigEnable"], ["ProxyAutoDiscoveryEnable"], ["ExceptionsList", "ExcludeSimpleHostnames"]]
-    private var ownedPort: Int?
+    private var ownedEndpoints: ProxyEndpoints?
+    private var serviceRevision: Data?
+    private let readRevision: () -> Data?
     private let journalURL: URL
     private let makeStore: () throws -> ProxyPreferencesStore
-    public init(dataDirectory: URL, makeStore: @escaping () throws -> ProxyPreferencesStore = { try MacProxyPreferences() }) {
+    public init(dataDirectory: URL) {
+        journalURL = dataDirectory.appendingPathComponent("native-proxy-recovery.plist")
+        makeStore = { try MacProxyPreferences() }
+        // Read-only preferences signature avoids taking an authorization lock on each status poll.
+        let passive = SCPreferencesCreate(nil, "v2rayM network services" as CFString, nil)
+        readRevision = {
+            guard let passive else { return nil }
+            SCPreferencesSynchronize(passive)
+            return SCPreferencesGetSignature(passive) as Data?
+        }
+    }
+    public init(dataDirectory: URL, makeStore: @escaping () throws -> ProxyPreferencesStore) {
+        readRevision = { nil }
         journalURL = dataDirectory.appendingPathComponent("native-proxy-recovery.plist")
         self.makeStore = makeStore
     }
     private var hasJournal: Bool { FileManager.default.fileExists(atPath: journalURL.path) }
-    public var isEnabled: Bool { ownedPort != nil && hasJournal }
+    public var isEnabled: Bool { ownedEndpoints != nil && hasJournal }
     /// An active session deliberately keeps a journal for normal off/quit.
     /// Only an unowned or failed transaction needs the recovery UI.
-    public var needsRecovery: Bool { hasJournal && ownedPort == nil }
-    public func enable(port: Int) throws {
+    public var needsRecovery: Bool { hasJournal && ownedEndpoints == nil }
+    public func enable(port: Int) throws { try enable(endpoints: ProxyEndpoints(loopbackPort: port)) }
+
+    public func enable(endpoints: ProxyEndpoints) throws {
         guard !hasJournal else { throw ClientFailure("proxy_recovery") }
-        guard (1...65535).contains(port) else { throw ClientFailure("invalid_port") }
+        try Self.validate(endpoints)
         let store = try makeStore()
         let original = try store.services()
         guard !original.isEmpty else { throw ClientFailure("proxy_no_services") }
-        let changed = original.map { ProxyService(id: $0.id, configuration: Self.configuration($0.configuration, port: port)) }
-        let records = try zip(original, changed).map { before, after in
-            ProxyRecord(id: before.id, original: try Self.encode(before.configuration), applied: try Self.encode(after.configuration))
-        }
         try FileManager.default.createDirectory(at: journalURL.deletingLastPathComponent(), withIntermediateDirectories: true,
                                               attributes: [.posixPermissions: 0o700])
-        // Write recovery information before committing any global change.
-        let data = try PropertyListEncoder().encode(records)
-        try data.write(to: journalURL, options: [.atomic])
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: journalURL.path)
-        do { try store.apply(changed); ownedPort = port }
-        catch {
-            // Keep the journal even if apply only partially succeeded. The next off/quit can recover it.
-            throw error
+        try enroll(original, endpoints: endpoints, preserving: [], store: store)
+        ownedEndpoints = endpoints
+        serviceRevision = nil
+    }
+
+    private static func validate(_ endpoints: ProxyEndpoints) throws {
+        guard endpoints.preferredPort != nil else { throw ClientFailure("proxy_no_usable_listener") }
+        guard [endpoints.http, endpoints.socks].compactMap({ $0 }).allSatisfy({ (1...65535).contains($0.port) }) else {
+            throw ClientFailure("invalid_port")
         }
     }
-    /// Rebind after a running core changes its listener port. Restore the
-    /// original baseline first; a later change by another app stops the rebind.
-    public func rebind(port: Int) throws {
-        guard (1...65535).contains(port) else { throw ClientFailure("invalid_port") }
-        guard isEnabled else { throw ClientFailure("proxy_recovery") }
-        guard ownedPort != port else { return }
-        let changedElsewhere = try restore()
-        guard !changedElsewhere else { throw ClientFailure("proxy_changed") }
-        try enable(port: port)
+
+    /// Journal the original values before applying to any new service, including mid-session additions.
+    private func enroll(_ services: [ProxyService], endpoints: ProxyEndpoints, preserving records: [ProxyRecord],
+                        store: ProxyPreferencesStore) throws {
+        let changed = services.map { ProxyService(id: $0.id, configuration: Self.configuration($0.configuration, endpoints: endpoints)) }
+        let added = try zip(services, changed).map { before, after in
+            ProxyRecord(id: before.id, original: try Self.encode(before.configuration), applied: try Self.encode(after.configuration))
+        }
+        do {
+            try PropertyListEncoder().encode(records + added).write(to: journalURL, options: .atomic)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: journalURL.path)
+            try store.apply(changed)
+        } catch { ownedEndpoints = nil; throw error }
+    }
+
+    public func rebind(port: Int) throws { try rebind(endpoints: ProxyEndpoints(loopbackPort: port)) }
+
+    public func rebind(endpoints: ProxyEndpoints) throws {
+        try Self.validate(endpoints)
+        guard let ownedEndpoints, hasJournal else { throw ClientFailure("proxy_recovery") }
+        if ownedEndpoints != endpoints {
+            let changedElsewhere = try restore()
+            guard !changedElsewhere else { throw ClientFailure("proxy_changed") }
+            try enable(endpoints: endpoints)
+            return
+        }
+        let revision = readRevision()
+        if let revision, revision == serviceRevision { return }
+        let store = try makeStore()
+        let records = try PropertyListDecoder().decode([ProxyRecord].self, from: Data(contentsOf: journalURL))
+        let known = Set(records.map(\.id))
+        let added = try store.services().filter { !known.contains($0.id) }
+        if !added.isEmpty { try enroll(added, endpoints: endpoints, preserving: records, store: store) }
+        serviceRevision = revision
     }
     /// Restore only fields still matching our applied settings. Never erase a later change by another app.
     @discardableResult public func restore() throws -> Bool {
-        ownedPort = nil
+        ownedEndpoints = nil
+        serviceRevision = nil
         guard hasJournal else { return false }
         let records = try PropertyListDecoder().decode([ProxyRecord].self, from: Data(contentsOf: journalURL))
         let store = try makeStore()
@@ -153,13 +192,29 @@ public actor SystemProxyController {
         return changedElsewhere
     }
     public static func configuration(_ original: [String: Any], port: Int) -> [String: Any] {
+        configuration(original, endpoints: ProxyEndpoints(loopbackPort: port))
+    }
+    static func configuration(_ original: [String: Any], endpoints: ProxyEndpoints) -> [String: Any] {
         var result = original
+        let settings = connectionProxyDictionary(endpoints)
         for prefix in ["HTTP", "HTTPS", "SOCKS"] {
-            result[prefix + "Enable"] = 1; result[prefix + "Proxy"] = "127.0.0.1"; result[prefix + "Port"] = port
+            for suffix in ["Enable", "Proxy", "Port"] {
+                let key = prefix + suffix
+                result[key] = settings[key]
+            }
         }
         result["ProxyAutoConfigEnable"] = 0; result["ProxyAutoDiscoveryEnable"] = 0
         result["ExceptionsList"] = ["localhost", "127.0.0.1", "::1", "*.local", "169.254/16"]
         result["ExcludeSimpleHostnames"] = 1
+        return result
+    }
+    static func connectionProxyDictionary(_ endpoints: ProxyEndpoints?) -> [String: Any] {
+        var result = [String: Any]()
+        for (prefix, endpoint) in [("HTTP", endpoints?.http), ("HTTPS", endpoints?.http), ("SOCKS", endpoints?.socks)] {
+            result[prefix + "Enable"] = endpoint == nil ? 0 : 1
+            result[prefix + "Proxy"] = endpoint?.host
+            result[prefix + "Port"] = endpoint?.port
+        }
         return result
     }
     private static func fieldsEqual(_ lhs: [String: Any], _ rhs: [String: Any], keys: [String]) -> Bool {

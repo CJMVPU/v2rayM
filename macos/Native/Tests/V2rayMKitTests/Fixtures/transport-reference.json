@@ -1,0 +1,197 @@
+[
+  {
+    "node": {
+      "indexId": "raw",
+      "configType": "vless",
+      "configVersion": 4,
+      "address": "127.0.0.1",
+      "port": 12345,
+      "network": "raw",
+      "remarks": "raw",
+      "password": "a19b2b3e-4947-4511-a5a1-3e9ae68b22c4",
+      "protoExtra": "{\"VlessEncryption\":\"none\"}",
+      "transportExtra": "{\"RawHeaderType\": \"http\", \"Host\": \"host.example,second.example\", \"Path\": \"/one,/two\"}",
+      "streamSecurity": ""
+    },
+    "expected": {
+      "tag": "proxy",
+      "protocol": "vless",
+      "settings": {
+        "address": "127.0.0.1",
+        "port": 12345,
+        "email": "t@t.tt",
+        "id": "a19b2b3e-4947-4511-a5a1-3e9ae68b22c4",
+        "encryption": "none"
+      },
+      "streamSettings": {
+        "network": "raw",
+        "rawSettings": {
+          "header": {
+            "type": "http",
+            "request": {
+              "version": "1.1",
+              "method": "GET",
+              "path": [
+                "/one",
+                "/two"
+              ],
+              "headers": {
+                "Host": [
+                  "host.example",
+                  "second.example"
+                ],
+                "User-Agent": [],
+                "Accept-Encoding": [
+                  "gzip, deflate"
+                ],
+                "Connection": [
+                  "keep-alive"
+                ],
+                "Pragma": "no-cache"
+              }
+            }
+          }
+        }
+      },
+      "mux": {
+        "enabled": false,
+        "concurrency": -1
+      }
+    },
+    "settings": {
+      "KcpItem": {
+        "Mtu": 1350,
+        "Tti": 50,
+        "UplinkCapacity": 12,
+        "DownlinkCapacity": 100,
+        "CwndMultiplier": 1,
+        "MaxSendingWindow": 2097152
+      }
+    }
+  },
+  {
+    "node": {
+      "indexId": "kcp",
+      "configType": "vless",
+      "configVersion": 4,
+      "address": "127.0.0.1",
+      "port": 12345,
+      "network": "kcp",
+      "remarks": "kcp",
+      "password": "a19b2b3e-4947-4511-a5a1-3e9ae68b22c4",
+      "protoExtra": "{\"VlessEncryption\":\"none\"}",
+      "transportExtra": "{\"KcpHeaderType\": \"wechat-video\", \"KcpMtu\": 1250, \"KcpSeed\": \"local-sample\"}",
+      "streamSecurity": ""
+    },
+    "expected": {
+      "tag": "proxy",
+      "protocol": "vless",
+      "settings": {
+        "address": "127.0.0.1",
+        "port": 12345,
+        "email": "t@t.tt",
+        "id": "a19b2b3e-4947-4511-a5a1-3e9ae68b22c4",
+        "encryption": "none"
+      },
+      "streamSettings": {
+        "network": "kcp",
+        "kcpSettings": {
+          "mtu": 1250,
+          "tti": 50,
+          "uplinkCapacity": 12,
+          "downlinkCapacity": 100,
+          "cwndMultiplier": 1,
+          "maxSendingWindow": 2097152
+        },
+        "finalmask": {
+          "udp": [
+            {
+              "type": "mkcp-legacy",
+              "settings": {
+                "value": "local-sample"
+              }
+            },
+            {
+              "type": "mkcp-legacy",
+              "settings": {
+                "header": "wechat"
+              }
+            }
+          ]
+        }
+      },
+      "mux": {
+        "enabled": false,
+        "concurrency": -1
+      }
+    },
+    "settings": {
+      "KcpItem": {
+        "Mtu": 1350,
+        "Tti": 50,
+        "UplinkCapacity": 12,
+        "DownlinkCapacity": 100,
+        "CwndMultiplier": 1,
+        "MaxSendingWindow": 2097152
+      }
+    }
+  },
+  {
+    "node": {
+      "indexId": "kcp-default",
+      "configType": "vless",
+      "configVersion": 4,
+      "address": "127.0.0.1",
+      "port": 12345,
+      "network": "kcp",
+      "remarks": "kcp-default",
+      "password": "a19b2b3e-4947-4511-a5a1-3e9ae68b22c4",
+      "protoExtra": "{\"VlessEncryption\":\"none\"}",
+      "transportExtra": "{}",
+      "streamSecurity": ""
+    },
+    "expected": {
+      "tag": "proxy",
+      "protocol": "vless",
+      "settings": {
+        "address": "127.0.0.1",
+        "port": 12345,
+        "email": "t@t.tt",
+        "id": "a19b2b3e-4947-4511-a5a1-3e9ae68b22c4",
+        "encryption": "none"
+      },
+      "streamSettings": {
+        "network": "kcp",
+        "kcpSettings": {
+          "mtu": 1350,
+          "tti": 50,
+          "uplinkCapacity": 12,
+          "downlinkCapacity": 100,
+          "cwndMultiplier": 1,
+          "maxSendingWindow": 2097152
+        },
+        "finalmask": {
+          "udp": [
+            {
+              "type": "mkcp-legacy"
+            }
+          ]
+        }
+      },
+      "mux": {
+        "enabled": false,
+        "concurrency": -1
+      }
+    },
+    "settings": {
+      "KcpItem": {
+        "Mtu": 1350,
+        "Tti": 50,
+        "UplinkCapacity": 12,
+        "DownlinkCapacity": 100,
+        "CwndMultiplier": 1,
+        "MaxSendingWindow": 2097152
+      }
+    }
+  }
+]

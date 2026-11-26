@@ -9,10 +9,10 @@ public protocol ProxyModeRuntime: Sendable {
     func startTunCore() async throws
 }
 public protocol ProxyModePreferences: Sendable {
-    func enableProxy(port: Int) async throws
+    func enableProxy(endpoints: ProxyEndpoints) async throws
     func restoreProxy() async throws
 }
-public enum ModeSwitchRejection: Error { case profileNotSelected, helperUnavailable, coreStartFailed }
+public enum ModeSwitchRejection: Error { case profileNotSelected, helperUnavailable, coreStartFailed, proxyListenerUnavailable }
 public struct ModeSwitchFailure: Error {
     public let systemProxyEnabled: Bool
     public let rollbackFailed: Bool
@@ -54,8 +54,11 @@ public enum ProxyModeService {
                 }
                 try await backend.startTunCore()
                 let state = try await backend.proxyConnection()
-                guard state.running, let port = state.port else { throw ModeSwitchRejection.coreStartFailed }
-                if !proxyEnabled { try await preferences.enableProxy(port: port); proxyEnabled = true }
+                guard state.running else { throw ModeSwitchRejection.coreStartFailed }
+                guard let endpoints = state.endpoints, endpoints.preferredPort != nil else {
+                    throw ModeSwitchRejection.proxyListenerUnavailable
+                }
+                if !proxyEnabled { try await preferences.enableProxy(endpoints: endpoints); proxyEnabled = true }
             case .tun:
                 try await preferences.restoreProxy(); proxyEnabled = false
                 try await backend.setTunEnabled(true)
@@ -72,8 +75,8 @@ public enum ProxyModeService {
                 if previous != .off { try await backend.startTunCore() }
                 if previous == .system {
                     let state = try await backend.proxyConnection()
-                    guard state.running, let port = state.port else { throw ModeSwitchRejection.coreStartFailed }
-                    try await preferences.enableProxy(port: port); proxyEnabled = true
+                    guard state.running, let endpoints = state.endpoints, endpoints.preferredPort != nil else { throw ModeSwitchRejection.coreStartFailed }
+                    try await preferences.enableProxy(endpoints: endpoints); proxyEnabled = true
                 }
                 if previous == .tun {
                     let restored = try await backend.tunState()

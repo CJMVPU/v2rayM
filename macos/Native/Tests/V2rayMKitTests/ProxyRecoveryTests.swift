@@ -140,6 +140,43 @@ final class ProxyRecoveryTests: XCTestCase {
         XCTAssertEqual(store.values[0].configuration["HTTPProxy"] as? String, "previous.proxy")
         XCTAssertEqual(store.values[1].configuration["HTTPPort"] as? Int, 9999)
     }
+    func testNewServiceJoinsWithItsOwnBaselineAndExistingExternalEditsSurvive() async throws {
+        let directory = temporary(); defer { try? FileManager.default.removeItem(at: directory) }
+        let store = MemoryPreferences(), controller = SystemProxyController(dataDirectory: directory, makeStore: { store })
+        let ipv6 = ProxyEndpoint(host: "::1", port: 31111)
+        let http = ProxyEndpoints(http: ipv6, socks: nil)
+        try await controller.enable(endpoints: http)
+        store.values[0].configuration["HTTPPort"] = 9999
+        let original: [String: Any] = ["SOCKSEnable": 1, "SOCKSProxy": "example.invalid", "SOCKSPort": 1444]
+        store.values.append(ProxyService(id: "new", configuration: original))
+        try await controller.rebind(endpoints: http)
+        XCTAssertEqual(store.values[0].configuration["HTTPPort"] as? Int, 9999)
+        XCTAssertEqual(store.values[1].configuration["HTTPSProxy"] as? String, "::1")
+        XCTAssertEqual(store.values[1].configuration["HTTPPort"] as? Int, 31111)
+        XCTAssertEqual(store.values[1].configuration["SOCKSEnable"] as? Int, 0)
+        XCTAssertNil(store.values[1].configuration["SOCKSProxy"])
+        let changed = try await controller.restore()
+        XCTAssertTrue(changed)
+        XCTAssertEqual(store.values[0].configuration["HTTPPort"] as? Int, 9999)
+        XCTAssertTrue(NSDictionary(dictionary: store.values[1].configuration).isEqual(to: original))
+    }
+
+    func testFailedNewServiceEnrollmentKeepsOriginalRecoveryRecords() async throws {
+        let directory = temporary(); defer { try? FileManager.default.removeItem(at: directory) }
+        let store = MemoryPreferences(), controller = SystemProxyController(dataDirectory: directory, makeStore: { store })
+        let old = store.values[0].configuration
+        try await controller.enable(port: 32001)
+        store.values.append(ProxyService(id: "new", configuration: ["HTTPPort": 8000]))
+        store.failApply = true
+        do { try await controller.rebind(port: 32001); XCTFail("must surface enrollment failure") } catch {}
+        let pending = await controller.needsRecovery
+        XCTAssertTrue(pending)
+        store.failApply = false
+        _ = try await controller.restore()
+        XCTAssertTrue(NSDictionary(dictionary: store.values[0].configuration).isEqual(to: old))
+        XCTAssertEqual(store.values[1].configuration["HTTPPort"] as? Int, 8000)
+    }
+
     private func temporary() -> URL { FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString) }
 
     func testDisabledServiceIsRestoredWithoutBlockingOtherServices() async throws {

@@ -7,6 +7,7 @@ from pathlib import Path
 import plistlib
 import re
 import subprocess
+from xray_build_inputs import verified_patch_names
 
 ROOT = Path(__file__).resolve().parents[1]
 RETIRED = {'reactiveui', 'reactiveui.sourcegenerators', 'qrcoder', 'zxing.net.bindings.skiasharp', 'taskscheduler'}
@@ -44,7 +45,7 @@ def source_snapshot(root=ROOT):
 def assert_source(expected, root=ROOT):
     current = source_snapshot(root)
     if expected['sourceDigest'] != current['sourceDigest'] or expected['version'] != current['version']:
-        raise ValueError('Source tree changed since backend build. Rebuild the complete product; mixed-source packaging is refused.')
+        raise ValueError('Source tree changed since the build snapshot. Rebuild the complete product; mixed-source packaging is refused.')
     return current
 
 def verify_backend(backend, root=ROOT):
@@ -72,20 +73,38 @@ def verify_core_input(core_bin, root=ROOT, version_output=None):
                 'Patches': ', '.join(pin['patches']), 'Build': pin['buildMarker']}
     if any(metadata.get(key) != value for key, value in expected.items()):
         raise ValueError('Core SOURCE provenance differs from reviewed source and patches')
-    for name, checksum in pin['patches'].items():
-        if sha(root / 'patches/xray' / name) != checksum: raise ValueError('Reviewed core patch changed: ' + name)
+    verified_patch_names(root, inputs, library=False)
     return {'versionOutput': output, 'SHA256': sha(core), 'source': metadata, 'toolchain': inputs['goVersion']}
+
+LIBRARY_PATH = 'Contents/Frameworks/libV2rayMXray.dylib'
+
+def verify_library_input(library, root=ROOT):
+    pin = json.loads((root / 'contracts/macos-build-inputs.json').read_text())
+    receipt = json.loads(library.with_name('library-build.json').read_text())
+    verified_patch_names(root, pin, library=True)
+    if receipt != {'inputs': pin['xray'], 'libraryPatches': pin['xrayLibraryPatches'], 'goVersion': pin['goVersion'],
+                   'bridgeSources': {p.name: sha(p) for p in (root / 'scripts/xray/library').glob('*.go')}, 'binarySHA256': sha(library)}:
+        raise ValueError('Embedded Xray library differs from pinned build inputs or build digest')
+    return receipt
 
 def write_json(path, value):
     Path(path).write_text(json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + '\n')
 
 def verify_app_files(app, receipt):
+    for path in app.rglob('*'):
+        name = path.name.lower()
+        if path.is_file() and name in {'xray', 'v2raymhelperclient'}:
+            raise ValueError('Unexpected standalone process in native package: ' + str(path.relative_to(app)))
+        if name.startswith(('v2rayn.webapi', 'libcoreclr', 'libhostfxr', 'libhostpolicy')) or name.endswith(('.dll', '.runtimeconfig.json', '.deps.json')):
+            raise ValueError('Unexpected managed runtime in native package: ' + str(path.relative_to(app)))
     plist = plistlib.loads((app / 'Contents/Info.plist').read_bytes())
     if any(plist.get(key) != receipt['source']['version'] for key in ('CFBundleShortVersionString', 'CFBundleVersion')):
         raise ValueError('Application display/build versions differ from VERSION')
     runtime = receipt.get('runtimeData', {}).get('SHA256', {})
     if set(runtime) != {'geoip.dat', 'geosite.dat'}:
         raise ValueError('Runtime Geo DAT digests are missing or unexpected')
+    if LIBRARY_PATH not in receipt['artifacts']:
+        raise ValueError('Embedded Xray library digest missing from application')
     expected_files = receipt['artifacts'] | receipt['resourceDigests']
     expected_files |= {'Contents/Resources/Backend/bin/' + name: digest for name, digest in runtime.items()}
     for name, expected in expected_files.items():
@@ -93,36 +112,38 @@ def verify_app_files(app, receipt):
 
 def main():
     parser = argparse.ArgumentParser(); sub = parser.add_subparsers(dest='action', required=True)
-    snapshot = sub.add_parser('snapshot'); snapshot.add_argument('--output', type=Path, required=True); snapshot.add_argument('--dotnet', default='dotnet')
+    snapshot = sub.add_parser('snapshot'); snapshot.add_argument('--output', type=Path, required=True)
     core = sub.add_parser('verify-core'); core.add_argument('--core-bin', type=Path, required=True)
+    library = sub.add_parser('verify-library'); library.add_argument('--library', type=Path, required=True)
     record = sub.add_parser('record-backend'); record.add_argument('--snapshot', type=Path, required=True); record.add_argument('--backend', type=Path, required=True)
     verify = sub.add_parser('verify-backend'); verify.add_argument('--backend', type=Path, required=True)
-    app = sub.add_parser('write-app'); app.add_argument('--backend', type=Path, required=True); app.add_argument('--app', type=Path, required=True)
+    app = sub.add_parser('write-app'); app.add_argument('--snapshot', type=Path, required=True); app.add_argument('--app', type=Path, required=True)
     check = sub.add_parser('verify-app'); check.add_argument('--app', type=Path, required=True)
     seal = sub.add_parser('seal-app'); seal.add_argument('--app', type=Path, required=True); seal.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
     if args.action == 'snapshot':
         write_json(args.output, {'schema': 1, 'source': source_snapshot(), 'toolchains': {
-            'dotnet': command([args.dotnet, '--version']), 'swift': command(['swift', '--version']),
+            'swift': command(['swift', '--version']),
             'clang': command(['xcrun', 'clang', '--version']), 'macOS': command(['sw_vers', '-productVersion'])}})
     elif args.action == 'verify-core': verify_core_input(args.core_bin)
+    elif args.action == 'verify-library': verify_library_input(args.library)
     elif args.action == 'record-backend':
         receipt = json.loads(args.snapshot.read_text()); assert_source(receipt['source']); verify_dependencies()
         receipt['backendSHA256'] = sha(args.backend / 'v2rayN.WebAPI')
         write_json(args.backend / 'v2raym-backend-build.json', receipt)
     elif args.action == 'verify-backend': verify_backend(args.backend)
     elif args.action == 'write-app':
-        receipt = verify_backend(args.backend)
+        receipt = json.loads(args.snapshot.read_text())
+        assert_source(receipt['source'])
         # The app's main executable signature includes CodeResources, which includes
         # this manifest. Its final hash belongs in the external seal, never itself.
-        binaries = ['Contents/MacOS/V2rayMHelper', 'Contents/MacOS/V2rayMHelperClient',
-                    'Contents/Resources/Backend/v2rayN.WebAPI', 'Contents/Resources/Backend/bin/xray/xray']
+        binaries = [LIBRARY_PATH, 'Contents/MacOS/V2rayMHelper']
         plist = plistlib.loads((args.app / 'Contents/Info.plist').read_bytes())
         if plist['CFBundleShortVersionString'] != receipt['source']['version'] or plist['CFBundleVersion'] != receipt['source']['version']:
             raise ValueError('Application display/build versions differ from VERSION')
-        core = args.app / binaries[-1]
-        receipt['core'] = verify_core_input(core.parent.parent)
-        data_root = core.parent.parent
+        library_info = args.app / 'Contents/Resources/Xray/library-build.json'
+        receipt['core'] = json.loads(library_info.read_text())
+        data_root = args.app / 'Contents/Resources/Backend/bin'
         receipt['runtimeData'] = {'SHA256': {name: sha(data_root / name) for name in ('geoip.dat', 'geosite.dat')}}
         data_origin = data_root / 'core-bundle-source.json'
         if data_origin.exists():
@@ -132,15 +153,17 @@ def main():
             receipt['runtimeData']['origin'] = origin
         else:
             receipt['runtimeData']['origin'] = 'Existing explicit local input; hashes recorded without upstream origin claim'
-        source = core.with_name('SOURCE.txt')
-        if source.exists(): receipt['core']['provenance'] = source.read_text()
         receipt['mainExecutableDigest'] = 'Recorded after bundle signing in external product-manifest.json'
         receipt['inputs'] = json.loads((ROOT / 'contracts/macos-build-inputs.json').read_text())
         receipt['artifacts'] = {name: sha(args.app / name) for name in binaries}
         resources = args.app / 'Contents/Resources/V2rayMNative_V2rayM.bundle'
         geo = next(resources.rglob('geodata-manifest.json'))
         receipt['geolocation'] = json.loads(geo.read_text())
-        receipt['resourceDigests'] = {str(path.relative_to(args.app)): sha(path) for path in resources.rglob('*') if path.is_file()}
+        kit = resources.with_name('V2rayMNative_V2rayMKit.bundle')
+        if not any(kit.rglob('RuntimeDefaults/settings.json')):
+            raise ValueError('Native runtime defaults missing from app')
+        receipt['resourceDigests'] = {str(path.relative_to(args.app)): sha(path)
+                                      for bundle in (resources, kit) for path in bundle.rglob('*') if path.is_file()}
         receipt['verification'] = {'signature': 'verify externally after bundle signing', 'realTUN': False, 'notarized': False}
         write_json(args.app / 'Contents/Resources/build-manifest.json', receipt)
     elif args.action in {'verify-app', 'seal-app'}:

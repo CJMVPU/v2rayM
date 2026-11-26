@@ -14,7 +14,9 @@ struct ParameterSettingsFields: SettingsFields {
             if parameterGroup == groups[0] {
                 SettingsFormSection(title: "监听与嗅探", subtitle: "管理本地连接入口和流量识别。") {
                     let inbound = value($settings, "inbound")
-                    number("本地代理端口", inbound, "localPort", range: 1024...65533).disabled(model.proxyRunning)
+                    let maximum = XrayInbound.maximumBasePort(secondLocal: inbound.wrappedValue["secondLocalPortEnabled"].flag,
+                        separateLAN: inbound.wrappedValue["allowLANConn"].flag && inbound.wrappedValue["newPort4LAN"].flag)
+                    number("本地代理端口", inbound, "localPort", range: 1024...maximum).disabled(model.proxyRunning)
                     Text("关闭代理后可修改监听端口。").font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
                         .opacity(model.proxyRunning ? 1 : 0).accessibilityHidden(!model.proxyRunning)
                     toggle("启用 UDP", inbound, "udpEnabled")

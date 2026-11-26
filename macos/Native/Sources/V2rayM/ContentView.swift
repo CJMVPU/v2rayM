@@ -15,8 +15,7 @@ struct ContentView: View {
     @Environment(\.accessibilityReduceMotion) private var reduced
     @State private var homeHovered = false
     @State private var editorHomeRequest = 0
-    @State private var origin = UnitPoint.center
-    @State private var expanded = true
+    @State private var cube = PageCubeNavigation()
     @State private var transitioning = false
     @State private var settingsEditing = false
     @State private var selectedProfile: String?
@@ -30,40 +29,23 @@ struct ContentView: View {
         RealityWindow {
             VStack(spacing: 0) {
                 titleBar.zIndex(1)
-                GeometryReader { geometry in
+                PageTurnHost(page: page, navigation: cube) {
                     pageContent(page)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .modifier(PageSurfaceSync())
-                        .geometryGroup()
-                        .scaleEffect(expanded ? 1 : 0.025, anchor: origin)
-                        .allowsHitTesting(!transitioning)
-                        .environment(\.openDashboardPage) { destination, point in
-                            guard page == .home, !transitioning else { return }
-                            origin = UnitPoint(x: point.x / max(1, geometry.size.width),
-                                               y: point.y / max(1, geometry.size.height))
-                            if destination == .profiles {
-                                let id = model.status?.coreRunning == true ? model.status?.runningProfileId : model.status?.currentProfileId
-                                selectedProfile = id
-                                editingProfile = model.profiles.first { $0.id == id }
-                            }
-                            expanded = reduced
-                            transitioning = !reduced
-                            page = destination
-                        }
-                        .task(id: page) {
-                            guard page != .home, !expanded else { return }
-                            await Task.yield()
-                            withAnimation(.easeOut(duration: 0.24), completionCriteria: .removed) {
-                                expanded = true
-                            } completion: { transitioning = false }
+                        .environment(\.isRealityPage, true)
+                        .buttonStyle(HoverButtonStyle())
+                        .environment(\.dashboardNavigationLocked, transitioning)
+                        .environment(\.openDashboardPage) { target in
+                            guard page == .home else { return }
+                            turn(to: target)
                         }
                 }
-                .coordinateSpace(name: PageLayout.space)
+                .allowsHitTesting(!transitioning)
+                .accessibilityHidden(transitioning)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .scrollIndicators(.never)
             .foregroundStyle(DashboardTheme.text)
-            .background(HiddenScrollbars())
             .realitySurface(.init(shape: .panel(14), color: NSColor(DashboardTheme.background), depth: 10, level: -20))
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay(alignment: .bottomTrailing) {
@@ -84,6 +66,7 @@ struct ContentView: View {
         }
         .onChange(of: model.homeRequest) { returnHome() }
         .onExitCommand(perform: returnHome)
+        .onDisappear { cube.cancel() }
         .alert("删除节点？", isPresented: Binding(get: { deletingProfile != nil }, set: { if !$0 { deletingProfile = nil } })) {
             Button("取消", role: .cancel) { deletingProfile = nil }
             Button("删除", role: .destructive) { if let item = deletingProfile { model.deleteProfile(item) }; deletingProfile = nil }
@@ -91,13 +74,14 @@ struct ContentView: View {
     }
     @ViewBuilder private func pageContent(_ displayedPage: Page) -> some View {
         if importing {
-            ImportPane(close: { importing = false }, save: { try await model.importNodes($0) })
+            ImportPane(homeRequest: editorHomeRequest, goHome: beginReturn,
+                       close: { importing = false }, save: { try await model.importNodes($0) })
                 .environmentObject(model)
         } else if let profile = editingProfile {
-            ProfileEditor(profile: profile, homeRequest: editorHomeRequest, goHome: {
+            ProfileEditor(profile: profile, homeRequest: editorHomeRequest, didLoad: { cube.editorDidLoad() }, goHome: {
                 beginReturn()
             }, close: { editingProfile = nil }).environmentObject(model)
-        } else if !model.ready && displayedPage != .home && !settingsEditing {
+        } else if !model.ready && (displayedPage == .settings || displayedPage == .profiles) && !settingsEditing {
             ContentUnavailableView {
                 RealityLabel(title: model.connecting ? "正在连接本地服务" : "本地服务尚未连接", asset: .desktop)
             } description: { Text(model.connecting ? "首次启动可能需要几秒钟。" : "连接后即可管理节点。") }
@@ -109,9 +93,23 @@ struct ContentView: View {
             switch displayedPage {
             case .home: homePage
             case .profiles: profilePage
-            case .logs: ObservedLogConsole(state: model.logState)
-                .padding(3).realityField().padding(PageLayout.gap)
-            case .settings: SettingsPage(navigationLocked: $settingsEditing).environmentObject(model)
+            case .logs:
+                VStack(spacing: 0) {
+                    ObservedLogConsole(state: model.logState).padding(3).realityField()
+                    if !model.ready {
+                        HStack {
+                            Text(model.connecting ? "正在连接本地服务" : "本地服务尚未连接")
+                            Spacer()
+                            if !model.connecting {
+                                Button("重新连接服务") { Task { await model.connect() } }
+                            }
+                        }
+                        .font(AppFont.caption)
+                        .padding(.top, PageLayout.gap)
+                    }
+                }
+                .padding(PageLayout.gap)
+            case .settings: SettingsPage(navigationLocked: $settingsEditing, homeRequest: editorHomeRequest, goHome: beginReturn).environmentObject(model)
             }
         }
     }
@@ -120,14 +118,11 @@ struct ContentView: View {
         HStack(spacing: 10) {
             WindowControlButtons().frame(width: 50, height: 24)
             Spacer(minLength: 8)
-            ZStack {
+            if model.proxyNeedsRecovery {
+                Button("恢复代理") { model.recoverProxy() }.disabled(model.busy || model.moduleUpdateActive)
+            } else {
                 Toggle("系统代理", isOn: Binding(get: { model.desiredMode == .system }, set: { model.toggleProxy($0) }))
-                    .environment(\.realityContentVisible, !model.proxyNeedsRecovery)
-                    .toggleStyle(RealityToggleStyle()).fixedSize().disabled(!model.canToggle(.system) || editingContent || model.proxyNeedsRecovery)
-                    .opacity(model.proxyNeedsRecovery ? 0 : 1).accessibilityHidden(model.proxyNeedsRecovery)
-                if model.proxyNeedsRecovery {
-                    Button("恢复代理") { model.recoverProxy() }.disabled(model.busy || model.moduleUpdateActive)
-                }
+                    .toggleStyle(RealityToggleStyle()).fixedSize().disabled(!model.canToggle(.system) || editingContent)
             }
             Toggle("TUN", isOn: Binding(get: { model.desiredMode == .tun }, set: { model.toggleTun($0) }))
                 .toggleStyle(RealityToggleStyle()).fixedSize().disabled(!model.canToggle(.tun) || model.tun == nil || editingContent)
@@ -135,13 +130,13 @@ struct ContentView: View {
             .overlay {
                 Text("powered by cj")
                     .font(.custom("SnellRoundhand-Bold", size: 17))
-                    .foregroundStyle(homeHovered && page != .home && !settingsEditing && !importing ? DashboardTheme.accent : DashboardTheme.graphite)
+                    .foregroundStyle(homeHovered && page != .home ? DashboardTheme.accent : DashboardTheme.graphite)
                     .animation(reduced ? nil : .easeOut(duration: 0.16), value: homeHovered)
                     .shadow(color: .black.opacity(0.95), radius: 0.5, x: 0, y: -1)
                     .shadow(color: .white.opacity(0.16), radius: 0.4, x: 0, y: 1)
                     .overlay {
                         if page != .home {
-                            NavigationButton(label: Page.home.rawValue, enabled: !settingsEditing && !importing && !transitioning) { _ in returnHome() }
+                            NavigationButton(label: Page.home.rawValue, enabled: !transitioning) { _ in returnHome() }
                                 .onHover { homeHovered = $0 }
                         }
                     }
@@ -157,22 +152,32 @@ struct ContentView: View {
     }
 
     private func returnHome() {
-        guard page != .home, !settingsEditing, !importing, !transitioning else { return }
-        if editingProfile != nil { editorHomeRequest += 1 } else { beginReturn() }
+        guard page != .home, !transitioning else { return }
+        if editingContent { editorHomeRequest += 1 } else { beginReturn() }
     }
 
-    private func beginReturn() {
-        homeHovered = false
-        if reduced { editingProfile = nil; page = .home; return }
-        transitioning = true
-        withAnimation(.easeIn(duration: 0.18), completionCriteria: .removed) {
-            expanded = false
-        } completion: {
-            editingProfile = nil
-            page = .home
-            expanded = true
-            transitioning = false
+    private func beginReturn() { turn(to: .home) }
+
+    private func turn(to target: Page) {
+        guard !transitioning else { return }
+        func switchContent() {
+            if target == .profiles {
+                let id = model.status?.coreRunning == true ? model.status?.runningProfileId : model.status?.currentProfileId
+                selectedProfile = id
+                editingProfile = model.profiles.first { $0.id == id }
+            } else if target == .home {
+                editingProfile = nil
+                importing = false
+                settingsEditing = false
+            }
+            page = target
         }
+        guard !reduced else { switchContent(); return }
+        transitioning = true
+        cube.turn(to: target, mount: {
+            switchContent()
+            return editingProfile != nil
+        }, finished: { transitioning = false })
     }
 
     private func notice(_ text: String, error: Bool) -> some View {
@@ -192,11 +197,11 @@ struct ContentView: View {
                 ContentUnavailableView {
                     RealityLabel(title: "还没有节点", asset: .network)
                 } description: { Text("导入分享链接或配置，添加你的第一个节点。") }
-                actions: { Button("导入节点") { importing = true } }
+                actions: { Button("导入节点") { importing = true }.disabled(controlsDisabled) }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 RealityProfileTable(profiles: model.profiles, selection: $selectedProfile,
-                    busy: model.busy || model.moduleUpdateActive, controlsDisabled: controlsDisabled,
+                    controlsDisabled: controlsDisabled,
                     select: { model.select($0) }, edit: { editingProfile = $0 },
                     latency: { item in model.run { try await $0.perform("/api/profiles/\(item.id)/latency") } },
                     delete: { deletingProfile = $0 })
@@ -210,11 +215,16 @@ struct ContentView: View {
                     .frame(width: 44, alignment: .trailing)
                 Button("配置节点") { editingProfile = item }
                     .disabled(item == nil || controlsDisabled)
-                Button("设为当前节点") { if let item { model.select(item) } }
-                    .environment(\.realityContentVisible, item != nil)
-                    .disabled(item == nil || model.busy || model.moduleUpdateActive)
-                    .opacity(item == nil ? 0 : 1)
-                    .accessibilityHidden(item == nil)
+                // Reserve the same label width when there is no selection, without
+                // mounting a hidden button in the separate RealityKit scene.
+                Text("设为当前节点").padding(.horizontal, 7).padding(.vertical, 2)
+                    .hidden().accessibilityHidden(true)
+                    .overlay {
+                        if let item {
+                            Button("设为当前节点") { model.select(item) }
+                                .disabled(controlsDisabled)
+                        }
+                    }
             }.padding(.horizontal, 12).frame(height: TitleBarGeometry.height)
                 .realitySurface(.init(shape: .dashboard(.titleBar), depth: 3, level: 18))
         }
@@ -226,13 +236,4 @@ struct ContentView: View {
             .environmentObject(model)
     }
 
-}
-
-private struct PageSurfaceSync: ViewModifier {
-    @Environment(\.realityScene) private var scene
-    func body(content: Content) -> some View {
-        content.onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { _ in
-            scene?.requestLayoutSync(recheckScrollAncestors: false)
-        }
-    }
 }

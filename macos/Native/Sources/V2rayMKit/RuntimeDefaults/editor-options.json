@@ -1,0 +1,199 @@
+{
+  "subscriptions": {
+    "convertTargets": [
+      "",
+      "mixed",
+      "v2ray",
+      "ss"
+    ],
+    "customCoreTypes": [
+      "Xray"
+    ]
+  },
+  "profiles": {
+    "coreTypes": [
+      "Xray"
+    ],
+    "configTypes": [
+      "VMess",
+      "VLESS",
+      "Shadowsocks",
+      "Trojan",
+      "Hysteria2",
+      "WireGuard",
+      "MASQUE",
+      "SOCKS",
+      "HTTP"
+    ],
+    "networks": [
+      "raw",
+      "xhttp",
+      "kcp",
+      "grpc",
+      "ws",
+      "httpupgrade"
+    ],
+    "defaultNetwork": "raw",
+    "defaultStreamSecurity": "",
+    "defaultSecurity": "auto",
+    "defaultVlessEncryption": "none",
+    "defaultXhttpMode": "auto",
+    "defaultGrpcMode": "gun",
+    "defaultWireGuardMtu": 1280,
+    "rawHeaderTypes": [
+      "none",
+      "http"
+    ],
+    "xhttpModes": [
+      "auto",
+      "packet-up",
+      "stream-up",
+      "stream-one"
+    ],
+    "kcpHeaderTypes": [
+      "none",
+      "srtp",
+      "utp",
+      "wechat-video",
+      "dtls",
+      "wireguard",
+      "dns"
+    ],
+    "grpcModes": [
+      "gun",
+      "multi"
+    ],
+    "vmessSecurities": [
+      "aes-128-gcm",
+      "chacha20-poly1305",
+      "auto",
+      "none",
+      "zero"
+    ],
+    "flows": [
+      "",
+      "xtls-rprx-vision",
+      "xtls-rprx-vision-udp443"
+    ],
+    "tuicCongestionControls": [
+      "cubic",
+      "new_reno",
+      "bbr"
+    ],
+    "naiveCongestionControls": [
+      "bbr",
+      "bbr2",
+      "cubic",
+      "reno"
+    ],
+    "fingerprints": [
+      "chrome",
+      "firefox",
+      "safari",
+      "ios",
+      "android",
+      "edge",
+      "360",
+      "qq",
+      "random",
+      "randomized",
+      ""
+    ],
+    "alpns": [
+      "h3",
+      "h2",
+      "http/1.1",
+      "h3,h2",
+      "h2,http/1.1",
+      "h3,h2,http/1.1",
+      ""
+    ],
+    "shadowsocksSecurities": {
+      "Xray": [
+        "aes-256-gcm",
+        "aes-128-gcm",
+        "chacha20-poly1305",
+        "chacha20-ietf-poly1305",
+        "xchacha20-poly1305",
+        "xchacha20-ietf-poly1305",
+        "none",
+        "plain",
+        "2022-blake3-aes-128-gcm",
+        "2022-blake3-aes-256-gcm",
+        "2022-blake3-chacha20-poly1305"
+      ]
+    },
+    "streamSecurityTypes": [
+      "",
+      "tls",
+      "reality"
+    ],
+    "multipleLoadStrategies": [
+      "LeastPing",
+      "Fallback",
+      "Random",
+      "RoundRobin",
+      "LeastLoad"
+    ]
+  },
+  "dns": {
+    "coreTypes": [
+      "Xray"
+    ],
+    "domainStrategies4Freedom": [
+      "AsIs",
+      "UseIP",
+      "UseIPv4v6",
+      "UseIPv6v4",
+      "UseIPv4",
+      "UseIPv6",
+      ""
+    ],
+    "domainDnsAddresses": [
+      "119.29.29.29",
+      "223.5.5.5",
+      "localhost"
+    ],
+    "directDnsAddresses": [
+      "119.29.29.29",
+      "223.5.5.5",
+      "119.29.29.29,223.5.5.5,https://doh.pub/dns-query",
+      "https://doh.pub/dns-query",
+      "https://dns.alidns.com/dns-query",
+      "https://doh.pub/dns-query,https://dns.alidns.com/dns-query",
+      "localhost"
+    ],
+    "remoteDnsAddresses": [
+      "https://cloudflare-dns.com/dns-query",
+      "https://dns.google/dns-query",
+      "https://cloudflare-dns.com/dns-query,https://dns.google/dns-query,8.8.8.8",
+      "https://dns.cloudflare.com/dns-query",
+      "https://doh.dns.sb/dns-query",
+      "https://doh.opendns.com/dns-query",
+      "https://common.dot.dns.yandex.net/dns-query",
+      "https://1.1.1.1/dns-query",
+      "https://8.8.8.8/dns-query",
+      "https://1.1.1.1/dns-query,https://8.8.8.8/dns-query",
+      "8.8.8.8",
+      "1.1.1.1",
+      "185.222.222.222",
+      "208.67.222.222",
+      "77.88.8.8"
+    ],
+    "bootstrapDnsAddresses": [
+      "119.29.29.29",
+      "223.5.5.5",
+      "localhost"
+    ],
+    "fakeIpRanges": [
+      "198.18.0.0/15",
+      "11.0.0.0/8"
+    ],
+    "expectedIps": [
+      "geoip:cn",
+      "geoip:ir",
+      "geoip:ru",
+      ""
+    ]
+  }
+}

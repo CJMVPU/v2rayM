@@ -30,23 +30,31 @@ public struct GlobeGeoDatabase: Sendable {
         ipv4 = try Data(contentsOf: directory.appendingPathComponent("ipv4.bin"), options: .mappedIfSafe)
         ipv6 = try Data(contentsOf: directory.appendingPathComponent("ipv6.bin"), options: .mappedIfSafe)
         places = try GlobePlaceTable(url: directory.appendingPathComponent("places.bin"))
-        guard ipv4.count % 12 == 0, ipv6.count % 36 == 0 else { throw CocoaError(.fileReadCorruptFile) }
+        for (table, stride) in [(ipv4, 8), (ipv6, 20)] {
+            guard table.count >= 16, table.prefix(8).elementsEqual("V2MRNG02".utf8),
+                  Self.integer(table[12..<16]) == stride,
+                  table.count == 16 + Self.integer(table[8..<12]) * stride else {
+                throw CocoaError(.fileReadCorruptFile)
+            }
+        }
+    }
+    private static func integer(_ bytes: Data) -> Int {
+        bytes.reduce(0) { ($0 << 8) | Int($1) }
     }
     public func lookup(_ ip: String) -> GlobePlace? {
         guard let bytes = Self.addressBytes(ip), Self.isPublic(bytes) else { return nil }
         let data = bytes.count == 4 ? ipv4 : ipv6
-        let width = bytes.count, stride = width * 2 + 4
-        var low = 0, high = data.count / stride
+        let width = bytes.count, stride = width + 4
+        var low = 0, high = (data.count - 16) / stride
         while low < high {
-            let mid = (low + high) / 2, offset = mid * stride
+            let mid = (low + high) / 2, offset = 16 + mid * stride
             let start = data[offset..<(offset + width)]
             if bytes.lexicographicallyPrecedes(start) { high = mid }
             else { low = mid + 1 }
         }
         guard low > 0 else { return nil }
-        let offset = (low - 1) * stride
-        guard !data[(offset + width)..<(offset + 2 * width)].lexicographicallyPrecedes(bytes) else { return nil }
-        let index = data[(offset + 2 * width)..<(offset + stride)].reduce(0) { ($0 << 8) | Int($1) }
+        let offset = 16 + (low - 1) * stride
+        let index = Self.integer(data[(offset + width)..<(offset + stride)])
         return places.place(at: index)
     }
     public static func addressBytes(_ ip: String) -> [UInt8]? {
@@ -82,12 +90,15 @@ public struct GlobeConnection: Identifiable, Equatable, Sendable {
     public var routeTitle: String { route == "proxy" ? "代理" : route == "direct" ? "直连" : route == "block" ? "阻断" : route }
     /// Newest unique connections win; the dashboard never needs an unbounded intermediate list.
     public static func recent(_ entries: [LogEntry], previous: [Self], since start: Date, limit: Int = 24) -> [Self] {
+        merging(entries.reversed().lazy.compactMap(parse), previous: previous, since: start, limit: limit)
+    }
+    public static func merging(_ newest: some Sequence<Self>, previous: [Self], since start: Date, limit: Int = 24) -> [Self] {
         guard limit > 0 else { return [] }
         var result: [Self] = []
         var seen = Set<String>()
         let places = Dictionary(previous.map { ($0.host, $0.place) }, uniquingKeysWith: { first, _ in first })
-        for entry in entries.reversed() {
-            guard var item = parse(entry), item.timestamp >= start, seen.insert(item.id).inserted else { continue }
+        for var item in newest {
+            guard item.timestamp >= start, seen.insert(item.id).inserted else { continue }
             item.place = places[item.host] ?? nil
             result.append(item)
             if result.count == limit { return result }

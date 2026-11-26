@@ -54,6 +54,19 @@ final class NativeLogDocumentTests: XCTestCase {
         document.update(rows(1...80))
         scroll.contentView.scroll(to: NSPoint(x: 180, y: scroll.contentView.bounds.origin.y))
         let before = scroll.contentView.bounds.origin.y
+        // Verify that the first horizontal scroll paints glyphs at the tail.
+        // TextKit can return a nonempty character range while painting a blank view.
+        scroll.layoutSubtreeIfNeeded()
+        let bitmap = try XCTUnwrap(scroll.bitmapImageRepForCachingDisplay(in: scroll.bounds))
+        scroll.cacheDisplay(in: scroll.bounds, to: bitmap)
+        let background = bitmap.colorAt(x: 10, y: 10)
+        var ink = 0
+        for y in stride(from: 20, to: bitmap.pixelsHigh - 20, by: 4) {
+            for x in stride(from: 20, to: bitmap.pixelsWide - 20, by: 8) where bitmap.colorAt(x: x, y: y) != background {
+                ink += 1
+            }
+        }
+        XCTAssertGreaterThan(ink, 100)
         try renderIfRequested(document, name: "scroll-before")
         document.update(rows(1...90))
         let bottom = scroll.documentView!.frame.height - scroll.contentView.bounds.height
@@ -108,7 +121,7 @@ final class NativeLogDocumentTests: XCTestCase {
         document.update(rows(1...95))
         XCTAssertTrue(document.isAnimatingTail)
         XCTAssertEqual(scroll.contentView.bounds.origin.y, partial, accuracy: 1)
-        let text = try XCTUnwrap(scroll.documentView as? NSTextView)
+        let text = document.textView
         let layout = try XCTUnwrap(text.layoutManager)
         let firstSurvivor = (text.string as NSString).range(of: "row 2 ").location
         let removedHeight = layout.lineFragmentRect(forGlyphAt: layout.glyphIndexForCharacter(at: firstSurvivor), effectiveRange: nil).minY
@@ -116,7 +129,7 @@ final class NativeLogDocumentTests: XCTestCase {
         XCTAssertEqual(scroll.contentView.bounds.origin.y, partial - removedHeight, accuracy: 1)
         XCTAssertTrue(document.isAnimatingTail)
         time += 1; document.advanceTailAnimation()
-        XCTAssertEqual(scroll.contentView.bounds.maxY, text.frame.maxY, accuracy: 1)
+        XCTAssertEqual(scroll.contentView.bounds.maxY, scroll.documentView!.frame.maxY, accuracy: 1)
         XCTAssertFalse(document.isAnimatingTail)
     }
     @MainActor func testReduceMotionDisablesAnimationAndCanFinishAnExistingTween() throws {
@@ -134,6 +147,48 @@ final class NativeLogDocumentTests: XCTestCase {
         XCTAssertFalse(document.isAnimatingTail)
         XCTAssertEqual(scroll.contentView.bounds.maxY, scroll.documentView!.frame.maxY, accuracy: 1)
     }
+    @MainActor func testHiddenLogTailRestoresOnceAndNeverMovesAHistoryReader() throws {
+        var visible = true
+        let document = NativeLogDocument(now: { 1 }, reduceMotion: { false }, automaticallyTick: false,
+                                         canPresent: { _ in visible })
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 140),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let scroll = document.scrollView
+        window.contentView = scroll
+        let clip = scroll.contentView
+        func changeVisibility(_ value: Bool) {
+            visible = value
+            NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: window)
+        }
+        document.update(rows(1...80))
+        clip.scroll(to: NSPoint(x: 70, y: clip.bounds.minY))
+        document.update(rows(1...85))
+        XCTAssertTrue(document.isAnimatingTail)
+        let original = clip.bounds.origin
+        changeVisibility(false)
+        document.update(rows(1...95))
+        document.update(rows(1...105))
+        XCTAssertFalse(document.isAnimatingTail)
+        XCTAssertEqual(clip.bounds.origin, original)
+        XCTAssertTrue(document.textView.string.contains("row 105 "))
+        changeVisibility(true)
+        XCTAssertFalse(document.isAnimatingTail)
+        XCTAssertEqual(clip.bounds.maxY, scroll.documentView!.bounds.maxY, accuracy: 1)
+        XCTAssertEqual(clip.bounds.minX, original.x)
+        let selected = (document.textView.string as NSString).range(of: "row 53 ")
+        document.textView.setSelectedRange(selected)
+        clip.scroll(to: NSPoint(x: 95, y: 400))
+        changeVisibility(false)
+        document.update(rows(2...106))
+        let reading = clip.bounds.origin
+        XCTAssertLessThan(reading.y, 400)
+        changeVisibility(true)
+        XCTAssertEqual(clip.bounds.origin, reading)
+        XCTAssertEqual((document.textView.string as NSString).substring(with: document.textView.selectedRange()), "row 53 ")
+    }
+
     @MainActor func testTeardownStopsPendingAnimationWithoutMovingTheViewport() throws {
         var time: TimeInterval = 100
         let document = NativeLogDocument(now: { time }, reduceMotion: { false }, automaticallyTick: false)
@@ -156,7 +211,7 @@ final class NativeLogDocumentTests: XCTestCase {
         let first = try entry(0, "old first\nold second\nold third")
         let remaining = try (1...100).map { try entry($0, "kept line \($0)") }
         document.update([first] + remaining)
-        let text = scroll.documentView as! NSTextView
+        let text = document.textView
         let layout = text.layoutManager!
         let start = (text.string as NSString).range(of: "kept line 1").location
         let removedHeight = layout.lineFragmentRect(forGlyphAt: layout.glyphIndexForCharacter(at: start), effectiveRange: nil).minY
@@ -167,6 +222,81 @@ final class NativeLogDocumentTests: XCTestCase {
         XCTAssertFalse(text.string.contains("old second"))
         XCTAssertTrue(text.string.hasPrefix("kept line 1\n"))
     }
+    @MainActor func testLargeDocumentLaysOutTheRequestedViewportAndRetainsNativeSelection() throws {
+        let document = NativeLogDocument(now: { 0 }, reduceMotion: { true }, automaticallyTick: false)
+        let scroll = document.scrollView
+        scroll.frame = NSRect(x: 0, y: 0, width: 600, height: 120)
+        func row(_ index: Int) -> LogEntry {
+            let detail = index.isMultiple(of: 2) ? "" : String(repeating: "宽日志🙂 / ", count: 12)
+            return LogEntry(timestamp: "fixture", source: "core", message: detail + "日志 🚦 row[\(index)]", sequence: Int64(index))
+        }
+        let entries = (0..<10_000).map(row)
+        document.update(entries)
+        let text = document.textView
+        let manager = try XCTUnwrap(text.layoutManager)
+        let container = try XCTUnwrap(text.textContainer)
+        let paragraph = try XCTUnwrap(text.textStorage?.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle)
+        func visibleText() -> String {
+            let bounds = text.bounds.offsetBy(dx: -text.textContainerOrigin.x, dy: -text.textContainerOrigin.y)
+            let glyphs = manager.glyphRange(forBoundingRect: bounds, in: container)
+            let chars = manager.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
+            return (text.string as NSString).substring(with: chars)
+        }
+        XCTAssertTrue(visibleText().contains("row[9999]"))
+        for index in [5_000, 0, 8_300, 312, 9_950] {
+            let y = CGFloat(index) * paragraph.minimumLineHeight + text.textContainerInset.height
+            scroll.contentView.scroll(to: NSPoint(x: 0, y: y))
+            XCTAssertEqual(scroll.contentView.bounds.minY, y, accuracy: 1)
+            XCTAssertTrue(visibleText().contains("row[\(index)]"), "Missing requested row \(index)")
+        }
+        // AppKit's native caret placement must use the scrolled lines even
+        // though the editor's local bounds have a zero origin and limited size.
+        let point = NSPoint(x: 18, y: paragraph.minimumLineHeight * 1.5)
+        let hit = text.characterIndexForInsertion(at: point)
+        let value = text.string as NSString
+        XCTAssertTrue(value.substring(with: value.lineRange(for: NSRange(location: hit, length: 0))).contains("row[9951]"))
+        let selected = "row[9951]\n日志 🚦 row[9952]"
+        text.setSelectedRange((text.string as NSString).range(of: selected))
+        document.update(Array(entries.dropFirst()) + [row(10_000)])
+        XCTAssertTrue(visibleText().contains("row[9950]"))
+        XCTAssertEqual((text.string as NSString).substring(with: text.selectedRange()), selected)
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        XCTAssertTrue(text.writeSelection(to: pasteboard, types: text.writablePasteboardTypes))
+        XCTAssertEqual(pasteboard.string(forType: .string), selected)
+        XCTAssertEqual(text.accessibilitySelectedText(), selected)
+        XCTAssertEqual(text.accessibilityNumberOfCharacters(), (text.string as NSString).length)
+        XCTAssertTrue((text.accessibilityValue() as? String)?.hasSuffix("row[10000]\n") == true)
+    }
+
+    @MainActor func testFIFOHistoryCanSkipDeliveriesReplaceItsEntireWindowAndRestartSequenceNumbers() {
+        let document = NativeLogDocument()
+        document.scrollView.frame = CGRect(x: 0, y: 0, width: 600, height: 140)
+        var epoch = UUID(), history = RollingLogBuffer(maximumLines: 3)
+        func publish() {
+            document.update(history.entries, position: .init(epoch: epoch, headOffset: history.headOffset))
+            XCTAssertEqual(document.textView.string, history.entries.map { $0.message + "\n" }.joined())
+        }
+        _ = history.append(rows(1...3))
+        publish()
+        _ = history.append(rows(4...5))
+        _ = history.append(rows(6...9))
+        XCTAssertEqual(history.headOffset, 6)
+        publish()
+        _ = history.append(rows(10...10))
+        publish()
+        epoch = UUID()
+        history = RollingLogBuffer(maximumLines: 3)
+        publish()
+        let replacement = LogEntry(timestamp: "restart", source: "core", message: "new run", sequence: 1)
+        _ = history.append([replacement])
+        publish()
+        var arbitrary = replacement
+        arbitrary.message = "edited"
+        document.update([arbitrary])
+        XCTAssertEqual(document.textView.string, "edited\n")
+    }
+
     @MainActor func testLongLinesScrollHorizontallyWithoutScrollbarsAndKeepPositionOnAppend() throws {
         let document = NativeLogDocument()
         let scroll = document.scrollView
@@ -186,6 +316,6 @@ final class NativeLogDocumentTests: XCTestCase {
         XCTAssertEqual(scroll.contentView.bounds.origin.x, 180, accuracy: 1)
         document.update([first, try entry(2)])
         XCTAssertEqual(scroll.contentView.bounds.origin.x, 180, accuracy: 1)
-        XCTAssertTrue((scroll.documentView as! NSTextView).string.contains("line 1"))
+        XCTAssertTrue((document.textView).string.contains("line 1"))
     }
 }

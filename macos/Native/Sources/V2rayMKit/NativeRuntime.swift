@@ -4,9 +4,36 @@ import V2rayMApplication
 
 /// Native orchestration depends on this contract, not on URLSession or a live process.
 public protocol NativeAPI: ProxyModeBackend {
+    func runtimeStatus() async throws -> RuntimeStatus
+    func logTail(after: Int64, limit: Int) async throws -> LogTail
+    func profileMetadata() async throws -> [Profile]
+    func profileObservations() async throws -> [ProfileObservation]
+    func profileDocument(id: String) async throws -> SettingsValue
+    @discardableResult func saveProfile(id: String, original: SettingsValue, edited: SettingsValue) async throws -> SettingsValue
+    func routingProfiles() async throws -> [RoutingProfile]
     func encodedResponse(_ path: String, method: String, body: Data?) async throws -> Data
 }
 extension NativeAPI {
+    public func runtimeStatus() async throws -> RuntimeStatus { try await value("/api/status") }
+    public func logTail(after: Int64, limit: Int) async throws -> LogTail {
+        try await value("/api/logs/tail?after=\(after)&limit=\(limit)")
+    }
+    public func profileMetadata() async throws -> [Profile] {
+        try await value("/api/profiles?subscriptionId=&includeStatistics=false")
+    }
+    public func profileObservations() async throws -> [ProfileObservation] {
+        try await value("/api/profiles/observations")
+    }
+    public func profileDocument(id: String) async throws -> SettingsValue {
+        try await value("/api/profiles/\(id)")
+    }
+    @discardableResult public func saveProfile(id: String, original: SettingsValue, edited: SettingsValue) async throws -> SettingsValue {
+        try await send("/api/profiles/\(id)", method: "PUT", body: edited)
+        return edited
+    }
+    public func routingProfiles() async throws -> [RoutingProfile] {
+        try await value("/api/settings/routing-profiles")
+    }
     public func freshTunStatus() async throws -> MacTunStatus {
         try await value("/api/macos/tun?fresh=true")
     }
@@ -23,20 +50,16 @@ extension NativeAPI {
         _ = try await encodedResponse(path, method: method, body: JSONEncoder().encode(body))
     }
 }
-extension APIClient: NativeAPI {}
 
 public protocol NativeBackend: Sendable {
     var isRunning: Bool { get async }
     func startClient() async throws -> any NativeAPI
     func stop() async throws
 }
-extension BackendController: NativeBackend {
-    public func startClient() async throws -> any NativeAPI { try await start() }
-}
 public protocol NativeProxy: ProxyModePreferences {
     var isEnabled: Bool { get async }
     var needsRecovery: Bool { get async }
-    func rebind(port: Int) async throws
+    func rebind(endpoints: ProxyEndpoints) async throws
     func restore() async throws -> Bool
 }
 extension SystemProxyController: NativeProxy {}

@@ -1,5 +1,5 @@
 {
-  "formatVersion": 1,
+  "formatVersion": 2,
   "input": {
     "file": "dbip-city-lite-2026-10.csv.gz",
     "sourceURL": "https://download.db-ip.com/free/dbip-city-lite-2026-10.csv.gz",
@@ -7,12 +7,12 @@
   },
   "outputs": {
     "ipv4.bin": {
-      "sha256": "a1c6eea47b433f9df9b0605a6e747c705ba671b4a86c3fbccd8c9fe1b4f3c84a",
-      "bytes": 43445208
+      "sha256": "28e0b64b229d8f089c5ceec7dd29a54f3b1ae1726982a39ceb10458fe19f1f5b",
+      "bytes": 28943400
     },
     "ipv6.bin": {
-      "sha256": "ddb01bf07fb3fea881e41afaf1c3c2752e516d4092f206553020f9bb75e47b80",
-      "bytes": 149991480
+      "sha256": "b0da066ab3ea5ee2c05d6fcaaaa517fd9f944c48c3d7903304ce8095845910b6",
+      "bytes": 83238156
     },
     "places.bin": {
       "sha256": "2c3af6465554508f7a23effb7389bfbe76eb869af083809566afebd4b6e8c34e",

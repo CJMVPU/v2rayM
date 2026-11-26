@@ -79,6 +79,12 @@ private struct RealityInteractionView: View {
         defer { window.close() }
         func all(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(all) }
         try await Task.sleep(for: .milliseconds(500))
+        let stage = try XCTUnwrap(all(host).compactMap { $0 as? RealityStageView }.first)
+        let dial = try XCTUnwrap(all(host).compactMap { $0 as? RealitySurfaceAnchor }.first { $0.style.shape == .dashboard(.dial) })
+        let entity = try XCTUnwrap(stage.owner.root.findEntity(named: "surface-" + dial.surfaceID.uuidString))
+        let expected = RealityWindowScene.position(dial.convert(dial.bounds, to: stage), viewport: stage.bounds.size, level: dial.style.level)
+        XCTAssertEqual(entity.position(relativeTo: stage.owner.root).x, expected.x, accuracy: 0.002)
+        XCTAssertEqual(entity.position(relativeTo: stage.owner.root).y, expected.y, accuracy: 0.002)
         for label in ["节点", "主页", "日志", "主页", "设置", "主页"] {
             let button = try XCTUnwrap(all(host).compactMap { $0 as? NSButton }.first { $0.toolTip == label })
             let screenPoint = button.convert(NSPoint(x: button.bounds.midX, y: button.bounds.midY), to: nil)
@@ -91,7 +97,10 @@ private struct RealityInteractionView: View {
             }
             window.sendEvent(try event(.leftMouseDown))
             window.sendEvent(try event(.leftMouseUp))
-            try await Task.sleep(for: .milliseconds(400))
+            let next = label == Page.home.rawValue ? Page.logs : Page.home
+            let deadline = ContinuousClock.now + .seconds(2)
+            while !all(host).compactMap({ $0 as? NSButton }).contains(where: { $0.toolTip == next.rawValue && $0.isEnabled }),
+                  ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
             let labels = all(host).compactMap { ($0 as? NSButton)?.toolTip }
             XCTAssertEqual(labels.contains(Page.home.rawValue), label != Page.home.rawValue)
             XCTAssertEqual(labels.contains(Page.logs.rawValue), label == Page.home.rawValue)
@@ -393,10 +402,10 @@ private struct RealityInteractionView: View {
         XCTAssertEqual(scene.meshBuilds, 1)
     }
 
-    func testReturnContractsLogPageAndKeepsTitleStill() async throws {
+    func testReturnPreparesTwoTexturedCubeFacesAndKeepsTitleStill() async throws {
         let model = AppModel(dataDirectory: FileManager.default.temporaryDirectory)
         model.ready = true
-        let content = ContentView(initialPage: .logs).environmentObject(model)
+        let content = ContentView().environmentObject(model)
             .environment(\.dashboardVisibilityOverride, true)
         let host = NSHostingView(rootView: content)
         let window = NSWindow(contentRect: CGRect(x: 80, y: 80, width: 860, height: 600),
@@ -407,31 +416,47 @@ private struct RealityInteractionView: View {
         NSApp.activate(ignoringOtherApps: true)
         defer { window.close() }
         func views(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(views) }
-        func button(_ page: Page) throws -> NSButton {
-            try XCTUnwrap(views(host).compactMap { $0 as? NSButton }.first { $0.toolTip == page.rawValue })
+        func button(_ page: Page) -> NSButton? {
+            views(host).compactMap { $0 as? NSButton }.first { $0.toolTip == page.rawValue }
         }
         func select(_ page: Page) throws {
-            let control = try button(page)
+            let control = try XCTUnwrap(button(page))
             control.sendAction(control.action, to: control.target)
         }
         try await Task.sleep(for: .milliseconds(350))
+        try select(.logs)
+        let deadline = ContinuousClock.now + .seconds(2)
+        while button(.home)?.isEnabled != true, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
         let stage = try XCTUnwrap(views(host).compactMap { $0 as? RealityStageView }.first)
         let anchors = views(host).compactMap { $0 as? RealitySurfaceAnchor }
         let title = try XCTUnwrap(anchors.first { $0.style.shape == .dashboard(.titleBar) && $0.style.level == 50 })
-        let field = try XCTUnwrap(anchors.first { if case .well = $0.style.shape { return true }; return false })
         let titleX = title.convert(title.bounds, to: stage).midX
-        let initialWidth = field.convert(field.bounds, to: stage).width
         try select(.home)
-        var widths = Set<Int>()
-        for _ in 0..<30 {
-            try await Task.sleep(for: .milliseconds(10))
-            guard field.window != nil else { break }
-            let width = field.convert(field.bounds, to: stage).width
-            if width < initialWidth - 1 { widths.insert(Int(width)) }
+        var sawSourceCover = false, sawCube = false
+        let animationDeadline = ContinuousClock.now + .seconds(2)
+        while ContinuousClock.now < animationDeadline {
+            if let overlay = views(host).compactMap({ $0 as? PageCubeOverlay }).first,
+               let cube = overlay.layer?.sublayers?.first as? CATransformLayer {
+                let faces = cube.sublayers ?? []
+                if faces.count == 1 && faces[0].contents != nil { sawSourceCover = true }
+                if cube.animation(forKey: "pageTurn") != nil {
+                    XCTAssertEqual(faces.count, 2)
+                    XCTAssertTrue(faces.allSatisfy { $0.contents != nil && $0.bounds == overlay.bounds })
+                    XCTAssertEqual(stage.owner.nativePage?.page, .home)
+                    sawCube = true
+                }
+            } else if sawCube { break }
             XCTAssertEqual(title.convert(title.bounds, to: stage).midX, titleX, accuracy: 0.01)
+            try await Task.sleep(for: .milliseconds(5))
         }
-        XCTAssertGreaterThan(widths.count, 1)
-        XCTAssertNotNil(try button(.logs))
+        XCTAssertTrue(sawSourceCover)
+        XCTAssertTrue(sawCube)
+        while button(.logs) == nil, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertNotNil(button(.logs))
 
     }
 
@@ -565,7 +590,7 @@ private struct RealityInteractionView: View {
         }
         let entries = (1...7).map { i in LogEntry(timestamp: formatter.string(from: now), source: "core",
             message: "from tcp:127.0.0.1:1234 accepted tcp:192.0.2.\(i):443 [socks >> \(i > 4 ? "direct" : "proxy")]", sequence: Int64(i)) }
-        model.dashboard.update(state: try XCTUnwrap(model.status), node: nil, entries: entries)
+        model.dashboard.update(state: try XCTUnwrap(model.status), node: nil, recent: GlobeConnection.recent(entries, previous: [], since: .distantPast))
         model.logState.entries = entries
         let window = NSWindow(contentRect: CGRect(x: 100, y: 100, width: 860, height: 600), styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

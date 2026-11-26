@@ -1,0 +1,153 @@
+[
+  {
+    "node": {
+      "indexId": "legacy",
+      "configType": "vless",
+      "configVersion": 4,
+      "subid": "",
+      "remarks": "legacy",
+      "address": "127.0.0.1",
+      "port": 49913,
+      "password": "01b956dd-3c50-40b6-a315-a641ce03dfe0",
+      "username": "",
+      "network": "xhttp",
+      "streamSecurity": "tls",
+      "allowInsecure": "false",
+      "sni": "localhost",
+      "cert": "-----BEGIN CERTIFICATE-----\nMIIC/jCCAeagAwIBAgIUTWWrMqzJirzXPyR5bAp96m/9nQAwDQYJKoZIhvcNAQEL\nBQAwFDESMBAGA1UEAwwJbG9jYWxob3N0MB4XDTI2MTEyNDA1Mzc1N1oXDTI2MTEy\nNTA1Mzc1N1owFDESMBAGA1UEAwwJbG9jYWxob3N0MIIBIjANBgkqhkiG9w0BAQEF\nAAOCAQ8AMIIBCgKCAQEArg0zTqDrbTwyqFoj1+MiOzxhNFRyzOIAq2M32KfziN1H\nBDXA77+eaWNCCFMjBunHHYJrNMEmgLHj7spqHYh5rKf8jchLWJXnDoeO8ECkHtp8\nuRWYyCk3Vfiw6IlA9qjAXFTX2H/Ou/czYkB8FkMKnTf9c7zNPhnT8tSaf/JIeCZ6\nvfLb4yRkAXwxIEG4vgt3gCI8zicSCgfZIOm1XxPdfdsriBVTH7/OnzZkNAT+wput\nv19MTCNhtG/0evRaG1etDd8rIv6QWeP2Xan6hfdIEk1bagCNLPf+Y6XXPrGKYkoV\n7mwquTPEXYgzrhPZHx1MCF8bL6nQGiLujKiSiTkCWQIDAQABo0gwRjAdBgNVHQ4E\nFgQU81S23oNes9hk7Qvd5RtofMdnWwwwDwYDVR0TAQH/BAUwAwEB/zAUBgNVHREE\nDTALgglsb2NhbGhvc3QwDQYJKoZIhvcNAQELBQADggEBABfmMUNYugASHf3Rtnya\nX8Ib3r1LEsViM56/KHli0U2WruC6qb9ccr61dRLSaR2MrK3lYl7Q4FS7jR8lFipo\n0QEmgKsbDca9ZkFjePtgmOajzVpdvZrRkaUBJKqlMiI6D7Mm9mXDomI3iSh4nhHF\nb4/F4eHIDSaf96ocmGj8hEsb/8C9q4LCMumfL38QXmhW3LByBh3uefw62jbz961Y\nKXOA71xvLxGAp+GYMrdaGSn/6qIe3PwWi+RFdlb0nrQlEAh1xgnAhVy3/mll9pnH\nksUqSGYlRJHwpK8+pInH1l9d9nNHLbORLAL+IWD9vr4XVeBHC7oLEEnOLpsL7AcW\n4U8=\n-----END CERTIFICATE-----\n",
+      "protoExtra": "{\"VmessSecurity\": \"\", \"Flow\": \"\", \"VlessEncryption\": \"none\", \"WgMtu\": 0}",
+      "transportExtra": "{\"RawHeaderType\": \"\", \"Host\": \"\", \"Path\": \"/fixture\", \"XhttpMode\": \"stream-one\", \"GrpcMode\": \"\", \"KcpHeaderType\": \"\"}"
+    },
+    "expected": {
+      "tag": "proxy",
+      "protocol": "vless",
+      "settings": {
+        "address": "127.0.0.1",
+        "port": 49913,
+        "email": "t@t.tt",
+        "id": "01b956dd-3c50-40b6-a315-a641ce03dfe0",
+        "encryption": "none"
+      },
+      "streamSettings": {
+        "network": "xhttp",
+        "security": "tls",
+        "tlsSettings": {
+          "serverName": "localhost",
+          "certificates": [
+            {
+              "certificate": [
+                "-----BEGIN CERTIFICATE-----",
+                "MIIC/jCCAeagAwIBAgIUTWWrMqzJirzXPyR5bAp96m/9nQAwDQYJKoZIhvcNAQELBQAwFDESMBAGA1UEAwwJbG9jYWxob3N0MB4XDTI2MTEyNDA1Mzc1N1oXDTI2MTEyNTA1Mzc1N1owFDESMBAGA1UEAwwJbG9jYWxob3N0MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEArg0zTqDrbTwyqFoj1+MiOzxhNFRyzOIAq2M32KfziN1HBDXA77+eaWNCCFMjBunHHYJrNMEmgLHj7spqHYh5rKf8jchLWJXnDoeO8ECkHtp8uRWYyCk3Vfiw6IlA9qjAXFTX2H/Ou/czYkB8FkMKnTf9c7zNPhnT8tSaf/JIeCZ6vfLb4yRkAXwxIEG4vgt3gCI8zicSCgfZIOm1XxPdfdsriBVTH7/OnzZkNAT+wputv19MTCNhtG/0evRaG1etDd8rIv6QWeP2Xan6hfdIEk1bagCNLPf+Y6XXPrGKYkoV7mwquTPEXYgzrhPZHx1MCF8bL6nQGiLujKiSiTkCWQIDAQABo0gwRjAdBgNVHQ4EFgQU81S23oNes9hk7Qvd5RtofMdnWwwwDwYDVR0TAQH/BAUwAwEB/zAUBgNVHREEDTALgglsb2NhbGhvc3QwDQYJKoZIhvcNAQELBQADggEBABfmMUNYugASHf3RtnyaX8Ib3r1LEsViM56/KHli0U2WruC6qb9ccr61dRLSaR2MrK3lYl7Q4FS7jR8lFipo0QEmgKsbDca9ZkFjePtgmOajzVpdvZrRkaUBJKqlMiI6D7Mm9mXDomI3iSh4nhHFb4/F4eHIDSaf96ocmGj8hEsb/8C9q4LCMumfL38QXmhW3LByBh3uefw62jbz961YKXOA71xvLxGAp+GYMrdaGSn/6qIe3PwWi+RFdlb0nrQlEAh1xgnAhVy3/mll9pnHksUqSGYlRJHwpK8+pInH1l9d9nNHLbORLAL+IWD9vr4XVeBHC7oLEEnOLpsL7AcW4U8=",
+                "-----END CERTIFICATE-----",
+                ""
+              ],
+              "usage": "verify"
+            }
+          ],
+          "disableSystemRoot": true
+        },
+        "xhttpSettings": {
+          "path": "/fixture",
+          "mode": "stream-one"
+        }
+      },
+      "mux": {
+        "enabled": false,
+        "concurrency": -1
+      }
+    }
+  },
+  {
+    "node": {
+      "indexId": "trojan",
+      "configType": "trojan",
+      "configVersion": 4,
+      "subid": "",
+      "remarks": "trojan",
+      "address": "127.0.0.1",
+      "port": 49913,
+      "password": "local-pass",
+      "username": "",
+      "network": "tcp",
+      "streamSecurity": "tls",
+      "allowInsecure": "false",
+      "sni": "localhost",
+      "cert": "-----BEGIN CERTIFICATE-----\nMIIC/jCCAeagAwIBAgIUTWWrMqzJirzXPyR5bAp96m/9nQAwDQYJKoZIhvcNAQEL\nBQAwFDESMBAGA1UEAwwJbG9jYWxob3N0MB4XDTI2MTEyNDA1Mzc1N1oXDTI2MTEy\nNTA1Mzc1N1owFDESMBAGA1UEAwwJbG9jYWxob3N0MIIBIjANBgkqhkiG9w0BAQEF\nAAOCAQ8AMIIBCgKCAQEArg0zTqDrbTwyqFoj1+MiOzxhNFRyzOIAq2M32KfziN1H\nBDXA77+eaWNCCFMjBunHHYJrNMEmgLHj7spqHYh5rKf8jchLWJXnDoeO8ECkHtp8\nuRWYyCk3Vfiw6IlA9qjAXFTX2H/Ou/czYkB8FkMKnTf9c7zNPhnT8tSaf/JIeCZ6\nvfLb4yRkAXwxIEG4vgt3gCI8zicSCgfZIOm1XxPdfdsriBVTH7/OnzZkNAT+wput\nv19MTCNhtG/0evRaG1etDd8rIv6QWeP2Xan6hfdIEk1bagCNLPf+Y6XXPrGKYkoV\n7mwquTPEXYgzrhPZHx1MCF8bL6nQGiLujKiSiTkCWQIDAQABo0gwRjAdBgNVHQ4E\nFgQU81S23oNes9hk7Qvd5RtofMdnWwwwDwYDVR0TAQH/BAUwAwEB/zAUBgNVHREE\nDTALgglsb2NhbGhvc3QwDQYJKoZIhvcNAQELBQADggEBABfmMUNYugASHf3Rtnya\nX8Ib3r1LEsViM56/KHli0U2WruC6qb9ccr61dRLSaR2MrK3lYl7Q4FS7jR8lFipo\n0QEmgKsbDca9ZkFjePtgmOajzVpdvZrRkaUBJKqlMiI6D7Mm9mXDomI3iSh4nhHF\nb4/F4eHIDSaf96ocmGj8hEsb/8C9q4LCMumfL38QXmhW3LByBh3uefw62jbz961Y\nKXOA71xvLxGAp+GYMrdaGSn/6qIe3PwWi+RFdlb0nrQlEAh1xgnAhVy3/mll9pnH\nksUqSGYlRJHwpK8+pInH1l9d9nNHLbORLAL+IWD9vr4XVeBHC7oLEEnOLpsL7AcW\n4U8=\n-----END CERTIFICATE-----\n",
+      "protoExtra": "{}",
+      "transportExtra": "{}"
+    },
+    "expected": {
+      "tag": "proxy",
+      "protocol": "trojan",
+      "settings": {
+        "address": "127.0.0.1",
+        "port": 49913,
+        "level": 1,
+        "ota": false,
+        "password": "local-pass"
+      },
+      "streamSettings": {
+        "network": "raw",
+        "security": "tls",
+        "tlsSettings": {
+          "serverName": "localhost",
+          "certificates": [
+            {
+              "certificate": [
+                "-----BEGIN CERTIFICATE-----",
+                "MIIC/jCCAeagAwIBAgIUTWWrMqzJirzXPyR5bAp96m/9nQAwDQYJKoZIhvcNAQELBQAwFDESMBAGA1UEAwwJbG9jYWxob3N0MB4XDTI2MTEyNDA1Mzc1N1oXDTI2MTEyNTA1Mzc1N1owFDESMBAGA1UEAwwJbG9jYWxob3N0MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEArg0zTqDrbTwyqFoj1+MiOzxhNFRyzOIAq2M32KfziN1HBDXA77+eaWNCCFMjBunHHYJrNMEmgLHj7spqHYh5rKf8jchLWJXnDoeO8ECkHtp8uRWYyCk3Vfiw6IlA9qjAXFTX2H/Ou/czYkB8FkMKnTf9c7zNPhnT8tSaf/JIeCZ6vfLb4yRkAXwxIEG4vgt3gCI8zicSCgfZIOm1XxPdfdsriBVTH7/OnzZkNAT+wputv19MTCNhtG/0evRaG1etDd8rIv6QWeP2Xan6hfdIEk1bagCNLPf+Y6XXPrGKYkoV7mwquTPEXYgzrhPZHx1MCF8bL6nQGiLujKiSiTkCWQIDAQABo0gwRjAdBgNVHQ4EFgQU81S23oNes9hk7Qvd5RtofMdnWwwwDwYDVR0TAQH/BAUwAwEB/zAUBgNVHREEDTALgglsb2NhbGhvc3QwDQYJKoZIhvcNAQELBQADggEBABfmMUNYugASHf3RtnyaX8Ib3r1LEsViM56/KHli0U2WruC6qb9ccr61dRLSaR2MrK3lYl7Q4FS7jR8lFipo0QEmgKsbDca9ZkFjePtgmOajzVpdvZrRkaUBJKqlMiI6D7Mm9mXDomI3iSh4nhHFb4/F4eHIDSaf96ocmGj8hEsb/8C9q4LCMumfL38QXmhW3LByBh3uefw62jbz961YKXOA71xvLxGAp+GYMrdaGSn/6qIe3PwWi+RFdlb0nrQlEAh1xgnAhVy3/mll9pnHksUqSGYlRJHwpK8+pInH1l9d9nNHLbORLAL+IWD9vr4XVeBHC7oLEEnOLpsL7AcW4U8=",
+                "-----END CERTIFICATE-----",
+                ""
+              ],
+              "usage": "verify"
+            }
+          ],
+          "disableSystemRoot": true
+        }
+      },
+      "mux": {
+        "enabled": false,
+        "concurrency": -1
+      }
+    }
+  },
+  {
+    "node": {
+      "indexId": "socks",
+      "configType": "socks",
+      "configVersion": 4,
+      "subid": "",
+      "remarks": "socks",
+      "address": "127.0.0.1",
+      "port": 49913,
+      "password": "local-pass",
+      "username": "local-user",
+      "network": "tcp",
+      "streamSecurity": "",
+      "allowInsecure": "false",
+      "sni": "",
+      "cert": "",
+      "protoExtra": "{}",
+      "transportExtra": "{}"
+    },
+    "expected": {
+      "tag": "proxy",
+      "protocol": "socks",
+      "settings": {
+        "address": "127.0.0.1",
+        "port": 49913,
+        "user": "local-user",
+        "pass": "local-pass",
+        "level": 1,
+        "email": "t@t.tt"
+      },
+      "streamSettings": {
+        "network": "raw"
+      },
+      "mux": {
+        "enabled": false,
+        "concurrency": -1
+      }
+    }
+  }
+]

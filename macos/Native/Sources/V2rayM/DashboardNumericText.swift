@@ -85,7 +85,7 @@ private struct NativeNumericText: NSViewRepresentable {
         anchor.frame = bounds
         anchor.drawing = face.root
         anchor.configure(scene: owner, style: .init(shape: .group, depth: 0.3, parentID: parent,
-            facePoint: CGPoint(x: local.midX, y: local.midY)))
+            facePoint: CGPoint(x: local.midX, y: local.midY), insidePage: true))
     }
     func stop() { freeze(); anchor.detach(); face.reset() }
     private func texturedGlyph(_ character: Character) -> RealityNumberFace.Glyph? {

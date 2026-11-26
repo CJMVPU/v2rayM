@@ -56,10 +56,10 @@ struct DashboardRing: View {
     let animate: Bool
     var body: some View {
         Color.clear
-            .background { RealitySurface(style: .init(shape: .ringTrack, color: NSColor(DashboardTheme.line), depth: 5, level: 16)) }
+            .background { RealitySurface(style: .init(shape: .ringTrack, color: NSColor(DashboardTheme.line), depth: 5, level: 16), attachesToSceneRoot: true) }
             .background {
                 RealitySurface(style: .init(shape: .ring(fraction), color: NSColor(color),
-                                            depth: 5, level: 20, animatesRing: animate))
+                                            depth: 5, level: 20, animatesRing: animate), attachesToSceneRoot: true)
             }
     }
 }
@@ -67,34 +67,7 @@ struct DashboardRing: View {
 final class TrendLayerInput {
     let samples: [TrafficTrendSample]
     init(_ samples: [TrafficTrendSample]) { self.samples = samples }
-    // A long sleep can leave two windows separated by days. Do not hand Core
-    // Animation a path with a gigantic bounding box. Recenter in coarse buckets,
-    // not per frame; retain connected neighbours at both bucket edges.
-    func bucket(at date: Date) -> Double {
-        guard let first = samples.first, let last = samples.last,
-              last.date.timeIntervalSince(first.date) > TrafficTrend.duration * 4 else { return .infinity }
-        return floor(date.timeIntervalSince1970 / TrafficTrend.duration)
-    }
-    func selected(bucket: Double) -> [TrafficTrendSample] {
-        guard bucket.isFinite else { return samples }
-        func lowerBound(_ time: Double) -> Int {
-            var low = 0, high = samples.count
-            while low < high {
-                let mid = (low + high) / 2
-                if samples[mid].date.timeIntervalSince1970 < time { low = mid + 1 } else { high = mid }
-            }
-            return low
-        }
-        var lower = lowerBound((bucket - 1) * TrafficTrend.duration)
-        var upper = lowerBound((bucket + 2) * TrafficTrend.duration)
-        guard lower < upper else { return [] }
-        func connected(_ left: Int, _ right: Int) -> Bool {
-            samples[left].segment == samples[right].segment && samples[right].date.timeIntervalSince(samples[left].date) < 12
-        }
-        if lower > 0, connected(lower - 1, lower) { lower -= 1 }
-        if upper < samples.count, connected(upper - 1, upper) { upper += 1 }
-        return Array(samples[lower..<upper])
-    }
+
 }
 
 /// Data-space curves are independent of the clock, viewport and vertical scale.
@@ -134,13 +107,12 @@ struct TrendLayerGeometry {
 /// Immutable animation inputs change with telemetry, not with display ticks.
 struct TrendFrameConfiguration {
     let input: TrendLayerInput
-    let replayInput: TrendLayerInput
     let retired: TrendLayerInput?
     let now: Date
     let maximum: Double
     let animate: Bool
     let presentationActive: Bool
-    let replaying: Bool
+    let reduceMotion: Bool
     let catchUp: TrafficTrendCatchUp?
     let retirement: TrafficTrendRetirement?
     let scaleFrom: Double
@@ -148,8 +120,7 @@ struct TrendFrameConfiguration {
     let scaleChanged: Date
     let sampleArrived: Date
     var enabled: Bool {
-        (animate || (presentationActive && replaying)) &&
-        (!input.samples.isEmpty || !replayInput.samples.isEmpty || retirement != nil)
+        presentationActive && animate && (!input.samples.isEmpty || retirement != nil)
     }
     struct Frame {
         let input: TrendLayerInput
@@ -161,19 +132,14 @@ struct TrendFrameConfiguration {
         let retirement: TrafficTrendRetirement?
     }
     func frame(at wallDate: Date) -> Frame {
-        let date = animate || replaying || !presentationActive ? wallDate : now
-        if replaying, let catchUp, catchUp.progress(at: date) < 1 {
-            return Frame(input: replayInput, date: catchUp.displayDate(at: date),
-                ceiling: catchUp.initialCeiling + (maximum - catchUp.initialCeiling) * catchUp.progress(at: date),
-                reveal: 1, opacity: 1, retired: nil, retirement: nil)
-        }
+        let date = animate && presentationActive ? wallDate : now
         func eased(_ elapsed: Double) -> Double {
             let t = min(1, max(0, elapsed / 1.2))
             return t * t * (3 - 2 * t)
         }
-        let ceiling = animate && !replaying ? scaleFrom + (scaleTo - scaleFrom) * eased(date.timeIntervalSince(scaleChanged)) : maximum
+        let ceiling = animate ? scaleFrom + (scaleTo - scaleFrom) * eased(date.timeIntervalSince(scaleChanged)) : maximum
         return Frame(input: input, date: date, ceiling: ceiling,
-            reveal: animate && !replaying ? eased(date.timeIntervalSince(sampleArrived)) : 1,
+            reveal: animate ? eased(date.timeIntervalSince(sampleArrived)) : 1,
             opacity: animate ? (retirement?.progress(at: wallDate) ?? 1) : 1,
             retired: animate ? retired : nil, retirement: animate ? retirement : nil)
     }
@@ -192,6 +158,17 @@ struct DashboardTrendPlot: NSViewRepresentable {
     private let realityPlot = RealityPlotModel()
     private weak var sceneOwner: RealityWindowScene?
     private let grid = CAShapeLayer(), baseline = CAShapeLayer(), clip = CALayer()
+    private let held = CALayer()
+    private var seenResume: Date?
+    private var frozenSnapshotDate: Date?
+    private var awaitingResumeSnapshot: Bool { frozenSnapshotDate != nil }
+    private var transitioning = false
+    private var blendStart: Date?
+    private var settledSample: Date?
+    private var settledCeiling: Double?
+    private var completedBlendAt: Date?
+    private(set) var blendFraction = 1.0
+    var hasHeldFrame: Bool { !(held.sublayers ?? []).isEmpty }
     let clock = DashboardDisplayClock()
     private var configuration: TrendFrameConfiguration?
     private var screenObserver: NSObjectProtocol?
@@ -205,7 +182,7 @@ struct DashboardTrendPlot: NSViewRepresentable {
             shape.lineWidth = 0.5; shape.contentsScale = 2; layer?.addSublayer(shape)
         }
         clip.masksToBounds = true; layer?.addSublayer(clip)
-        clip.addSublayer(old.root); clip.addSublayer(current.root)
+        clip.addSublayer(held); clip.addSublayer(old.root); clip.addSublayer(current.root)
         clock.onFrame = { [weak self] in self?.renderFrame(at: $0) }
         addSubview(realityAnchor)
     }
@@ -214,23 +191,101 @@ struct DashboardTrendPlot: NSViewRepresentable {
         sceneOwner = scene
         grid.isHidden = scene != nil; baseline.isHidden = scene != nil; clip.isHidden = scene != nil
         realityAnchor.frame = bounds
-        realityAnchor.configure(scene: scene, style: .init(shape: .panel(0), color: NSColor(DashboardTheme.background), depth: 0.1, level: 5))
+        realityAnchor.configure(scene: scene, style: .init(shape: .panel(0), color: NSColor(DashboardTheme.background), depth: 0.1, level: 5, insidePage: true))
         scene?.attachDrawing(realityPlot.entity, to: realityAnchor.surfaceID)
     }
-    func configure(_ configuration: TrendFrameConfiguration) {
+    func configure(_ configuration: TrendFrameConfiguration, at date: Date = Date()) {
         self.configuration = configuration
         guard !frozen else { return }
-        renderFrame(at: configuration.enabled ? (clock.date ?? configuration.now) : configuration.now)
+        present(configuration, at: date)
+    }
+
+    private func present(_ configuration: TrendFrameConfiguration, at date: Date) {
+        let resume = configuration.catchUp
+        let newResume = resume != nil && resume?.startedAt != seenResume
+        let refreshedAfterFreeze = frozenSnapshotDate.map { configuration.presentationActive && configuration.now > $0 } ?? false
+        if newResume || refreshedAfterFreeze {
+            if !awaitingResumeSnapshot { captureVisibleFrame() }
+            if !hasHeldFrame, let resume, !resume.samples.isEmpty {
+                // SwiftUI can recreate the native view during navigation.
+                old.update(input: TrendLayerInput(resume.samples), date: resume.displayDate, ceiling: resume.ceiling,
+                           reveal: 1, opacity: 1, size: bounds.size)
+                captureVisibleFrame()
+            }
+            seenResume = resume?.startedAt
+            frozenSnapshotDate = nil
+            transitioning = hasHeldFrame
+            blendStart = nil
+        }
+        guard !awaitingResumeSnapshot else { return }
+        renderFrame(at: date)
         attachClock()
     }
-    private func attachClock() {
-        clock.attach(window: window, enabled: !frozen && configuration?.enabled == true)
+
+    /// Freeze actual paths, viewport offsets and partially blended opacities.
+    /// Repeated hide/show therefore starts at exactly the last drawn composition.
+    private func captureVisibleFrame() {
+        let copies: [CAShapeLayer] = [held, old.root, current.root].flatMap { group -> [CAShapeLayer] in
+            guard !group.isHidden, group.opacity > 0 else { return [] }
+            return (group.sublayers ?? []).compactMap { layer in
+                guard let shape = layer as? CAShapeLayer, let path = shape.path, !path.isEmpty else { return nil }
+                let opacity = group.opacity * shape.opacity
+                guard opacity >= 1.0 / 255 else { return nil }
+                let copy = CAShapeLayer()
+                copy.path = path
+                copy.strokeColor = shape.strokeColor
+                copy.fillColor = shape.fillColor
+                copy.lineWidth = shape.lineWidth
+                copy.lineCap = shape.lineCap
+                copy.lineJoin = shape.lineJoin
+                copy.contentsScale = shape.contentsScale
+                copy.position = CGPoint(x: group.position.x + shape.position.x, y: 0)
+                copy.opacity = opacity
+                return copy
+            }
+        }
+        withoutActions {
+            held.sublayers = copies
+            held.opacity = 1
+            old.clear(); current.clear()
+        }
     }
+
+    private func attachClock() {
+        let blending = transitioning && blendStart != nil && configuration?.reduceMotion == false
+        clock.attach(window: window, enabled: !frozen && !awaitingResumeSnapshot &&
+                     (blending || (!transitioning && configuration?.enabled == true)))
+    }
+
     private func renderFrame(at date: Date) {
-        guard !frozen, let configuration else { return }
+        guard !frozen, !awaitingResumeSnapshot, let configuration else { return }
         let frame = configuration.frame(at: date)
-        update(input: frame.input, date: frame.date, ceiling: frame.ceiling, reveal: frame.reveal,
-               opacity: frame.opacity, retired: frame.retired, retirement: frame.retirement)
+        if transitioning {
+            // Missing telemetry may outlast the entire five-minute window.
+            // Keep the saved composition until a real target is available.
+            guard !frame.input.samples.isEmpty else { updateRealityPlot(); return }
+            let start = blendStart ?? date
+            blendStart = start
+            blendFraction = configuration.reduceMotion ? 1 : TrafficTrendCatchUp.progress(after: date.timeIntervalSince(start))
+            withoutActions { held.opacity = Float(1 - blendFraction) }
+            update(input: frame.input, date: frame.date, ceiling: configuration.maximum,
+                   reveal: 1, opacity: blendFraction)
+            if blendFraction >= 1 {
+                withoutActions { held.sublayers = nil }
+                settledSample = frame.input.samples.last?.date
+                settledCeiling = configuration.maximum
+                completedBlendAt = date
+                transitioning = false
+                blendStart = nil
+                attachClock()
+            }
+        } else {
+            if settledCeiling != configuration.maximum { settledCeiling = nil }
+            let retirement = frame.retirement.flatMap { $0.startedAt > (completedBlendAt ?? .distantPast) ? $0 : nil }
+            update(input: frame.input, date: frame.date, ceiling: settledCeiling ?? frame.ceiling,
+                   reveal: settledSample != nil && settledSample == frame.input.samples.last?.date ? 1 : frame.reveal,
+                   opacity: retirement == nil ? 1 : frame.opacity, retired: frame.retired, retirement: retirement)
+        }
     }
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -244,8 +299,20 @@ struct DashboardTrendPlot: NSViewRepresentable {
         }
         attachClock()
     }
-    override func freeze() { clock.freeze(); super.freeze() }
-    override func thaw() { super.thaw(); clock.thaw(); attachClock() }
+    override func freeze() {
+        clock.freeze()
+        if !frozen, configuration != nil {
+            captureVisibleFrame()
+            frozenSnapshotDate = configuration?.now
+        }
+        super.freeze()
+    }
+    override func thaw() {
+        guard frozen else { return }
+        super.thaw()
+        clock.thaw()
+        if let configuration { present(configuration, at: Date()) }
+    }
     deinit { if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) } }
     override func layout() {
         super.layout()
@@ -284,17 +351,23 @@ struct DashboardTrendPlot: NSViewRepresentable {
         for shape in [grid,baseline] {
             if let path = shape.path, let color = shape.strokeColor { strokes.append(.init(path: path, color: color, width: shape.lineWidth)) }
         }
-        for group in [old,current] where !group.root.isHidden && group.root.opacity > 0 {
-            for case let shape as CAShapeLayer in group.root.sublayers ?? [] {
-                if let path = shape.path, let color = shape.strokeColor ?? shape.fillColor {
-                    strokes.append(.init(path: path, color: color, width: shape.strokeColor == nil ? 1.2 : shape.lineWidth,
-                                         offset: group.root.position.x, opacity: group.root.opacity))
-                }
-            }
-        }
+        strokes += plotStrokes()
         realityPlot.update(strokes, size: bounds.size)
         sceneOwner?.attachDrawing(realityPlot.entity, to: realityAnchor.surfaceID)
     }
+    func plotStrokes() -> [RealityPlotStroke] {
+        var strokes: [RealityPlotStroke] = []
+        for group in [held, old.root, current.root] where !group.isHidden && group.opacity > 0 {
+            for case let shape as CAShapeLayer in group.sublayers ?? [] {
+                if let path = shape.path, !path.isEmpty, let color = shape.strokeColor ?? shape.fillColor {
+                    strokes.append(.init(path: path, color: color, width: shape.strokeColor == nil ? 1.2 : shape.lineWidth,
+                                         offset: group.position.x + shape.position.x, opacity: group.opacity * shape.opacity))
+                }
+            }
+        }
+        return strokes
+    }
+
 }
 
 @MainActor final class TrendLayerGroup {
@@ -305,7 +378,6 @@ struct DashboardTrendPlot: NSViewRepresentable {
     private var input: TrendLayerInput?
     private var geometry: TrendLayerGeometry?
     private var selectedSamples: [TrafficTrendSample] = []
-    private var bucket = Double.nan
     private var size = CGSize.zero
     private var ceiling = Double.nan
     private var reveal = Double.nan
@@ -327,7 +399,7 @@ struct DashboardTrendPlot: NSViewRepresentable {
     }
     func clear() {
         guard input != nil else { return }
-        input = nil; geometry = nil; selectedSamples = []; bucket = .nan; root.isHidden = true
+        input = nil; geometry = nil; selectedSamples = []; root.isHidden = true
         for shape in lines + tails + dots { shape.path = nil }
     }
     func resize(_ size: CGSize) {
@@ -336,14 +408,13 @@ struct DashboardTrendPlot: NSViewRepresentable {
     }
     func update(input: TrendLayerInput, date: Date, ceiling: Double, reveal: Double, opacity: Double, size: CGSize) {
         var changed = false
-        let bucket = input.bucket(at: date)
-        if self.input !== input || bucket != self.bucket {
-            let selected = input.selected(bucket: bucket)
+        if self.input !== input {
+            let selected = input.samples
             if geometry == nil || selectedSamples != selected {
                 selectedSamples = selected
                 geometry = TrendLayerGeometry(selected); geometryBuilds += 1; changed = true
             }
-            self.input = input; self.bucket = bucket
+            self.input = input
         }
         guard let geometry else { return }
         root.isHidden = false

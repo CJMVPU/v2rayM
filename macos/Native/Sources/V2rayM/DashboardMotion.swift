@@ -12,21 +12,23 @@ struct DashboardSolidSurface<Front: View, Back: View>: View, Animatable {
     var tilt: Double = 0
     let kind: DashboardSolidKind
     var animates = true
-    var highlighted = false
+    var hover: Double
     let front: Front
     let back: Back
     @State private var surfaceID = UUID()
     @Environment(\.realityScene) private var scene
-    var animatableData: AnimatablePair<Double, Double> {
-        get { AnimatablePair(animates ? angle : 0, animates ? tilt : 0) }
-        set { angle = animates ? newValue.first : 0; tilt = animates ? newValue.second : 0 }
+    var animatableData: AnimatablePair<AnimatablePair<Double, Double>, Double> {
+        get { .init(.init(animates ? angle : 0, animates ? tilt : 0), hover) }
+        set { angle = newValue.first.first; tilt = newValue.first.second; hover = newValue.second }
     }
     init(angle: Double, tilt: Double = 0, kind: DashboardSolidKind, animates: Bool = true,
-         highlighted: Bool = false, front: Front, back: Back) {
+         hovered: Bool = false, front: Front, back: Back) {
         self.angle = angle; self.tilt = tilt; self.kind = kind; self.animates = animates
-        self.highlighted = highlighted; self.front = front; self.back = back
+        hover = hovered ? 1 : 0; self.front = front; self.back = back
     }
-    private var renderedAngle: Double { animates ? angle : 0 }
+    private var renderedAngle: Double { (animates ? angle : 0) - 8 * hover }
+    private var renderedTilt: Double { (animates ? tilt : 0) + 5 * hover }
+    private var faceScale: CGFloat { 1 + CGFloat(hover) * 0.032 }
     private var frontFacing: Bool { cos(renderedAngle * .pi / 180) >= 0 }
     var body: some View {
         front
@@ -44,16 +46,18 @@ struct DashboardSolidSurface<Front: View, Back: View>: View, Animatable {
                 }
             }
             .rotation3DEffect(.degrees(animates ? tilt : 0), axis: (x: 1, y: 0, z: 0), perspective: 0.4)
+            .rotation3DEffect(.degrees(5 * hover), axis: (x: 1, y: 0, z: 0), perspective: 0)
+            .scaleEffect(faceScale)
             .background {
                 GeometryReader { geometry in
                     let frame = scene.map { geometry.frame(in: .named(ObjectIdentifier($0))) }
                     if kind == .card {
                         RealitySurface(style: .init(shape: .shadow(10), depth: 0.25, level: 13.5,
-                            angle: renderedAngle, tilt: animates ? tilt : 0, layoutFrame: frame?.offsetBy(dx: 1.5, dy: 2)))
+                            angle: renderedAngle, tilt: renderedTilt, faceScale: faceScale, layoutFrame: frame?.offsetBy(dx: 1.5, dy: 2)), attachesToSceneRoot: true)
                     }
                     RealitySurface(style: .init(shape: .dashboard(kind == .disc ? .dial : .card),
-                        depth: Float(kind.depth), level: 20, highlighted: highlighted, angle: renderedAngle,
-                        tilt: animates ? tilt : 0, layoutFrame: frame), id: surfaceID)
+                        depth: Float(kind.depth), level: 20, angle: renderedAngle,
+                        tilt: renderedTilt, faceScale: faceScale, layoutFrame: frame), id: surfaceID, attachesToSceneRoot: true)
                 }
             }
     }
@@ -80,14 +84,14 @@ struct RealityPanelModifier: ViewModifier {
 struct DashboardActivationFlip: ViewModifier {
     let active: Bool
     var kind: DashboardSolidKind = .card
-    var highlighted = false
+    var hovered = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dashboardFlipsEnabled) private var flipsEnabled
     @State private var angle = 0.0
     @State private var tilt = 0.0
     @State private var worker: Task<Void, Never>?
     func body(content: Content) -> some View {
-        DashboardSolidSurface(angle: angle, tilt: tilt, kind: kind, animates: flipsEnabled && !reduceMotion, highlighted: highlighted, front: content,
+        DashboardSolidSurface(angle: angle, tilt: tilt, kind: kind, animates: flipsEnabled && !reduceMotion, hovered: hovered && !reduceMotion, front: content,
             back: ZStack {
                 Color.clear
                 VStack(spacing: 8) {
@@ -238,18 +242,19 @@ struct DashboardDataCard<Value: Equatable, Content: View>: View {
     let idle: Value
     let active: Bool
     let ready: Bool
+    let hovered: Bool
     let content: (Value, Bool) -> Content
     @Environment(\.accessibilityReduceMotion) private var reduced
     @Environment(\.dashboardFlipsEnabled) private var flipsEnabled
     @StateObject private var presentation: DashboardCardPresentation<Value>
-    init(value: Value, idle: Value, active: Bool, ready: Bool, slot: Int, contentWhileHidden: Bool = false,
+    init(value: Value, idle: Value, active: Bool, ready: Bool, slot: Int, contentWhileHidden: Bool = false, hovered: Bool = false,
          @ViewBuilder content: @escaping (Value, Bool) -> Content) {
-        self.value = value; self.idle = idle; self.active = active; self.ready = ready; self.content = content
+        self.value = value; self.idle = idle; self.active = active; self.ready = ready; self.hovered = hovered; self.content = content
         _presentation = StateObject(wrappedValue: DashboardCardPresentation(value: value, idle: idle,
             active: active, ready: ready, slot: slot, contentWhileHidden: contentWhileHidden))
     }
     var body: some View {
-        DashboardSolidSurface(angle: reduced ? 0 : presentation.angle, kind: .card, animates: flipsEnabled && !reduced,
+        DashboardSolidSurface(angle: reduced ? 0 : presentation.angle, kind: .card, animates: flipsEnabled && !reduced, hovered: hovered && !reduced,
             front: content(presentation.displayed, presentation.presentedActive),
             back: ZStack {
                 Color.clear

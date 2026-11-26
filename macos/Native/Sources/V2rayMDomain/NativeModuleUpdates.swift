@@ -5,24 +5,9 @@ public enum RuntimeUpdateActivity {
 }
 
 public enum ModuleUpdateScope: String, CaseIterable, Identifiable {
-    case xray, geo, all
+    case geo
     public var id: String { rawValue }
-    public var coreType: String? { self == .xray ? "Xray" : nil }
-    public var targets: [String] { coreType.map { [$0] } ?? (self == .all ? ["Xray", "GeoFiles"] : ["GeoFiles"]) }
-}
-
-public struct NativeModuleUpdatePlan {
-    public let targets: [String]
-    public var useProxy: Bool
-    public let preRelease = true
-    public var preReleaseTargets: [String] { targets.filter { $0 != "GeoFiles" } }
-    public init(installableTargets: [String], useProxy: Bool) {
-        targets = (installableTargets.contains("Xray") ? ["Xray"] : []) + ["GeoFiles"]
-        self.useProxy = useProxy
-    }
-    public func usingAvailableProxy(coreRunning: Bool) -> Self {
-        var plan = self; plan.useProxy = useProxy && coreRunning; return plan
-    }
+    public var targets: [String] { ["GeoFiles"] }
 }
 
 public enum NativeModuleUpdateCompletion {

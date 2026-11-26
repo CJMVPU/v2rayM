@@ -27,7 +27,7 @@ final class LogAppearanceTests: XCTestCase {
         let warning = entry("core", "[Warning] first line\nsecond line", sequence: 2)
         let error = entry("core", "[Error] failed", sequence: 3)
         document.update([first, warning]); document.update([first, warning, error]); document.update([warning, error])
-        let text = try XCTUnwrap(document.scrollView.documentView as? NSTextView)
+        let text = document.textView
         let storage = try XCTUnwrap(text.textStorage)
         XCTAssertEqual(text.string, warning.displayMessage + "\n" + error.displayMessage + "\n")
         let warningColor = try XCTUnwrap(storage.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor)

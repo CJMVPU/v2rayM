@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """Exercise curated extraction and package fail-closed behavior without downloads."""
+import hashlib
 import importlib.util
+import json
 import os
 from pathlib import Path
 import stat
+import subprocess
 import tempfile
 import unittest
 import zipfile
@@ -35,6 +38,53 @@ class CorePackagingTests(unittest.TestCase):
                 info, data = extra(prefix)
                 archive.writestr(info, data)
         return path, core
+
+    def test_macos_fetch_pinned_receipts_in_full_and_data_only_modes(self):
+        pinned = json.loads((ROOT / 'contracts/macos-build-inputs.json').read_text())['coreBundleCommit']
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive_path = root / 'upstream.zip'
+            curl = root / 'curl'
+            # Accept only the expected pinned URL. Data never leaves this directory.
+            curl.write_text("""#!/usr/bin/env python3
+import os, shutil, sys
+url, flag, destination = sys.argv[-3:]
+assert url == os.environ['FIXTURE_URL'] and flag == '--output'
+shutil.copyfile(os.environ['FIXTURE_ARCHIVE'], destination)
+""")
+            curl.chmod(0o755)
+            url = f'https://raw.githubusercontent.com/2dust/v2rayN-core-bin/{pinned}/v2rayN-macos-arm64.zip'
+            env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ['PATH'],
+                       FIXTURE_ARCHIVE=str(archive_path), FIXTURE_URL=url)
+            env.pop('CORE_BUNDLE_REF', None)
+            command = [str(ROOT / 'scripts/fetch-macos-cores.sh'), 'osx-arm64']
+            geo = {'geoip.dat', 'geosite.dat'}
+            full = geo | {'xray/xray', 'xray/LICENSE'}
+            for has_binary in (True, False):
+                entries = (full if has_binary else geo) | {'unused/other-engine'}
+                with zipfile.ZipFile(archive_path, 'w') as archive:
+                    for name in sorted(entries):
+                        archive.writestr('v2rayN-macos-arm64/bin/' + name, name.encode())
+                for mode, targets in (([], full), (['--data-only'], geo)):
+                    with self.subTest(has_binary=has_binary, mode=mode):
+                        dest = root / f"output-{has_binary}-{'data' if mode else 'full'}"
+                        result = subprocess.run(command + [str(dest)] + mode, env=env, capture_output=True, text=True)
+                        if not mode and not has_binary:
+                            self.assertNotEqual(result.returncode, 0)
+                            self.assertFalse(dest.exists())
+                            continue
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        receipt = 'core-bundle-source.json'
+                        actual = {p.relative_to(dest).as_posix() for p in dest.rglob('*') if p.is_file()}
+                        self.assertEqual(actual, targets | {receipt})
+                        self.assertEqual(json.loads((dest / receipt).read_text()), {
+                            'repository': '2dust/v2rayN-core-bin', 'commit': pinned,
+                            'archiveSHA256': hashlib.sha256(archive_path.read_bytes()).hexdigest(),
+                            'files': {name: hashlib.sha256(name.encode()).hexdigest() for name in targets}})
+                        for name in targets:
+                            self.assertEqual((dest / name).read_bytes(), name.encode())
+                        if not mode:
+                            self.assertTrue(os.access(dest / 'xray/xray', os.X_OK))
 
     def test_all_rids_extract_only_reviewed_assets(self):
         for rid in fetch.BUNDLES:

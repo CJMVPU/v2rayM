@@ -63,9 +63,7 @@ struct LoginItemStatusRow: View {
             }
             Spacer()
             Button("打开登录项设置", action: openSettings)
-                .environment(\.realityContentVisible, requiresApproval)
-                .disabled(!requiresApproval).opacity(requiresApproval ? 1 : 0)
-                .accessibilityHidden(!requiresApproval)
+                .help("打开 macOS 的登录项设置")
             Toggle("开机启动", isOn: $registered)
                 .labelsHidden().toggleStyle(RealityToggleStyle(showsLabel: false)).disabled(updating || !bundled)
                 .help(bundled ? "开机启动" : "请运行打包后的 v2rayM.app 来设置开机启动。")

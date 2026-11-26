@@ -2,13 +2,13 @@ import SwiftUI
 import V2rayMKit
 
 enum SettingsPane: String, CaseIterable, Identifiable {
-    case parameters = "参数设置", routing = "路由设置", dns = "DNS 设置"
+    case parameters = "参数设置", routing = "路由设置", dns = "DNS 设置", backup = "备份与恢复"
     var id: String { rawValue }
     var symbol: ControlAsset {
-        switch self { case .parameters: return .sliders; case .routing: return .branch; case .dns: return .network }
+        switch self { case .parameters: return .sliders; case .routing: return .branch; case .dns: return .network; case .backup: return .folder }
     }
     var detail: String {
-        switch self { case .parameters: return "监听、嗅探、Xray 与原生 TUN"; case .routing: return "方案、匹配顺序与分流规则"; case .dns: return "常规解析与自定义 DNS" }
+        switch self { case .parameters: return "监听、嗅探、Xray 与原生 TUN"; case .routing: return "方案、匹配顺序与分流规则"; case .dns: return "常规解析与自定义 DNS"; case .backup: return "节点、设置与订阅" }
     }
 }
 
@@ -17,7 +17,7 @@ struct AdvancedSettingsPanel: View {
     let select: (SettingsPane) -> Void
     var body: some View {
         HStack(spacing: PageLayout.gap) {
-            ForEach(SettingsPane.allCases) { item in
+            ForEach([SettingsPane.parameters, .routing, .dns]) { item in
                 Button { select(item) } label: {
                     HStack(alignment: .top, spacing: 10) {
                         RealityGlyph(asset: item.symbol, size: 20, color: DashboardTheme.accent)
@@ -39,11 +39,15 @@ struct AdvancedSettingsPanel: View {
 }
 
 struct SettingsEditor: View {
+    @State private var webDAV = SettingsValue.object([:])
     @State private var parameterDraft = ParameterSettingsDraft()
     @State private var dnsDraft = DNSSettingsDraft()
     @State private var routingDraft = RoutingSettingsDraft()
+    @State private var selectActiveAfterPreset = false
     let pane: SettingsPane
     @EnvironmentObject var model: AppModel
+    var homeRequest = 0
+    var goHome: () -> Void = {}
     let close: () -> Void
     @State private var loaded = false
     @State private var working = false
@@ -52,11 +56,21 @@ struct SettingsEditor: View {
     @State private var deleteConfirmation = false
     @State private var dirty = false
     @State private var dismissConfirmation = false
+    @State private var returningHome = false
+
+    private func requestReturn(home: Bool) {
+        guard !working, !deleteConfirmation, !dismissConfirmation else { return }
+        returningHome = home
+        if dirty { dismissConfirmation = true } else { finishReturn() }
+    }
+    private func finishReturn() {
+        if returningHome { goHome() } else { close() }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Button { if dirty { dismissConfirmation = true } else { close() } } label: {
+                Button { requestReturn(home: false) } label: {
                     RealityLabel(title: "返回设置", asset: .back)
                 }.disabled(working).help("返回设置总览")
                 Divider().frame(height: 20)
@@ -73,15 +87,33 @@ struct SettingsEditor: View {
                 ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 12) {
                         switch pane {
+                        case .backup:
+                            BackupSettingsFields(settings: $webDAV, dirty: $dirty) { message, work in
+                                action(success: message, work)
+                            }
+
                         case .parameters: ParameterSettingsFields(settings: $parameterDraft.settings, tunSettings: $parameterDraft.tunSettings, dirty: $dirty)
                         case .routing:
-                            RoutingSettingsFields(routes: routingDraft.routes, route: $routingDraft.route, rules: $routingDraft.rules,
+                            RoutingSettingsFields(routes: routingDraft.routes, profiles: model.profiles, route: $routingDraft.route, rules: $routingDraft.rules,
                                 routeID: $routingDraft.routeID, ruleIndex: $routingDraft.ruleIndex, dirty: $dirty,
                                 select: { item in action(success: "已切换方案") { try await loadRoute(item) } },
                                 create: newRoute, delete: { deleteConfirmation = true }, activate: {
                                     action {
                                         try await model.settingsWrite("/api/settings/routing-profiles/\(routingDraft.routeID)/activate", method: "POST")
                                         try await reloadRoutes()
+                                    }
+                                }, importRoutes: {
+                                    action(success: "路由方案已导入") {
+                                        try await model.settingsWrite("/api/settings/routing-profiles/import", method: "POST")
+                                        try await reloadRoutes()
+                                    }
+                                }, applyPreset: { region in
+                                    action(success: "地区预设已应用") {
+                                        try await model.settingsWrite("/api/settings/regional-presets/" + region, method: "POST")
+                                        loaded = false
+                                        selectActiveAfterPreset = true
+                                        try await reloadRoutes()
+                                        loaded = true
                                     }
                                 })
                         case .dns:
@@ -107,25 +139,36 @@ struct SettingsEditor: View {
                 Text(!model.ready ? "后台服务未就绪，草稿已保留" : result.isEmpty ? (working ? "正在处理…" : "修改后保存，设置将自动应用") : result).font(AppFont.caption).foregroundStyle(failed ? DashboardTheme.warning : DashboardTheme.muted)
                     .lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
                 InlineActivityIndicator(active: working)
-                Button("重新连接服务") { Task { await model.connect() } }
-                    .disabled(model.ready || working || model.connecting)
-                    .environment(\.realityContentVisible, !model.ready)
-                    .opacity(model.ready ? 0 : 1).accessibilityHidden(model.ready)
+                if !model.ready {
+                    Button("重新连接服务") { Task { await model.connect() } }
+                        .disabled(working || model.connecting)
+                }
+                if pane == .backup {
+                    Button("保存 WebDAV 设置") {
+                        action {
+                            try await model.settingsWrite("/api/settings/webdav", body: webDAV)
+                            webDAV = try await model.settingsRead("/api/settings/webdav")
+                        }
+                    }.disabled(!loaded || working || !dirty || !model.ready)
+                }
                 if pane == .parameters { Button("保存参数") { saveParameters() }.disabled(!loaded || working || !dirty || !model.ready) }
                 if pane == .routing { Button("保存方案与规则") { saveRoute() }.disabled(!loaded || working || !dirty || !model.ready) }
             }.frame(height: 32)
         }.padding(16).frame(maxWidth: .infinity, maxHeight: .infinity).font(AppFont.body).buttonStyle(HoverButtonStyle())
-            .background(HiddenScrollbars())
             .task { await load() }
+            .onChange(of: homeRequest) { requestReturn(home: true) }
             .alert("放弃未保存的修改？", isPresented: $dismissConfirmation) {
                 Button("继续编辑", role: .cancel) {}
-                Button("放弃修改", role: .destructive) { close() }
+                Button("放弃修改", role: .destructive, action: finishReturn)
             }
             .alert("删除这个路由方案？", isPresented: $deleteConfirmation) {
                 Button("取消", role: .cancel) {}
                 Button("删除", role: .destructive) { action {
                     try await model.settingsWrite("/api/settings/routing-profiles/\(routingDraft.routeID)", method: "DELETE")
+                    // The write was acknowledged. Only expose another document after its rules load.
+                    loaded = false
                     try await reloadRoutes()
+                    loaded = true
                 } }
             }
     }
@@ -141,6 +184,7 @@ struct SettingsEditor: View {
         working = true; failed = false; result = ""
         defer { working = false }
         do {
+            if pane == .backup { webDAV = try await model.settingsRead("/api/settings/webdav") }
             if pane == .parameters {
                 parameterDraft.settings = try await model.settingsRead("/api/settings")
                 parameterDraft.settings["application"] = parameterDraft.settings["app"]
@@ -159,9 +203,12 @@ struct SettingsEditor: View {
         } catch { result = error.localizedDescription; failed = true }
     }
     private func reloadRoutes() async throws {
-        routingDraft.routes = try await model.settingsRead("/api/settings/routing-profiles").items
-        let selected = routingDraft.routes.first(where: { $0["id"].text == routingDraft.routeID }) ?? routingDraft.routes.first(where: { $0["isActive"].flag }) ?? routingDraft.routes.first
-        if let selected { try await loadRoute(selected) } else { newRoute() }
+        let routes = try await model.settingsRead("/api/settings/routing-profiles").items
+        routingDraft = try await routingDraft.refreshing(routes: routes, preferActive: selectActiveAfterPreset) { id in
+            try await model.settingsRead("/api/settings/routing-profiles/\(id)/rules").items
+        }
+        selectActiveAfterPreset = false
+        dirty = routes.isEmpty
     }
     private func loadRoute(_ selected: SettingsValue) async throws {
         routingDraft = try await routingDraft.selecting(selected) { id in
@@ -176,9 +223,7 @@ struct SettingsEditor: View {
     private func saveParameters() {
         action {
             // Keep the full snapshot so hidden upstream options survive edits.
-            var input = parameterDraft.settings
-            input["nativeTun"] = parameterDraft.tunSettings
-            try await model.settingsWrite("/api/settings/apply", body: input)
+            try await model.settingsWrite("/api/settings/apply", body: parameterDraft.submission)
             parameterDraft.settings = try await model.settingsRead("/api/settings")
             parameterDraft.settings["application"] = parameterDraft.settings["app"]
             parameterDraft.tunSettings = try await model.settingsRead("/api/macos/tun/settings")
@@ -187,8 +232,7 @@ struct SettingsEditor: View {
     private func saveRoute() {
         action {
             guard !routingDraft.route["remarks"].text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw ClientFailure("routing_name_required") }
-            var draft = routingDraft.route
-            draft["ruleSet"] = .string(try SettingsValue.array(routingDraft.rules).json())
+            let draft = try routingDraft.submission()
             let response = try await model.settingsWrite(routingDraft.savePath, method: routingDraft.saveMethod, body: draft)
             try routingDraft.acceptSaved(response)
             dirty = false

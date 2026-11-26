@@ -18,11 +18,11 @@ struct HoverButtonStyle: ButtonStyle {
                 .background {
                     if !plain {
                         RealitySurface(style: .init(shape: .panel(5), depth: 3, level: 75,
-                            highlighted: hovering || configuration.isPressed, enabled: enabled))
+                            highlighted: enabled && (hovering || configuration.isPressed), enabled: enabled))
                     }
                 }
                 .brightness(enabled && hovering ? 0.13 : 0)
-                .opacity(!enabled ? 0.4 : configuration.isPressed ? 0.65 : 1)
+                .opacity(!enabled ? 0.72 : configuration.isPressed ? 0.65 : 1)
                 .contentShape(Rectangle())
                 .onHover { hovering = $0 }
                 .animation(.easeOut(duration: 0.12), value: hovering)

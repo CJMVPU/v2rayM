@@ -5,6 +5,7 @@ import SystemConfiguration
 public struct TunDNSSettings: Equatable {
     public let interface: String
     public let resolver: String
+    public init(interface: String, resolver: String) { self.interface = interface; self.resolver = resolver }
 }
 
 public protocol ManagedTunNetwork: AnyObject {
@@ -42,11 +43,14 @@ public final class TemporaryTunDNS: ManagedTunNetwork {
         }
         store = session; key = path
     }
+    static func removeOwnedResolver(remove: () -> Bool, status: () -> Int32) throws {
+        // A missing key confirms cleanup. A configd error leaves ownership pending for retry.
+        guard remove() || status() == kSCStatusNoKey else { throw HelperFailure("tun_dns_cleanup_failed") }
+    }
+
     public func restore() throws {
         guard let store, let key else { return }
-        guard SCDynamicStoreRemoveValue(store, key) || SCDynamicStoreCopyValue(store, key) == nil else {
-            throw HelperFailure("tun_dns_cleanup_failed")
-        }
+        try Self.removeOwnedResolver(remove: { SCDynamicStoreRemoveValue(store, key) }, status: SCError)
         self.key = nil; self.store = nil
     }
     deinit {

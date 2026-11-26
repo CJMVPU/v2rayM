@@ -19,13 +19,21 @@ output.mkdir(parents=True, exist_ok=True)
 places, indices = [], {}
 counts = {4: 0, 6: 0}
 previous = {4: -1, 6: -1}
+previous_place = {4: None, 6: None}
+gap = 0xffffffff
+
+def write_transition(target, version, address, place):
+    width = 4 if version == 4 else 16
+    target.write(address.to_bytes(width, 'big') + struct.pack('>I', place))
+    counts[version] += 1
 with gzip.open(source, 'rt', encoding='utf-8', newline='') as stream, \
         (output / 'ipv4.bin').open('wb') as v4, (output / 'ipv6.bin').open('wb') as v6:
+    for target in (v4, v6):
+        target.write(bytes(16))
     for row in csv.reader(stream):
         first, last = ipaddress.ip_address(row[0]), ipaddress.ip_address(row[1])
         assert first.version == last.version and int(first) <= int(last)
         assert int(first) > previous[first.version], 'Ranges must be sorted and disjoint'
-        previous[first.version] = int(last)
         country, city, lat, lon = row[3], row[5], float(row[6]), float(row[7])
         assert -90 <= lat <= 90 and -180 <= lon <= 180
         key = (country, city, lat, lon)
@@ -33,8 +41,19 @@ with gzip.open(source, 'rt', encoding='utf-8', newline='') as stream, \
             indices[key] = len(places)
             places.append(dict(country=country, city=city, latitude=lat, longitude=lon))
         target = v4 if first.version == 4 else v6
-        target.write(first.packed + last.packed + struct.pack('>I', indices[key]))
-        counts[first.version] += 1
+        version = first.version
+        start, end = int(first), int(last)
+        adjacent = start == previous[version] + 1
+        if previous[version] >= 0 and not adjacent:
+            write_transition(target, version, previous[version] + 1, gap)
+        if not adjacent or indices[key] != previous_place[version]:
+            write_transition(target, version, start, indices[key])
+        previous[version], previous_place[version] = end, indices[key]
+    for version, width, target in [(4, 4, v4), (6, 16, v6)]:
+        if 0 <= previous[version] < (1 << (8 * width)) - 1:
+            write_transition(target, version, previous[version] + 1, gap)
+        target.seek(0)
+        target.write(b'V2MRNG02' + struct.pack('>II', counts[version], width + 4))
 # Header: magic, count, record width. Each 24-byte big-endian record stores
 # UTF-8 payload offset, country/city lengths, latitude and longitude. Readers
 # map the table and decode only the matching place, preserving exact doubles.
@@ -47,7 +66,7 @@ for place in places:
 (output / 'places.bin').write_bytes(b'V2MLOC01' + struct.pack('>II', len(places), 24) + records + strings)
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
-manifest = dict(formatVersion=1, input=dict(file=source.name,
+manifest = dict(formatVersion=2, input=dict(file=source.name,
     sourceURL='https://download.db-ip.com/free/' + source.name, sha256=digest(source)),
     outputs={name: dict(sha256=digest(output / name), bytes=(output / name).stat().st_size)
              for name in ['ipv4.bin', 'ipv6.bin', 'places.bin']})

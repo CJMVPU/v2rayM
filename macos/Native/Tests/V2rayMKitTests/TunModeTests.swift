@@ -34,7 +34,7 @@ private actor MemoryTunBackend: ProxyModeBackend, ProxyModePreferences {
     }
     func stopProxyCore() { calls.append("stop"); state.runtimeState = "stopped"; state.privilegedCoreProcessIds = [] }
     func proxyConnection() -> ProxyConnection { ProxyConnection(running: state.runtimeState == "running", port: 10808) }
-    func enableProxy(port: Int) {}
+    func enableProxy(endpoints: ProxyEndpoints) {}
     func restoreProxy() {}
 }
 

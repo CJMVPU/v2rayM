@@ -33,6 +33,7 @@ struct DashboardSnapshot: Equatable {
     private var queued = false
     private var frozenAt: Date?
     private var catchUp: TrafficTrendCatchUp?
+    private var receivedSamplesSinceResume = false
     init(model: AppModel) { self.model = model; snapshot = DashboardSnapshot(model: model) }
     func setEnabled(_ enabled: Bool) {
         guard enabled != self.enabled else { return }
@@ -41,11 +42,16 @@ struct DashboardSnapshot: Equatable {
         guard enabled else { frozenAt = Date(); return }
         let resumedAt = Date()
         if let frozenAt {
-            let displayedAt = catchUp?.displayDate(at: frozenAt) ?? frozenAt
-            catchUp = TrafficTrendCatchUp(previous: snapshot.trend, displayedAt: displayedAt,
-                latest: model.trafficTrend, resumedAt: resumedAt, retained: catchUp?.samples ?? [])
+            let frozen = TrafficTrendCatchUp(previous: snapshot.trend, displayedAt: frozenAt, resumedAt: resumedAt)
+            // A second suspension may arrive before the first fresh sample.
+            if !frozen.samples.isEmpty || receivedSamplesSinceResume || catchUp == nil {
+                catchUp = frozen
+            } else if let held = catchUp {
+                catchUp = TrafficTrendCatchUp(holding: held, resumedAt: resumedAt)
+            }
         }
         frozenAt = nil
+        receivedSamplesSinceResume = false
         refresh()
         for publisher in [model.objectWillChange, model.telemetry.objectWillChange, model.dashboard.objectWillChange] {
             subscriptions.append(publisher.sink { [weak self] in self?.scheduleRefresh() })
@@ -67,6 +73,9 @@ struct DashboardSnapshot: Equatable {
     private func refresh() {
         guard enabled else { return }
         var latest = DashboardSnapshot(model: model)
+        if !receivedSamplesSinceResume, !latest.trend.plotSamples(at: latest.now).isEmpty {
+            receivedSamplesSinceResume = true
+        }
         latest.trendCatchUp = catchUp
         snapshot = latest
     }

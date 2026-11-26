@@ -1,0 +1,64 @@
+--- a/core/xray.go
++++ b/core/xray.go
+@@ -184,9 +184,9 @@
+ 
+ // NewScoped constructs an embedded feature graph. The host prepares the shared
+ // immutable environment before constructing either half of a pre-SOCKS session.
+-func NewScoped(config *Config, cone bool) (*Instance, error) {
++func NewScoped(ctx context.Context, config *Config, cone bool) (*Instance, error) {
+ 	s := &Instance{scoped: true, cone: cone}
+-	s.ctx = s.BindContext(context.Background())
++	s.ctx = s.BindContext(ctx)
+ 	if done, err := initInstanceWithConfig(config, s); done {
+ 		_ = s.Close()
+ 		return nil, err
+--- a/app/log/log.go
++++ b/app/log/log.go
+@@ -14,7 +14,15 @@
+ )
+ 
+ // Instance is a log.Handler that handles logs.
++type observerKey struct{}
++
++// WithObserver mirrors accepted messages after severity and address masking are applied.
++func WithObserver(ctx context.Context, sink log.Handler) context.Context {
++	return context.WithValue(ctx, observerKey{}, sink)
++}
++
+ type Instance struct {
++	observer log.Handler
+ 	sync.RWMutex
+ 	config       *Config
+ 	accessLogger log.Handler
+@@ -39,6 +47,7 @@
+ 		mask4:  m4,
+ 		mask6:  m6,
+ 	}
++	g.observer, _ = ctx.Value(observerKey{}).(log.Handler)
+ 	log.RegisterContextHandler(ctx, g)
+ 
+ 	// start logger now,
+@@ -127,14 +136,23 @@
+ 	case *log.AccessMessage:
+ 		if g.accessLogger != nil {
+ 			g.accessLogger.Handle(Msg)
++			if g.observer != nil {
++				g.observer.Handle(Msg)
++			}
+ 		}
+ 	case *log.DNSLog:
+ 		if g.dns && g.accessLogger != nil {
+ 			g.accessLogger.Handle(Msg)
++			if g.observer != nil {
++				g.observer.Handle(Msg)
++			}
+ 		}
+ 	case *log.GeneralMessage:
+ 		if g.errorLogger != nil && msg.Severity <= g.config.ErrorLogLevel {
+ 			g.errorLogger.Handle(Msg)
++			if g.observer != nil {
++				g.observer.Handle(Msg)
++			}
+ 		}
+ 	default:
+ 		// Swallow

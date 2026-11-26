@@ -22,6 +22,17 @@ import V2rayMDomain
 @MainActor final class NetworkRecoveryServiceTests: XCTestCase {
     private let now = Date(timeIntervalSince1970: 10)
 
+    func testUpdateStartingDuringPreflightDefersRestart() async throws {
+        let runtime = RecoveryRuntime()
+        runtime.hook = { step, runtime in
+            if step == "preflight" { runtime.observation.updating = true }
+        }
+        let result = try await NetworkRecoveryService().attempt(runtime, now: now)
+        XCTAssertEqual(result, .waiting)
+        XCTAssertEqual(runtime.calls, ["capture", "preflight"])
+        XCTAssertTrue(runtime.recovery.active)
+    }
+
     func testNetworkGenerationChangeDuringPreflightPreventsRestart() async throws {
         let runtime = RecoveryRuntime()
         runtime.hook = { step, runtime in
@@ -56,6 +67,42 @@ import V2rayMDomain
         XCTAssertEqual(result, .waiting)
         XCTAssertEqual(runtime.calls, ["capture", "reconcile", "refresh"])
         XCTAssertTrue(runtime.recovery.needsRestart)
+    }
+
+    func testSameSecondReplacementIsVerifiedBySessionIDAfterReplyLoss() async throws {
+        let runtime = RecoveryRuntime()
+        runtime.observation.coreSessionID = UUID()
+        runtime.hook = { step, runtime in
+            if step == "restart" {
+                runtime.observation.coreSessionID = UUID()
+                throw URLError(.timedOut)
+            }
+        }
+        do { _ = try await NetworkRecoveryService().attempt(runtime, now: now); XCTFail("Expected lost response") }
+        catch { XCTAssertEqual((error as? URLError)?.code, .timedOut) }
+        let result = try await NetworkRecoveryService().attempt(runtime, now: now)
+        XCTAssertEqual(result, .completed)
+        XCTAssertEqual(runtime.calls.filter { $0 == "restart" }.count, 1)
+    }
+
+    func testRecoveryRechecksLostTunnelBeforeMutating() async throws {
+        for stillInactive in [true, false] {
+            let runtime = RecoveryRuntime(restart: false)
+            runtime.observation.desiredMode = .tun
+            runtime.observation.systemProxyEnabled = false
+            runtime.observation.tunEnabled = true
+            runtime.observation.coreSessionID = UUID()
+            runtime.observation.inactiveTunSessionID = runtime.observation.coreSessionID
+            runtime.hook = { step, runtime in
+                if step == "restart" || (step == "capture" && !stillInactive) {
+                    runtime.observation.inactiveTunSessionID = nil
+                    runtime.observation.tunRunning = true
+                }
+            }
+            let result = try await NetworkRecoveryService().attempt(runtime, now: now)
+            XCTAssertEqual(result, .completed)
+            XCTAssertEqual(runtime.calls.filter { $0 == "restart" }.count, stillInactive ? 1 : 0)
+        }
     }
 
     func testUpdateOrUnresolvedProxyRecoveryBlocksMutation() async throws {

@@ -1,8 +1,16 @@
 # v2rayM macOS 架构
 
-产品只包含 SwiftUI 原生 macOS 客户端和 Xray，保留上游 fork、ServiceLib 与 WebAPI。
-控制链路为 SwiftUI → 本机认证 WebAPI → ServiceLib → Xray；TUN 特权操作通过独立签名 helper。
-后端不以 root 运行。节点数据库、配置和恢复记录使用 v2rayM 独立数据目录。
+## 0.7.9 运行方式
+
+SwiftUI/AppKit 调用进程内的 `NativeRuntimeHost`。Swift 负责 SQLite、节点与订阅、设置、路由和 DNS 配置、测速、统计、日志、备份与恢复。上游 C# 源码保留用于对照。发行包包含主程序、签名的特权助手和应用内加载的 `libV2rayMXray.dylib`。
+
+普通代理由主程序直接启动内核。TUN 模式下，助手验证 XPC 调用方，创建隧道并把文件描述符交给主程序，随后管理路由、DNS 和故障恢复。Xray 在两种模式下均使用主程序的 PID。开启前置 SOCKS 的旧自定义节点在同一库内使用两个配置实例，可以分别设置 DNS、路由、出站标签和日志。
+
+配置中的 `env:` 地址或端口引用按配置解析。系统隧道描述符和应用的数据资源目录由宿主管理。两套配置显式选用互不兼容的 Xray 进程级参数时，启动会报告冲突键。节点原始配置保存在数据库或原文件中。
+
+## 0.7.7 及更早版本的架构记录
+
+以下内容记录 Swift 界面搭配独立 C# 后台时的实现，便于核对迁移行为。
 
 DDD 模块边界、已迁移内容与剩余工作见 [DDD 迁移记录](ddd-architecture.md)。
 

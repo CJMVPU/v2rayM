@@ -1,6 +1,6 @@
 import Foundation
 
-public struct RuntimeTraffic: Decodable, Equatable {
+public struct RuntimeTraffic: Codable, Equatable {
     public var proxyUp: Double
     public var proxyDown: Double
     public var directUp: Double

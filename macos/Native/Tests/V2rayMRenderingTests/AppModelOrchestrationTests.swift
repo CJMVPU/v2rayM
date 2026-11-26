@@ -1,11 +1,24 @@
 import XCTest
 import Foundation
 import Combine
+import SwiftUI
+import AppKit
 import V2rayMKit
 @testable import V2rayM
 
 private actor RuntimeFixtureAPI: NativeAPI {
     var requestCounts: [String: Int] = [:]
+    var logBatch: [[String: Any]] = []
+    var sampleProfiles = false
+    var selectedID = "fixture"
+    func restartFixture(at date: String) { startedAt = date }
+    func selectFixture(_ id: String) { selectedID = id; sampleProfiles = true }
+    func setLogHosts(_ values: [String]) {
+        logBatch = values.enumerated().map { index, host in
+            ["timestamp": index == 0 ? "2026-11-24T00:00:00Z" : "2026-11-25T00:00:00Z", "source": "core",
+             "sequence": index + 1, "message": "from app accepted tcp:" + host + ":443 [socks >> proxy]"]
+        }
+    }
     func count(_ path: String) -> Int { requestCounts[path] ?? 0 }
     var running = false
     var faulted = false
@@ -13,7 +26,7 @@ private actor RuntimeFixtureAPI: NativeAPI {
     var reuseRunningCore = false
     var proxyPort = 10808
     var statusReads = 0
-    var stopTimeouts = 0
+    var stopErrors = [Error]()
     var stopCalls = 0
     var failTunRead = false
     var tunEnabled = false
@@ -28,6 +41,11 @@ private actor RuntimeFixtureAPI: NativeAPI {
     var startedAt = "2026-10-24T10:00:00Z"
     var loseRestartResponse = false
     var tasks: [String] = []
+    var updatePhase: String?
+    func setUpdatePhase(_ phase: String) {
+        updatePhase = phase
+        tasks = phase == "downloading" ? ["geo-update"] : []
+    }
     var holdNextStatus = false
     var held: CheckedContinuation<Data, Never>?
     var heldData: Data?
@@ -44,7 +62,7 @@ private actor RuntimeFixtureAPI: NativeAPI {
     func holdStart() { holdNextStart = true }
     func startIsHeld() -> Bool { startHeld != nil }
     func releaseStart() { startHeld?.resume(); startHeld = nil }
-    func timeoutStops(_ count: Int) { stopTimeouts = count }
+    func failStops(with errors: [Error]) { stopErrors = errors }
     func failTunObservation() { failTunRead = true }
     func fail(_ path: String) { failures.insert(path) }
     func recover(_ path: String) { failures.remove(path) }
@@ -69,9 +87,17 @@ private actor RuntimeFixtureAPI: NativeAPI {
         case "/api/status":
             statusReads += 1
             result = ["coreRunning": running, "xrayAvailable": true, "runtimeState": running ? "running" : faulted ? "faulted" : "stopped",
-                      "currentProfileId": "fixture", "runningProfileId": "fixture", "runningProxyPort": proxyPort,
+                      "currentProfileId": selectedID, "runningProfileId": "fixture", "runningProxyPort": proxyPort,
                       "coreStartedAt": startedAt] as [String: Any]
-        case "/api/profiles?subscriptionId=&includeStatistics=false", "/api/profiles/observations", "/api/core-updates/progress": result = []
+        case "/api/profiles?subscriptionId=&includeStatistics=false":
+            result = sampleProfiles ? ["first", "second"].map { id -> [String: Any] in
+                ["indexId": id, "remarks": id, "protocol": "vless", "address": id + ".invalid", "port": 443,
+                 "network": "raw", "coreType": "xray", "delay": 0, "isCurrent": false, "canTest": true]
+            } : []
+        case "/api/profiles/observations":
+            result = sampleProfiles ? [["indexId": "first", "delay": 10, "totalUp": 100, "totalDown": 50] as [String: Any]] : []
+        case "/api/core-updates/progress":
+            result = updatePhase.map { [["coreType": "GeoFiles", "phase": $0, "isComplete": $0 != "downloading", "success": $0 == "completed", "batch": false] as [String: Any]] } ?? []
         case "/api/settings/routing-profiles": result = method == "POST" ? ["routingId": "created-id"] : []
         case "/api/operations": result = tasks
         case "/api/macos/tun?fresh=true":
@@ -91,7 +117,10 @@ private actor RuntimeFixtureAPI: NativeAPI {
         case "/api/core/start": try await startTunCore()
         case "/api/core/stop": try stopProxyCore()
         default:
-            if path.hasPrefix("/api/logs/tail") { result = ["items": [], "latestSequence": 0, "generation": 0] as [String: Any] }
+            if path.hasPrefix("/api/logs/tail") {
+                let firstRead = path.hasPrefix("/api/logs/tail?after=0&")
+                result = ["items": firstRead ? logBatch : [], "latestSequence": logBatch.count, "generation": 0] as [String: Any]
+            }
         }
         let data = try JSONSerialization.data(withJSONObject: ["success": true, "data": result])
         if path == "/api/status", holdNextStatus {
@@ -121,7 +150,7 @@ private actor RuntimeFixtureAPI: NativeAPI {
     }
     func stopProxyCore() throws {
         stopCalls += 1
-        if stopTimeouts > 0 { stopTimeouts -= 1; throw URLError(.timedOut) }
+        if !stopErrors.isEmpty { throw stopErrors.removeFirst() }
         running = false; faulted = false
     }
     func proxyConnection() -> ProxyConnection { ProxyConnection(running: running, port: proxyPort) }
@@ -148,10 +177,10 @@ private actor RuntimeFixtureProxy: NativeProxy {
     var needsRecovery = false
     var restores = 0
     var boundPort: Int?
-    func enableProxy(port: Int) { isEnabled = true; boundPort = port }
+    func enableProxy(endpoints: ProxyEndpoints) { isEnabled = true; boundPort = endpoints.preferredPort }
     func restoreProxy() { restores += 1; isEnabled = false }
     func restore() -> Bool { restores += 1; isEnabled = false; return false }
-    func rebind(port: Int) throws { if !isEnabled { throw ClientFailure("proxy_recovery") }; boundPort = port }
+    func rebind(endpoints: ProxyEndpoints) throws { if !isEnabled { throw ClientFailure("proxy_recovery") }; boundPort = endpoints.preferredPort }
 }
 private final class RuntimeFixtureClock: NativeClock, @unchecked Sendable {
     private let lock = NSLock()
@@ -170,7 +199,123 @@ private final class RuntimeFixtureClock: NativeClock, @unchecked Sendable {
     }
 }
 
+private actor HeldConnectionBatch: RecentConnectionParsing {
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var first = true
+    var held: Bool { continuation != nil }
+    func recent(_ entries: [LogEntry], since start: Date) async -> [GlobeConnection] {
+        if first {
+            first = false
+            await withCheckedContinuation { continuation = $0 }
+        }
+        return GlobeConnection.recent(entries, previous: [], since: start)
+    }
+    func release() { continuation?.resume(); continuation = nil }
+}
+
 @MainActor final class AppModelOrchestrationTests: XCTestCase {
+    func testNativeWindowModelImportsSelectsEditsAndReopens() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        func model() -> AppModel {
+            AppModel(backend: NativeRuntimeHost(dataDirectory: directory, mayContactHelper: false, automaticMaintenance: false),
+                     proxy: RuntimeFixtureProxy(), clock: RuntimeFixtureClock(), network: RuntimeFixtureNetwork(),
+                     dataDirectory: directory, checkTunnel: {})
+        }
+        let first = model()
+        await first.connect()
+        XCTAssertTrue(first.ready)
+        try await first.importNodes("socks://user:p%3Ass@127.0.0.1:10891#One\nvless://local-id@127.0.0.1:10892?type=xhttp&path=%2Ffixture#Two")
+        await first.waitForObservations()
+        XCTAssertEqual(first.profiles.map(\.remarks), ["One", "Two"])
+        let selected = try XCTUnwrap(first.profiles.first)
+        first.select(selected)
+        await settle(first)
+        XCTAssertEqual(first.status?.currentProfileId, selected.id)
+        XCTAssertEqual(first.status?.coreRunning, false)
+        let original = try await first.profileDocument(id: selected.id)
+        XCTAssertEqual(original["password"].text, "p:ss")
+        var edited = original
+        edited["remarks"] = .string("Renamed")
+        let committed = try await first.saveProfile(id: selected.id, original: original, edited: edited)
+        XCTAssertEqual(committed, edited)
+        var stale = original
+        stale["remarks"] = .string("Outdated")
+        do {
+            try await first.saveProfile(id: selected.id, original: original, edited: stale)
+            XCTFail("A stale editor must not overwrite the committed edit")
+        } catch let error as ClientFailure { XCTAssertEqual(error.code, "profile_edit_conflict") }
+        let closed = await first.shutdown()
+        XCTAssertTrue(closed)
+        let reopened = model()
+        await reopened.connect()
+        await reopened.waitForObservations()
+        XCTAssertEqual(reopened.status?.currentProfileId, selected.id)
+        XCTAssertEqual(reopened.profiles.first?.remarks, "Renamed")
+        let persisted = try await reopened.profileDocument(id: selected.id)
+        XCTAssertEqual(persisted, edited)
+        let finished = await reopened.shutdown()
+        XCTAssertTrue(finished)
+    }
+
+    func testManualGeoDownloadKeepsRuntimeAndFinishesEvenIfStatusReadFails() async {
+        let (model, api, _, _, clock, _) = await fixture()
+        await api.setUpdatePhase("downloading")
+        model.updateModules(.geo)
+        await model.waitForOperation()
+        await model.waitForObservations()
+        let startReads = await api.count("/api/status")
+        clock.advance(3)
+        await model.pollOnce()
+        let endReads = await api.count("/api/status")
+        XCTAssertGreaterThan(endReads, startReads, "Ordinary runtime polling must continue during file transfer")
+        XCTAssertEqual(model.lastStatusRefresh, clock.now())
+        await api.fail("/api/core-updates/progress")
+        clock.advance(3)
+        await model.pollOnce()
+        XCTAssertEqual(model.lastStatusRefresh, clock.now())
+        XCTAssertNotNil(model.moduleUpdateError)
+        XCTAssertTrue(model.moduleUpdateActive)
+        await api.recover("/api/core-updates/progress")
+        await api.fail("/api/status")
+        await model.pollOnce()
+        XCTAssertTrue(model.moduleUpdateActive)
+        XCTAssertNil(model.moduleUpdateError, "A runtime status failure is not a GeoData observation failure")
+        await api.setUpdatePhase("completed")
+        await model.pollOnce()
+        XCTAssertFalse(model.moduleUpdateActive, "A failed status read must not conceal a terminal update")
+        _ = await model.shutdown()
+    }
+
+    func testAutomaticGeoUpdateTracksBackendTaskAndPreventsDuplicateSubmission() async {
+        let (model, api, _, _, clock, _) = await fixture()
+        await api.setUpdatePhase("downloading")
+        clock.advance(3)
+        await model.pollOnce()
+        await model.waitForObservations()
+        XCTAssertTrue(model.moduleUpdateActive)
+        model.updateModules(.geo)
+        await model.waitForOperation()
+        let submissions = await api.count("/api/core/geo/update?scope=geo")
+        XCTAssertEqual(submissions, 0, "The scheduled job should own the update UI")
+        await api.setUpdatePhase("completed")
+        await model.pollOnce()
+        XCTAssertFalse(model.moduleUpdateActive)
+        _ = await model.shutdown()
+    }
+
+    func testIndividualGeoUpdateSubmitsWithoutChangingUpdatePreferences() async {
+        let (model, api, _, _, _, _) = await fixture()
+        XCTAssertEqual(model.status?.coreRunning, false)
+        model.updateModules(.geo)
+        await model.waitForOperation()
+        let writes = await api.count("/api/core-updates/settings")
+        let requests = await api.count("/api/core/geo/update?scope=geo")
+        XCTAssertEqual(writes, 0)
+        XCTAssertEqual(requests, 1)
+        _ = await model.shutdown()
+    }
+
     func testAcknowledgedCreateReturnsIdentityDespiteFailedStatusRefresh() async throws {
         let (model, api, _, _, _, _) = await fixture()
         await api.fail("/api/status")
@@ -198,6 +343,89 @@ private final class RuntimeFixtureClock: NativeClock, @unchecked Sendable {
         XCTAssertEqual(refreshed, initial + 1)
         _ = await model.shutdown()
     }
+    func testParsedLogBatchDoesNotAdvanceCursorAcrossSessionChange() async throws {
+        let api = RuntimeFixtureAPI(), held = HeldConnectionBatch()
+        let model = AppModel(backend: RuntimeFixtureBackend(api), proxy: RuntimeFixtureProxy(),
+                             clock: RuntimeFixtureClock(), network: RuntimeFixtureNetwork(),
+                             connectionParser: held, checkTunnel: {})
+        await api.setLogHosts(["old.invalid", "first.invalid", "second.invalid", "first.invalid"])
+        await model.connect()
+        let deadline = ContinuousClock.now + .seconds(2)
+        while !(await held.held), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
+        let suspended = await held.held
+        XCTAssertTrue(suspended)
+        await api.restartFixture(at: "2026-11-25T00:00:00Z")
+        model.status?.coreStartedAt = "2026-11-25T00:00:00Z"
+        await held.release()
+        await model.waitForObservations()
+        XCTAssertTrue(model.logs.isEmpty)
+        XCTAssertTrue(model.dashboard.connections.isEmpty)
+        try await model.refresh()
+        await model.waitForObservations()
+        let firstReads = await api.count("/api/logs/tail?after=0&limit=10000")
+        XCTAssertEqual(firstReads, 2)
+        XCTAssertEqual(model.logs.map(\.message), ["old.invalid", "first.invalid", "second.invalid", "first.invalid"].map { "from app accepted tcp:" + $0 + ":443 [socks >> proxy]" })
+        XCTAssertEqual(model.dashboard.connections.map(\.host), ["first.invalid", "second.invalid"])
+        _ = await model.shutdown()
+    }
+
+    func testUnchangedObservationsAllowSelectionChangesButSkipIdlePublications() async throws {
+        let (model, api, _, _, clock, _) = await fixture()
+        await api.selectFixture("first")
+        try await model.refresh()
+        await model.waitForObservations()
+        XCTAssertEqual(model.profiles.filter(\.isCurrent).map(\.id), ["first"])
+        XCTAssertEqual(model.profiles.first?.delay, 10)
+        var publications = 0
+        let subscription = model.$profiles.dropFirst().sink { _ in publications += 1 }
+        defer { subscription.cancel() }
+        clock.advance(6)
+        try await model.refresh(forceMetadata: false)
+        await model.waitForObservations()
+        XCTAssertEqual(publications, 0)
+        await api.selectFixture("second")
+        clock.advance(6)
+        try await model.refresh(forceMetadata: false)
+        await model.waitForObservations()
+        XCTAssertEqual(model.profiles.filter(\.isCurrent).map(\.id), ["second"])
+        XCTAssertEqual(publications, 1)
+        _ = await model.shutdown()
+    }
+
+    func testSettingsHomeRequestPreservesDirtyDraftAndReturnsToHome() async throws {
+        let (model, _, _, _, _, _) = await fixture()
+        var home = 0, overview = 0
+        func page(_ request: Int) -> some View {
+            SettingsEditor(pane: .routing, homeRequest: request, goHome: { home += 1 }, close: { overview += 1 })
+                .environmentObject(model).frame(width: 860, height: 580)
+        }
+        let host = NSHostingView(rootView: page(0))
+        let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        defer { window.close() }
+        func buttons(in view: NSView) -> [NSButton] {
+            ([view as? NSButton].compactMap { $0 }) + view.subviews.flatMap(buttons)
+        }
+        func respond(_ label: String) async throws {
+            await waitUntil { window.attachedSheet?.contentView.map { buttons(in: $0).contains { $0.title == label } } ?? false }
+            let sheet = try XCTUnwrap(window.attachedSheet?.contentView)
+            let button = try XCTUnwrap(buttons(in: sheet).first { $0.title == label })
+            button.performClick(nil)
+            await waitUntil { window.attachedSheet == nil }
+        }
+        // The fixture has no routes. Loading the editor creates an unsaved first draft.
+        try await Task.sleep(for: .milliseconds(250))
+        host.rootView = page(1)
+        try await respond("继续编辑")
+        XCTAssertEqual(home, 0)
+        host.rootView = page(2)
+        try await respond("放弃修改")
+        XCTAssertEqual(home, 1)
+        XCTAssertEqual(overview, 0)
+    }
+
     private func fixture() async -> (AppModel, RuntimeFixtureAPI, RuntimeFixtureBackend, RuntimeFixtureProxy, RuntimeFixtureClock, RuntimeFixtureNetwork) {
         let api = RuntimeFixtureAPI(), proxy = RuntimeFixtureProxy(), clock = RuntimeFixtureClock(), network = RuntimeFixtureNetwork()
         let backend = RuntimeFixtureBackend(api)
@@ -640,14 +868,14 @@ private final class RuntimeFixtureClock: NativeClock, @unchecked Sendable {
             _ = await model.shutdown()
         }
     }
-    func testStopTimeoutKeepsOffIntentRetriesAndNeverRestartsOldMode() async {
+    func testStopContentionAndTimeoutKeepOffIntentAndNeverRestartOldMode() async {
         for mode in [ProxyMode.system, .tun] {
             let (model, api, _, proxy, clock, network) = await fixture()
             if mode == .system { model.toggleProxy(true) } else { model.toggleTun(true) }
             await settle(model)
             let starts = await api.starts
             network.sleep?(true); network.sleep?(false)
-            await api.timeoutStops(2)
+            await api.failStops(with: [ClientFailure("operation_in_progress"), URLError(.timedOut)])
             if mode == .system { model.toggleProxy(false) } else { model.toggleTun(false) }
             await settle(model)
             XCTAssertEqual(model.desiredMode, .off); XCTAssertNil(model.error)

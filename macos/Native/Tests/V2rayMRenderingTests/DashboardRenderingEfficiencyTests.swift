@@ -45,12 +45,37 @@ final class DashboardRenderingEfficiencyTests: XCTestCase {
         XCTAssertEqual(state.fronts, 1)
     }
 
+    @MainActor func testReattachedWindowReconcilesWakeAndSessionReturnMissedWhileDetached() async throws {
+        var latest: DashboardVisibilityState?
+        let watcher = DashboardVisibilityObserver.Watcher(changed: { latest = $0 }, querySession: { (false, true) }, displayAsleep: { _ in false })
+        let window = NSWindow(contentRect: NSRect(x: 20, y: 20, width: 120, height: 100),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView = watcher
+        window.orderFront(nil)
+        let events = NSWorkspace.shared.notificationCenter
+        events.post(name: NSWorkspace.screensDidSleepNotification, object: nil)
+        events.post(name: NSWorkspace.sessionDidResignActiveNotification, object: nil)
+        try await Task.sleep(for: .milliseconds(60))
+        XCTAssertEqual(latest?.sleeping, true)
+        XCTAssertEqual(latest?.sessionActive, false)
+        window.contentView = NSView()
+        XCTAssertNil(watcher.window)
+        events.post(name: NSWorkspace.screensDidWakeNotification, object: nil)
+        events.post(name: NSWorkspace.sessionDidBecomeActiveNotification, object: nil)
+        window.contentView = watcher
+        try await Task.sleep(for: .milliseconds(60))
+        XCTAssertEqual(latest?.sleeping, false, "The detached window missed wake")
+        XCTAssertEqual(latest?.sessionActive, true, "The detached window missed session reactivation")
+    }
+
     @MainActor func testDepartureBurstUsesCachedLockStateAndKeepsFreezing() {
         var queries = 0, freezes = 0
         var locked = true
         var latest: DashboardVisibilityState?
-        let view = DashboardVisibilityObserver.Watcher(changed: { latest = $0 }, queryLocked: {
-            queries += 1; return locked
+        let view = DashboardVisibilityObserver.Watcher(changed: { latest = $0 }, querySession: {
+            queries += 1; return (locked, true)
         })
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 100, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

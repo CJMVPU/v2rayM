@@ -1,8 +1,8 @@
 import Foundation
 import V2rayMKit
 
-/// DNS is resolved through the Mac's configured resolver. Coordinates are local
-/// DB-IP estimates, not packet routes or proof of a CDN's serving location.
+/// Node hostnames use the Mac’s resolver. Connection destinations reach the
+/// local DB-IP lookup only when the access record already contains an IP.
 private final class GlobeResolver: @unchecked Sendable {
     private var database: GlobeGeoDatabase?
     private var loaded = false
@@ -47,12 +47,35 @@ private final class GlobeResolver: @unchecked Sendable {
     }
 }
 
+protocol RecentConnectionParsing: Sendable {
+    func recent(_ entries: [LogEntry], since start: Date) async -> [GlobeConnection]
+}
+
+/// Parsing dense batches must yield the UI executor. Log polls are single-flight
+/// and commit their cursor only after checking the session again.
+actor RecentConnectionParser: RecentConnectionParsing {
+    func recent(_ entries: [LogEntry], since start: Date) -> [GlobeConnection] {
+        GlobeConnection.recent(entries, previous: [], since: start)
+    }
+}
+
 @MainActor final class GlobeMonitor: ObservableObject {
+    struct Session: Equatable {
+        let id: UUID?
+        let profile: String?
+        let startedAt: String?
+        init(_ state: RuntimeStatus?) {
+            id = state?.coreSessionID
+            profile = state?.runningProfileId
+            startedAt = state?.coreStartedAt
+        }
+        var start: Date { DashboardStatus.date(startedAt) ?? .distantPast }
+    }
     @Published private(set) var connections: [GlobeConnection] = []
     @Published private(set) var nodePlace: GlobePlace?
     private let resolver: GlobeLookupCache
     private var nodeAddress = ""
-    private var session = ""
+    private var session = Session(nil)
     private var lookups: [String: Task<Void, Never>] = [:]
     private var nodeLookup: Task<Void, Never>?
     init(resolver: GlobeLookupCache? = nil) {
@@ -60,8 +83,8 @@ private final class GlobeResolver: @unchecked Sendable {
         self.resolver = resolver ?? GlobeLookupCache { host in await database.resolve(host) }
     }
 
-    func update(state: RuntimeStatus, node: Profile?, entries: [LogEntry]) {
-        let nextSession = (state.runningProfileId ?? "") + "|" + (state.coreStartedAt ?? "")
+    func update(state: RuntimeStatus, node: Profile?, recent: [GlobeConnection]) {
+        let nextSession = Session(state)
         if session != nextSession {
             session = nextSession; connections = []
             lookups.values.forEach { $0.cancel() }; lookups.removeAll()
@@ -78,12 +101,15 @@ private final class GlobeResolver: @unchecked Sendable {
                 self.nodeLookup = nil
             }
         }
-        let start = DashboardStatus.date(state.coreStartedAt) ?? .distantPast
-        let recent = GlobeConnection.recent(entries, previous: connections, since: start)
-        if recent != connections { connections = recent }
-        // Bound DNS work during bursts. The UI never waits for a lookup.
+        if !recent.isEmpty {
+            let merged = GlobeConnection.merging(recent, previous: connections, since: nextSession.start)
+            if merged != connections { connections = merged }
+        }
+        // Resolving an access-log hostname here would send browsing destinations
+        // to the system resolver independently of the active proxy’s DNS policy.
         for item in connections.prefix(8) where item.route == "proxy" || item.route == "direct" {
-            guard lookups.count < 8, lookups[item.host] == nil else { continue }
+            guard lookups.count < 8, lookups[item.host] == nil, item.place == nil,
+                  GlobeGeoDatabase.addressBytes(item.host) != nil else { continue }
             let host = item.host
             lookups[host] = Task { [weak self, resolver] in
                 let place = await resolver.resolve(host)

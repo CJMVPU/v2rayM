@@ -5,7 +5,7 @@ import Darwin
 extension OfficialCorePolicy {
     /// Stream the exact opened regular file; do not follow a substituted symlink.
     /// Callers still validate store ownership and verify the private execution copy.
-    static func hashFile(_ url: URL, maxSize: Int = 256 * 1024 * 1024) throws -> String {
+    public static func hashFile(_ url: URL, maxSize: Int = 256 * 1024 * 1024) throws -> String {
         let descriptor = open(url.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
         guard descriptor >= 0 else { throw HelperFailure("update_file_not_private") }
         let file = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)

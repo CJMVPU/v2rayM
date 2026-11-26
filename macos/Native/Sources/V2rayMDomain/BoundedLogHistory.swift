@@ -8,6 +8,8 @@ public protocol RetainedLogEntry {
 
 public struct BoundedLogHistory<Entry: RetainedLogEntry> {
     public private(set) var entries: [Entry] = []
+    /// Index of the first surviving record since this history was created.
+    public private(set) var headOffset = 0
     private var ids = Set<String>()
     private var characters = 0
     private let maximumLines: Int
@@ -26,7 +28,7 @@ public struct BoundedLogHistory<Entry: RetainedLogEntry> {
             let entry = entries[remove]; ids.remove(entry.id)
             characters -= entry.message.utf16.count + entry.source.utf16.count; remove += 1
         }
-        if remove > 0 { entries.removeFirst(remove) }
+        if remove > 0 { entries.removeFirst(remove); headOffset += remove }
         return changed
     }
 }

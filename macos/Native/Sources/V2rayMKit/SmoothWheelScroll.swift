@@ -65,6 +65,16 @@ import QuartzCore
         scroll.reflectScrolledClipView(clip)
         if t == 1 { cancel() }
     }
+    /// Log retention shifts the coordinate system underneath an in-flight
+    /// wheel movement. Keep both endpoints attached to the same content.
+    func compensateForRemovedHeight(_ height: CGFloat) {
+        guard let movement else { return }
+        func shifted(_ point: CGPoint) -> CGPoint { CGPoint(x: point.x, y: max(0, point.y - height)) }
+        let start = shifted(movement.start), target = shifted(movement.target)
+        if start == target { cancel() }
+        else { self.movement = Movement(start: start, target: target, time: movement.time) }
+    }
+
     public func cancel() {
         link?.invalidate()
         link = nil

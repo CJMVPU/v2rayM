@@ -28,7 +28,7 @@ private actor ModeHarness: ProxyModeBackend, ProxyModePreferences {
     }
     func stopProxyCore() { events.append("stop"); tun.runtimeState = "stopped"; tun.privilegedCoreProcessIds = [] }
     func proxyConnection() -> ProxyConnection { ProxyConnection(running: tun.runtimeState == "running", port: 10808) }
-    func enableProxy(port: Int) throws {
+    func enableProxy(endpoints: ProxyEndpoints) throws {
         events.append("proxy-on")
         if tun.enabled || tun.runtimeState != "running" { throw ClientFailure("modes_overlap") }
         proxy = true

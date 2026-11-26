@@ -2,11 +2,13 @@ import Foundation
 
 /// Round-trip all upstream properties, including fields not exposed in the Mac UI.
 public enum SettingsValue: Codable, Equatable {
-    case object([String: SettingsValue]), array([SettingsValue]), string(String), number(Double), bool(Bool), null
+    case object([String: SettingsValue]), array([SettingsValue]), string(String), number(Double), integer64(Int64), unsigned64(UInt64), bool(Bool), null
     public init(from decoder: Decoder) throws {
         let c = try decoder.singleValueContainer()
         if c.decodeNil() { self = .null }
         else if let v = try? c.decode(Bool.self) { self = .bool(v) }
+        else if let v = try? c.decode(Int64.self), Double(exactly: v) == nil { self = .integer64(v) }
+        else if let v = try? c.decode(UInt64.self), v > UInt64(Int64.max) { self = .unsigned64(v) }
         else if let v = try? c.decode(Double.self) { self = .number(v) }
         else if let v = try? c.decode(String.self) { self = .string(v) }
         else if let v = try? c.decode([String: SettingsValue].self) { self = .object(v) }
@@ -19,6 +21,8 @@ public enum SettingsValue: Codable, Equatable {
         case .array(let v): try c.encode(v)
         case .string(let v): try c.encode(v)
         case .number(let v): try c.encode(v)
+        case .integer64(let v): try c.encode(v)
+        case .unsigned64(let v): try c.encode(v)
         case .bool(let v): try c.encode(v)
         case .null: try c.encodeNil()
         }
@@ -28,7 +32,7 @@ public enum SettingsValue: Codable, Equatable {
         set { var v: [String: SettingsValue] = [:]; if case .object(let old) = self { v = old }; v[key] = newValue; self = .object(v) }
     }
     public var text: String {
-        switch self { case .string(let v): return v; case .number(let v): return v.rounded() == v ? String(format: "%.0f", v) : String(v); default: return "" }
+        switch self { case .string(let v): return v; case .integer64(let v): return String(v); case .unsigned64(let v): return String(v); case .number(let v): return v.rounded() == v ? String(format: "%.0f", v) : String(v); default: return "" }
     }
     public var flag: Bool { if case .bool(let v) = self { return v }; return false }
     public var items: [SettingsValue] { if case .array(let v) = self { return v }; return [] }

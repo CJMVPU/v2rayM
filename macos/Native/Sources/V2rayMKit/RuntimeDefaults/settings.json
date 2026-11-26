@@ -1,0 +1,213 @@
+{
+  "IndexId": "",
+  "SubIndexId": "",
+  "CoreBasicItem": {
+    "LogEnabled": false,
+    "Loglevel": "warning",
+    "DefFingerprint": null,
+    "DefUserAgent": null,
+    "SendThrough": null,
+    "BindInterface": null,
+    "EnableFragment": false,
+    "EnableFinalFragment": false
+  },
+  "TunModeItem": {
+    "EnableTun": false,
+    "AutoRoute": true,
+    "StrictRoute": true,
+    "Stack": null,
+    "Mtu": 9000,
+    "EnableIPv6Address": false,
+    "IcmpRouting": "rule",
+    "RouteExcludeAddress": null,
+    "IPv4Address": null,
+    "IPv6Address": null
+  },
+  "KcpItem": {
+    "Mtu": 1350,
+    "Tti": 50,
+    "UplinkCapacity": 12,
+    "DownlinkCapacity": 100,
+    "CwndMultiplier": 1,
+    "MaxSendingWindow": 2097152
+  },
+  "GrpcItem": {
+    "IdleTimeout": 60,
+    "HealthCheckTimeout": 20,
+    "PermitWithoutStream": false,
+    "InitialWindowsSize": 0
+  },
+  "RoutingBasicItem": {
+    "DomainStrategy": "AsIs",
+    "RoutingIndexId": null
+  },
+  "GuiItem": {
+    "AutoRun": false,
+    "EnableStatistics": false,
+    "DisplayRealTimeSpeed": false,
+    "KeepOlderDedupl": false,
+    "AutoUpdateInterval": 0,
+    "TrayMenuServersLimit": 20,
+    "EnableHWA": false,
+    "EnableLog": true,
+    "RootCertProvider": "system"
+  },
+  "MsgUIItem": {
+    "MainMsgFilter": null,
+    "AutoRefresh": null
+  },
+  "ConstItem": {
+    "SubConvertUrl": null,
+    "GeoSourceUrl": null,
+    "RouteRulesTemplateSourceUrl": null
+  },
+  "SpeedTestItem": {
+    "SpeedTestTimeout": 10,
+    "SpeedTestUrl": "https://cachefly.cachefly.net/50mb.test",
+    "SpeedPingTestUrl": "https://www.google.com/generate_204",
+    "MixedConcurrencyCount": 10,
+    "IPAPIUrl": null,
+    "UdpTestTarget": "ntp:pool.ntp.org",
+    "SpeedTestPageSize": null,
+    "SpeedTestDelayInterval": null
+  },
+  "Mux4RayItem": {
+    "Concurrency": 8,
+    "XudpConcurrency": 16,
+    "XudpProxyUDP443": "reject"
+  },
+  "HysteriaItem": {
+    "UpMbps": 100,
+    "DownMbps": 100,
+    "HopInterval": 30
+  },
+  "SystemProxyItem": {
+    "SysProxyType": 0,
+    "SystemProxyExceptions": "localhost,127.0.0.0/8,::1",
+    "NotProxyLocalAddress": true,
+    "SystemProxyAdvancedProtocol": null,
+    "CustomSystemProxyPacPath": null,
+    "CustomSystemProxyScriptPath": null
+  },
+  "WebDavItem": {
+    "Url": null,
+    "UserName": null,
+    "Password": null,
+    "DirName": null
+  },
+  "CheckUpdateItem": {
+    "UpdateViaProxy": true,
+    "SelectedCoreTypes": null,
+    "CheckPreReleaseCoreTypes": null
+  },
+  "Fragment4RayItem": {
+    "Packets": "tlshello",
+    "Lengths": [
+      "50-100"
+    ],
+    "Delays": [
+      "10-20"
+    ],
+    "MaxSplit": "0",
+    "Length": null,
+    "Interval": null
+  },
+  "Inbound": [
+    {
+      "LocalPort": 10808,
+      "Protocol": "socks",
+      "UdpEnabled": true,
+      "SniffingEnabled": true,
+      "DestOverride": [
+        "http",
+        "tls"
+      ],
+      "RouteOnly": false,
+      "AllowLANConn": false,
+      "NewPort4LAN": false,
+      "User": null,
+      "Pass": null,
+      "SecondLocalPortEnabled": false
+    }
+  ],
+  "CoreTypeItem": [
+    {
+      "ConfigType": 1,
+      "CoreType": 2
+    },
+    {
+      "ConfigType": 2,
+      "CoreType": 2
+    },
+    {
+      "ConfigType": 3,
+      "CoreType": 2
+    },
+    {
+      "ConfigType": 4,
+      "CoreType": 2
+    },
+    {
+      "ConfigType": 5,
+      "CoreType": 2
+    },
+    {
+      "ConfigType": 6,
+      "CoreType": 2
+    },
+    {
+      "ConfigType": 7,
+      "CoreType": 2
+    },
+    {
+      "ConfigType": 9,
+      "CoreType": 2
+    },
+    {
+      "ConfigType": 10,
+      "CoreType": 2
+    },
+    {
+      "ConfigType": 13,
+      "CoreType": 2
+    },
+    {
+      "ConfigType": 14,
+      "CoreType": 2
+    },
+    {
+      "ConfigType": 101,
+      "CoreType": 2
+    },
+    {
+      "ConfigType": 102,
+      "CoreType": 2
+    }
+  ],
+  "SimpleDNSItem": {
+    "UseSystemHosts": false,
+    "AddCommonHosts": true,
+    "FakeIP": false,
+    "GlobalFakeIp": true,
+    "FakeIPRange": "198.18.0.0/15",
+    "BlockBindingQuery": true,
+    "BlockAAAAQuery": false,
+    "DirectDNS": "119.29.29.29",
+    "RemoteDNS": "https://cloudflare-dns.com/dns-query",
+    "BootstrapDNS": "119.29.29.29",
+    "Strategy4Freedom": null,
+    "Strategy4Proxy": null,
+    "Strategy4ProxyDial": null,
+    "ServeStale": false,
+    "ParallelQuery": false,
+    "Hosts": null,
+    "DirectExpectedIPs": null,
+    "EnableHappyEyeballs": false
+  },
+  "HappyEyeballs4RayItem": {
+    "TryDelayMs": 250,
+    "PrioritizeIPv6": false,
+    "Interleave": 1,
+    "MaxConcurrentTry": 4
+  }
+}

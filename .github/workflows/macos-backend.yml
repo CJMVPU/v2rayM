@@ -34,6 +34,7 @@ jobs:
           python3 scripts/test-macos-build-manifest.py
           python3 scripts/test-macos-product-boundaries.py
           python3 scripts/test-core-packaging.py
+          python3 scripts/test-native-tun-acceptance.py
           python3 scripts/test-macos-signing-identity.py
           python3 scripts/test-macos-geo-download.py
           bash v2rayN/v2rayN.WebAPI/Tests/Integration/test-release-packaging.sh
@@ -64,14 +65,8 @@ jobs:
   product:
     needs: validate
     runs-on: macos-latest
-    env:
-      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
-      DOTNET_GENERATE_ASPNET_CERTIFICATE: 'false'
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: '10.x'
       - uses: actions/setup-python@v6
         with:
           python-version: '3.x'
@@ -85,13 +80,11 @@ jobs:
         with:
           name: macos-geodata
           path: macos/Native/Sources/V2rayM/Resources/Globe
-      - name: Prepare pinned core data and verified Darwin repair
+      - name: Prepare pinned Xray Geo data
         shell: bash
         run: |
           case "$(uname -m)" in arm64) rid=osx-arm64 ;; x86_64) rid=osx-x64 ;; *) exit 1 ;; esac
-          bash scripts/fetch-macos-cores.sh "$rid" "$RUNNER_TEMP/native-cores"
-          python3 scripts/build-macos-xray.py --output "$RUNNER_TEMP/repaired-xray"
-          cp "$RUNNER_TEMP/repaired-xray/"{xray,LICENSE,SOURCE.txt} "$RUNNER_TEMP/native-cores/xray/"
+          bash scripts/fetch-macos-cores.sh "$rid" "$RUNNER_TEMP/native-cores" --data-only
       - name: Build one source-consistent native product and exercise loopback traffic
         run: python3 scripts/build-macos-product.py --output "$RUNNER_TEMP/product" --core-bin "$RUNNER_TEMP/native-cores"
       - name: Archive verified development product

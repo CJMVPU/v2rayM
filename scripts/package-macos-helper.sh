@@ -2,54 +2,40 @@
 set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-backend="${1:?Usage: package-macos-helper.sh <backend-publish-directory> <new-output.app>}"
+core_bin="${1:?Usage: package-macos-helper.sh <verified-core-bin> <new-output.app>}"
 app="${2:?Specify a new output .app directory}"
 signing_identity="${SIGN_IDENTITY:--}"
-core_bin="${CORE_BIN_DIR:-}"
 export APP_VERSION="$(cat "$repo_root/VERSION")"
-python3 "$repo_root/scripts/macos-build-manifest.py" verify-backend --backend "$backend"
-[[ "$(uname -s)" == Darwin ]] || { echo 'This package requires macOS.' >&2; exit 1; }
-[[ -x "$backend/v2rayN.WebAPI" && "$app" == *.app && ! -e "$app" ]] || {
-  echo 'Provide a native backend publish directory and a new .app path.' >&2; exit 1;
+[[ "$(uname -s)" == Darwin && "$app" == *.app && ! -e "$app" ]] || {
+  echo 'Provide a new .app output path on macOS.' >&2; exit 1;
 }
-architecture="$(lipo -archs "$backend/v2rayN.WebAPI")"
-case "$architecture" in arm64|x86_64) ;; *) echo 'Backend must have one macOS architecture.' >&2; exit 1 ;; esac
-if [[ "$signing_identity" != - ]]; then
-  [[ -n "$core_bin" && -f "$core_bin/xray/xray" ]] || {
-    echo 'Signed packages require CORE_BIN_DIR with xray/xray.' >&2; exit 1;
-  }
-fi
-if [[ -n "$core_bin" ]]; then
-  python3 "$repo_root/scripts/macos-build-manifest.py" verify-core --core-bin "$core_bin"
-
-fi
+python3 "$repo_root/scripts/macos-build-manifest.py" verify-core --core-bin "$core_bin"
+architecture="$(lipo -archs "$core_bin/xray/xray")"
+case "$architecture" in arm64|x86_64) ;; *) echo 'Xray must have one macOS architecture.' >&2; exit 1 ;; esac
 build_dir="${SWIFT_SCRATCH_PATH:-${TMPDIR:-/tmp}/v2raym-helper-build-$architecture}"
 swift build --disable-sandbox --package-path "$repo_root/macos/TunHelper" --scratch-path "$build_dir" \
   --configuration release --arch "$architecture"
 swift_bin="$(swift build --disable-sandbox --package-path "$repo_root/macos/TunHelper" --scratch-path "$build_dir" \
   --configuration release --arch "$architecture" --show-bin-path)"
 
-python3 - "$backend" "$app" "$core_bin" <<'PY'
+python3 - "$app" "$core_bin" <<'PY'
 from pathlib import Path
 import plistlib
 import os
 import shutil
 import sys
 
-backend, app = map(Path, sys.argv[1:3])
-destination = app / 'Contents/Resources/Backend'
-shutil.copytree(backend, destination, ignore=shutil.ignore_patterns(
-    '.env', 'guiConfigs', 'guiLogs', 'guiTemps', 'guiBackups', 'binConfigs', 'WebAPIData', '*.instance.lock'))
-if sys.argv[3]:
-    core_bin = Path(sys.argv[3])
-    for kind, name in [('xray', 'xray')]:
-        target = destination / 'bin' / kind
-        target.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(core_bin / kind / name, target / name)
-        (target / name).chmod(0o755)
-        for metadata in ('LICENSE', 'SOURCE.txt'):
-            if (core_bin / kind / metadata).is_file():
-                shutil.copyfile(core_bin / kind / metadata, target / metadata)
+app, core_bin = map(Path, sys.argv[1:])
+# This path is part of the signed helper's launch policy across app upgrades.
+destination = app / 'Contents/Resources/Backend/bin'
+target = destination / 'xray'
+target.mkdir(parents=True)
+for name in ('xray', 'SOURCE.txt', 'LICENSE'):
+    shutil.copyfile(core_bin / 'xray' / name, target / name)
+(target / 'xray').chmod(0o755)
+for name in ('geoip.dat', 'geosite.dat', 'core-bundle-source.json'):
+    if name != 'core-bundle-source.json' or (core_bin / name).is_file():
+        shutil.copyfile(core_bin / name, destination / name)
 (app / 'Contents/MacOS').mkdir()
 (app / 'Contents/Library/LaunchDaemons').mkdir(parents=True)
 with (app / 'Contents/Info.plist').open('wb') as output:
@@ -59,21 +45,9 @@ with (app / 'Contents/Info.plist').open('wb') as output:
 PY
 cp "$swift_bin/V2rayMHelper" "$swift_bin/V2rayMHelperClient" "$app/Contents/MacOS/"
 cp "$repo_root/macos/Resources/io.github.CJMVPU.v2rayM.tun-helper.plist" "$app/Contents/Library/LaunchDaemons/"
-if [[ -n "$core_bin" ]]; then
-  for kind in xray; do
-    name=xray
-    case " $(lipo -archs "$app/Contents/Resources/Backend/bin/$kind/$name") " in
-      *" $architecture "*) ;;
-      *) echo "Core architecture mismatch: $kind" >&2; exit 1 ;;
-    esac
-    codesign --force --sign "$signing_identity" --options runtime \
-      --identifier "io.github.CJMVPU.v2rayM.core.$kind" "$app/Contents/Resources/Backend/bin/$kind/$name"
-  done
-fi
+codesign --force --sign "$signing_identity" --options runtime --identifier io.github.CJMVPU.v2rayM.core.xray "$app/Contents/Resources/Backend/bin/xray/xray"
 codesign --force --sign "$signing_identity" --options runtime --identifier io.github.CJMVPU.v2rayM.tun-helper "$app/Contents/MacOS/V2rayMHelper"
 codesign --force --sign "$signing_identity" --options runtime --identifier io.github.CJMVPU.v2rayM.bridge "$app/Contents/MacOS/V2rayMHelperClient"
-codesign --force --sign "$signing_identity" --options runtime --identifier io.github.CJMVPU.v2rayM.backend \
-  --entitlements "$repo_root/macos/Resources/Backend.entitlements" "$app/Contents/Resources/Backend/v2rayN.WebAPI"
 codesign --force --sign "$signing_identity" --options runtime "$app"
 codesign --verify --strict --deep "$app"
 echo "Prepared helper integration bundle: $app"

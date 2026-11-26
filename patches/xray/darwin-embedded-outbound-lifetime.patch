@@ -1,0 +1,160 @@
+--- a/proxy/tun/handler.go
++++ b/proxy/tun/handler.go
+@@ -4,6 +4,7 @@
+ 	"context"
+ 	"net/netip"
+ 	"strings"
++	"sync/atomic"
+ 	"syscall"
+ 
+ 	"github.com/xtls/xray-core/common"
+@@ -23,6 +24,41 @@
+ 	"github.com/xtls/xray-core/transport/internet/stat"
+ )
+ 
++// Only one Xray instance serves the embedded host. Its process outlives every tunnel.
++var embeddedOutbound atomic.Pointer[InterfaceUpdater]
++
++func init() {
++	common.Must(internet.RegisterDialerController(bindEmbeddedOutbound))
++}
++
++func bindEmbeddedOutbound(network, address string, c syscall.RawConn) error {
++	active := embeddedOutbound.Load()
++	if active == nil {
++		return nil
++	}
++	iface := active.Get()
++	if iface == nil {
++		errors.LogInfo(context.Background(), "[tun] falied to set interface > iface == nil")
++		return errors.New("iface not found")
++	}
++	var controlErr, sockErr error
++	controlErr = c.Control(func(fd uintptr) {
++		addrPort, _ := netip.ParseAddrPort(address)
++		// skip loopback
++		if addrPort.Addr().IsLoopback() || strings.HasPrefix(strings.ToLower(address), "localhost:") {
++			return
++		}
++		err := setinterface(network, address, fd, iface)
++		if err != nil {
++			sockErr = errors.New("[tun] falied to set interface").Base(err)
++		}
++	})
++	if sockErr != nil {
++		return sockErr
++	}
++	return controlErr
++}
++
+ // Handler is managing object that tie together tun interface, ip stack and dispatch connections to the routing
+ type Handler struct {
+ 	ctx             context.Context
+@@ -136,31 +172,10 @@
+ 		if t.config.AutoOutboundsInterface == "auto" {
+ 			t.config.AutoOutboundsInterface = ""
+ 		}
+-		updater = &InterfaceUpdater{tunIndex: tunIndex, fixedName: t.config.AutoOutboundsInterface}
+-		updater.Update()
+-		internet.RegisterDialerController(func(network, address string, c syscall.RawConn) error {
+-			iface := updater.Get()
+-			if iface == nil {
+-				errors.LogInfo(context.Background(), "[tun] falied to set interface > iface == nil")
+-				return errors.New("iface not found")
+-			}
+-			var controlErr, sockErr error
+-			controlErr = c.Control(func(fd uintptr) {
+-				addrPort, _ := netip.ParseAddrPort(address)
+-				// skip loopback
+-				if addrPort.Addr().IsLoopback() || strings.HasPrefix(strings.ToLower(address), "localhost:") {
+-					return
+-				}
+-				err := setinterface(network, address, fd, iface)
+-				if err != nil {
+-					sockErr = errors.New("[tun] falied to set interface").Base(err)
+-				}
+-			})
+-			if sockErr != nil {
+-				return sockErr
+-			}
+-			return controlErr
+-		})
++		device := tunInterface.(*DarwinTun)
++		device.outbound = &InterfaceUpdater{tunIndex: tunIndex, fixedName: t.config.AutoOutboundsInterface}
++		device.outbound.Update()
++		embeddedOutbound.Store(device.outbound)
+ 	}
+ 
+ 	errors.LogInfo(t.ctx, tunName, " created")
+--- a/proxy/tun/tun_darwin.go
++++ b/proxy/tun/tun_darwin.go
+@@ -38,10 +38,11 @@
+ )
+ 
+ type DarwinTun struct {
+-	tunFile *os.File
+-	options *Config
+-	tunFd   int
+-	ownsFd  bool // true for macOS (we created the fd), false for iOS (fd from system)
++	outbound *InterfaceUpdater
++	tunFile  *os.File
++	options  *Config
++	tunFd    int
++	ownsFd   bool // true for macOS (we created the fd), false for iOS (fd from system)
+ 
+ 	// Genuinely blocks Wait() until tunFd is readable, instead of the
+ 	// previous procyield-only busy-spin (ReadPacket() reads and then calls
+@@ -204,20 +205,23 @@
+ }
+ 
+ func (t *DarwinTun) Start() error {
+-	if !t.ownsFd {
+-		return nil
+-	}
+-
+-	if err := t.setSystemRoutes(); err != nil {
+-		return err
+-	}
+-
+-	if updater != nil {
++	if t.ownsFd {
++		if err := t.setSystemRoutes(); err != nil {
++			return err
++		}
++	}
++
++	if t.outbound != nil {
+ 		fd, err := unix.Socket(unix.AF_ROUTE, unix.SOCK_RAW, 0)
+ 		if err != nil {
+ 			_ = t.unsetSystemRoutes()
+ 			return err
+ 		}
++		if err := unix.SetNonblock(fd, true); err != nil {
++			_ = unix.Close(fd)
++			_ = t.unsetSystemRoutes()
++			return err
++		}
+ 		t.routeMonitor = os.NewFile(uintptr(fd), "xray-route-monitor")
+ 		go t.monitorRouteChanges()
+ 	}
+@@ -225,6 +229,9 @@
+ }
+ 
+ func (t *DarwinTun) Close() error {
++	if t.outbound != nil {
++		embeddedOutbound.CompareAndSwap(t.outbound, nil)
++	}
+ 	t.routeMonitorOnce.Do(func() {
+ 		if t.routeMonitor != nil {
+ 			_ = t.routeMonitor.Close()
+@@ -246,8 +253,8 @@
+ 			}
+ 			return
+ 		}
+-		if updater != nil {
+-			updater.Update()
++		if t.outbound != nil {
++			t.outbound.Update()
+ 		}
+ 	}
+ }

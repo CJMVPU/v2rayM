@@ -1,0 +1,77 @@
+--- a/app/proxyman/outbound/outbound.go
++++ b/app/proxyman/outbound/outbound.go
+@@ -17,6 +17,7 @@
+ type Manager struct {
+ 	access           sync.RWMutex
+ 	defaultHandler   outbound.Handler
++	probeHandlers    map[string]outbound.Handler
+ 	taggedHandler    map[string]outbound.Handler
+ 	untaggedHandlers []outbound.Handler
+ 	running          bool
+@@ -26,6 +27,7 @@
+ // New creates a new Manager.
+ func New(ctx context.Context, config *proxyman.OutboundConfig) (*Manager, error) {
+ 	m := &Manager{
++		probeHandlers: make(map[string]outbound.Handler),
+ 		taggedHandler: make(map[string]outbound.Handler),
+ 		tagsCache:     &sync.Map{},
+ 	}
+@@ -96,7 +98,32 @@
+ 	if handler, found := m.taggedHandler[tag]; found {
+ 		return handler
+ 	}
+-	return nil
++	return m.probeHandlers[tag]
++}
++
++// AttachProbe exposes exact private tags for a local diagnostic and its detours.
++// They are never default outbounds, selector candidates, or listed handlers.
++// The caller starts and closes the handlers and detaches them before core shutdown.
++func (m *Manager) AttachProbe(handlers map[string]outbound.Handler) error {
++	m.access.Lock()
++	defer m.access.Unlock()
++	for tag := range handlers {
++		if tag == "" || m.taggedHandler[tag] != nil || m.probeHandlers[tag] != nil {
++			return errors.New("diagnostic handler tag collision")
++		}
++	}
++	for tag, handler := range handlers {
++		m.probeHandlers[tag] = handler
++	}
++	return nil
++}
++
++func (m *Manager) DetachProbe(handlers map[string]outbound.Handler) {
++	m.access.Lock()
++	defer m.access.Unlock()
++	for tag := range handlers {
++		delete(m.probeHandlers, tag)
++	}
+ }
+ 
+ // AddHandler implements outbound.Manager.
+--- a/app/router/balancing.go
++++ b/app/router/balancing.go
+@@ -14,6 +14,22 @@
+ 
+ type BalancingStrategy interface {
+ 	PickOutbound([]string) string
++}
++
++// DiagnosticStrategy uses a job-local observation and the same picker and thresholds
++// as the configured router, without registering a second observatory on the serving instance.
++func (br *BalancingRule) DiagnosticStrategy(ctx context.Context, observation extension.Observatory) (BalancingStrategy, error) {
++	balancer, err := br.Build(nil, nil)
++	if err != nil {
++		return nil, err
++	}
++	switch s := balancer.strategy.(type) {
++	case *LeastPingStrategy:
++		s.ctx, s.observatory = ctx, observation
++	case *LeastLoadStrategy:
++		s.ctx, s.observer = ctx, observation
++	}
++	return balancer.strategy, nil
+ }
+ 
+ type BalancingPrincipleTarget interface {

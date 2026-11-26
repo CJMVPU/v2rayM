@@ -12,9 +12,28 @@ import V2rayMKit
     }
 }
 @MainActor final class LogObservation: ObservableObject {
-    @Published var entries: [LogEntry] = []
+    @Published var entries: [LogEntry] = [] { didSet { position = nil } }
+    private var epoch = UUID()
+    private(set) var position: NativeLogDocument.HistoryPosition?
+
+    func restartHistory() { epoch = UUID(); position = nil }
+    func publish(_ history: RollingLogBuffer) {
+        entries = history.entries
+        position = .init(epoch: epoch, headOffset: history.headOffset)
+    }
+    // One reader per app window retains selection and the reading position across navigation.
+    // Opening another page stops rendering; the next visit applies the accumulated delta.
+    private(set) lazy var document = NativeLogDocument()
 }
 struct ObservedLogConsole: View {
     @ObservedObject var state: LogObservation
-    var body: some View { LogConsole(entries: state.entries) }
+    var body: some View {
+        LogConsole(entries: state.entries, position: state.position, document: state.document)
+            .overlay {
+                if state.entries.isEmpty {
+                    Text("暂无日志").font(AppFont.body).foregroundStyle(DashboardTheme.muted)
+                        .allowsHitTesting(false)
+                }
+            }
+    }
 }

@@ -5,6 +5,7 @@ struct NavigationButton: NSViewRepresentable {
     let label: String
     let enabled: Bool
     var circular = false
+    var hoverChanged: ((Bool) -> Void)? = nil
     let action: (UnitPoint) -> Void
 
     final class Button: NSButton {
@@ -15,6 +16,24 @@ struct NavigationButton: NSViewRepresentable {
         }
         override var isFlipped: Bool { true }
         var activate: ((UnitPoint) -> Void)?
+        var hoverChanged: ((Bool) -> Void)?
+        private var hoverTracking: NSTrackingArea?
+        override func updateTrackingAreas() {
+            super.updateTrackingAreas()
+            if let hoverTracking { removeTrackingArea(hoverTracking); self.hoverTracking = nil }
+            guard hoverChanged != nil else { return }
+            let area = NSTrackingArea(rect: .zero,
+                options: [.activeAlways, .inVisibleRect, .mouseEnteredAndExited, .mouseMoved], owner: self)
+            addTrackingArea(area)
+            hoverTracking = area
+        }
+        private func track(_ event: NSEvent) {
+            let point = convert(event.locationInWindow, from: nil)
+            hoverChanged?(isEnabled && bounds.contains(point) && (!circular || NSBezierPath(ovalIn: bounds).contains(point)))
+        }
+        override func mouseEntered(with event: NSEvent) { super.mouseEntered(with: event); track(event) }
+        override func mouseMoved(with event: NSEvent) { super.mouseMoved(with: event); track(event) }
+        override func mouseExited(with event: NSEvent) { super.mouseExited(with: event); hoverChanged?(false) }
         private var clickLocation: UnitPoint?
         override var mouseDownCanMoveWindow: Bool { false }
         override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -42,6 +61,9 @@ struct NavigationButton: NSViewRepresentable {
         return button
     }
     func updateNSView(_ button: Button, context: Context) {
+        let needsTracking = (button.hoverChanged == nil) != (hoverChanged == nil)
+        button.hoverChanged = hoverChanged
+        if needsTracking { button.updateTrackingAreas() }
         button.circular = circular
         button.activate = action
         button.toolTip = label

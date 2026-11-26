@@ -57,6 +57,8 @@ private struct DashboardContent: View, Equatable {
     let data: DashboardSnapshot
     let model: AppModel
     @Environment(\.accessibilityReduceMotion) private var reduced
+    private enum LocalSpace: Hashable { case nodeCard }
+    @State private var nodeRowFrame = CGRect.zero
     @State private var nodeHovered = false
     @State private var logsHovered = false
     @State private var alpn = ""
@@ -98,22 +100,26 @@ private struct DashboardContent: View, Equatable {
                             .frame(maxWidth: .infinity, maxHeight: .infinity).padding(12)
                         VStack(spacing: 12) {
                             DashboardDataCard(value: state, idle: DashboardStatus.stopped,
-                                active: data.status?.coreRunning == true, ready: cardsReady, slot: 0) { displayed, _ in
+                                active: data.status?.coreRunning == true, ready: cardsReady, slot: 0, hovered: nodeHovered) { displayed, _ in
                                 nodeCard(state: displayed).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                                    .coordinateSpace(name: LocalSpace.nodeCard)
                             }.frame(height: cardSpace * 0.344)
+                                .overlay(alignment: .topLeading) {
+                                    if !nodeRowFrame.isEmpty {
+                                        DashboardTarget(page: .profiles, hover: $nodeHovered)
+                                            .frame(width: nodeRowFrame.width, height: nodeRowFrame.height)
+                                            .offset(x: nodeRowFrame.minX, y: nodeRowFrame.minY)
+                                    }
+                                }
+                                .animation(reduced ? nil : .easeOut(duration: 0.16), value: nodeHovered)
                             DashboardDataCard(value: rates, idle: Optional<[Double]>.none,
                                 active: data.status?.coreRunning == true, ready: cardsReady, slot: 1) { displayed, _ in
                                 trafficCard(rates: displayed, state: state).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                             }.frame(height: cardSpace * 0.304)
                             RecentConnectionsCard(connections: data.connections,
-                                coreRunning: data.status?.coreRunning == true, dataReady: cardsReady)
+                                coreRunning: data.status?.coreRunning == true, dataReady: cardsReady, hovered: logsHovered)
                                 .frame(height: cardSpace * 0.352)
-                                .overlay {
-                                    RoundedRectangle(cornerRadius: 10).fill(DashboardTheme.accent.opacity(logsHovered ? 0.12 : 0))
-                                        .allowsHitTesting(false)
-                                }
-                                .overlay { DashboardTarget(page: .logs) }
-                                .onHover { logsHovered = $0 }
+                                .overlay { DashboardTarget(page: .logs, hover: $logsHovered) }
                                 .animation(reduced ? nil : .easeOut(duration: 0.16), value: logsHovered)
                         }.frame(width: geometry.size.width * 0.325, height: max(0, geometry.size.height - 24))
                             .padding(.trailing, 12).padding(.vertical, 12)
@@ -126,7 +132,7 @@ private struct DashboardContent: View, Equatable {
                 alpn = ""
                 guard let node else { return }
                 do {
-                    let value = try await model.settingsRead("/api/profiles/\(node.id)")
+                    let value = try await model.profileDocument(id: node.id)
                     guard !Task.isCancelled else { return }
                     alpn = value["alpn"].text
                 } catch { /* Missing detail must not invent a negotiated protocol. */ }
@@ -153,9 +159,9 @@ private struct DashboardContent: View, Equatable {
                     .lineLimit(1).truncationMode(.tail).frame(maxWidth: .infinity, alignment: .leading).help(nodeName)
             }.foregroundStyle(nodeHovered ? Color.white : DashboardTheme.accent)
                 .padding(.top, 6).padding(.bottom, 8)
-                .overlay { DashboardTarget(page: .profiles) }
-                .onHover { nodeHovered = $0 }
-                .animation(reduced ? nil : .easeOut(duration: 0.16), value: nodeHovered)
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(LocalSpace.nodeCard)) } action: {
+                    nodeRowFrame = $0
+                }
             Text(protocols).font(AppFont.caption).foregroundStyle(DashboardTheme.muted)
                 .lineLimit(1).help("节点配置：" + protocols + "。ALPN 是配置值，不代表已协商的协议。")
             Text("Xray " + (data.status?.installedXrayVersion ?? "版本待读取"))
@@ -228,9 +234,10 @@ struct RecentConnectionsCard: View {
     let connections: [GlobeConnection]
     let coreRunning: Bool
     var dataReady = true
+    var hovered = false
     var body: some View {
         DashboardDataCard(value: connections, idle: [], active: coreRunning,
-                          ready: dataReady && !connections.isEmpty, slot: 2, contentWhileHidden: true) { displayed, presentedActive in
+                          ready: dataReady && !connections.isEmpty, slot: 2, contentWhileHidden: true, hovered: hovered) { displayed, presentedActive in
             rows(displayed, active: presentedActive)
         }
     }
@@ -264,7 +271,7 @@ struct RecentConnectionRow: View {
     @Environment(\.dashboardMotionEnabled) private var motion
     @Environment(\.dashboardFlipsEnabled) private var flips
     var body: some View {
-        let location = connection.place.map { " · " + $0.displayCity + "（IP/DNS 估计）" } ?? " · 位置未知"
+        let location = connection.place.map { " · " + $0.displayCity + "（IP 估计）" } ?? " · 位置未知"
         CachedRecentRow(face: RecentRowFace(connection), slot: slot, rowOffset: rowOffset, scheduler: scheduler,
                         motion: motion, flips: flips && active, reduced: reduced)
             .accessibilityElement(children: .ignore)

@@ -1,0 +1,60 @@
+{
+  "coreTypes": [
+    "Xray"
+  ],
+  "domainStrategies4Freedom": [
+    "AsIs",
+    "UseIP",
+    "UseIPv4v6",
+    "UseIPv6v4",
+    "UseIPv4",
+    "UseIPv6",
+    ""
+  ],
+  "domainDnsAddresses": [
+    "119.29.29.29",
+    "223.5.5.5",
+    "localhost"
+  ],
+  "directDnsAddresses": [
+    "119.29.29.29",
+    "223.5.5.5",
+    "119.29.29.29,223.5.5.5,https://doh.pub/dns-query",
+    "https://doh.pub/dns-query",
+    "https://dns.alidns.com/dns-query",
+    "https://doh.pub/dns-query,https://dns.alidns.com/dns-query",
+    "localhost"
+  ],
+  "remoteDnsAddresses": [
+    "https://cloudflare-dns.com/dns-query",
+    "https://dns.google/dns-query",
+    "https://cloudflare-dns.com/dns-query,https://dns.google/dns-query,8.8.8.8",
+    "https://dns.cloudflare.com/dns-query",
+    "https://doh.dns.sb/dns-query",
+    "https://doh.opendns.com/dns-query",
+    "https://common.dot.dns.yandex.net/dns-query",
+    "https://1.1.1.1/dns-query",
+    "https://8.8.8.8/dns-query",
+    "https://1.1.1.1/dns-query,https://8.8.8.8/dns-query",
+    "8.8.8.8",
+    "1.1.1.1",
+    "185.222.222.222",
+    "208.67.222.222",
+    "77.88.8.8"
+  ],
+  "bootstrapDnsAddresses": [
+    "119.29.29.29",
+    "223.5.5.5",
+    "localhost"
+  ],
+  "fakeIpRanges": [
+    "198.18.0.0/15",
+    "11.0.0.0/8"
+  ],
+  "expectedIps": [
+    "geoip:cn",
+    "geoip:ir",
+    "geoip:ru",
+    ""
+  ]
+}

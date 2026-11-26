@@ -46,20 +46,29 @@ struct DashboardVisibilityObserver: NSViewRepresentable {
         private var lastValue: DashboardVisibilityState?
         private var resigning = false
         private var hiding = false
-        private let queryLocked: () -> Bool?
+        private let querySession: () -> (locked: Bool, onConsole: Bool)?
+        private let displayAsleep: (NSWindow) -> Bool
         init(changed: @escaping (DashboardVisibilityState) -> Void,
-             queryLocked: @escaping () -> Bool? = {
+             querySession: @escaping () -> (locked: Bool, onConsole: Bool)? = {
                  (CGSessionCopyCurrentDictionary() as? [String: Any]).map {
-                     $0["CGSSessionScreenIsLocked"] as? Bool ?? false
+                     ($0["CGSSessionScreenIsLocked"] as? Bool ?? false, $0[kCGSessionOnConsoleKey as String] as? Bool ?? true)
                  }
+             }, displayAsleep: @escaping (NSWindow) -> Bool = { window in
+                 let screen = window.screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
+                 return CGDisplayIsAsleep(screen?.uint32Value ?? CGMainDisplayID()) != 0
              }) {
-            self.changed = changed; self.queryLocked = queryLocked
+            self.changed = changed
+            self.querySession = querySession
+            self.displayAsleep = displayAsleep
             super.init(frame: .zero)
         }
         required init?(coder: NSCoder) { fatalError("init(coder:) unavailable") }
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow(); stop()
             guard let window else { return }
+            // Wake and fast-user-switch notifications can occur while this view is detached.
+            state.sleeping = displayAsleep(window)
+            state.sessionActive = true
             state.preparingToMinimize = WindowMinimizeCoordinator.shared.isPreparing(window)
             for name in [Notification.Name.windowMinimizePreparationBegan, .windowMinimizePreparationEnded] {
                 observe(.default, name, object: window) { [weak self] note in
@@ -90,7 +99,7 @@ struct DashboardVisibilityObserver: NSViewRepresentable {
                     if note.name == NSApplication.didBecomeActiveNotification { self.resigning = false }
                     if note.name == NSApplication.willHideNotification { self.hiding = true }
                     if note.name == NSApplication.didUnhideNotification { self.hiding = false }
-                    self.refresh(queryLock: note.name == NSApplication.didBecomeActiveNotification, synchronous: true)
+                    self.refresh(reconcileSession: note.name == NSApplication.didBecomeActiveNotification, synchronous: true)
                 }
             }
             let workspace = NSWorkspace.shared.notificationCenter
@@ -98,24 +107,24 @@ struct DashboardVisibilityObserver: NSViewRepresentable {
                 observe(workspace, name) { [weak self] _ in self?.state.sleeping = true; self?.refresh() }
             }
             for name in [NSWorkspace.screensDidWakeNotification, NSWorkspace.didWakeNotification] {
-                observe(workspace, name) { [weak self] _ in self?.state.sleeping = false; self?.refresh(queryLock: true) }
+                observe(workspace, name) { [weak self] _ in self?.state.sleeping = false; self?.refresh(reconcileSession: true) }
             }
             observe(workspace, NSWorkspace.sessionDidResignActiveNotification) { [weak self] _ in self?.state.sessionActive = false; self?.refresh() }
-            observe(workspace, NSWorkspace.sessionDidBecomeActiveNotification) { [weak self] _ in self?.state.sessionActive = true; self?.refresh(queryLock: true) }
+            observe(workspace, NSWorkspace.sessionDidBecomeActiveNotification) { [weak self] _ in self?.state.sessionActive = true; self?.refresh(reconcileSession: true) }
             // Distributed notifications cover lock/unlock even if the window's
             // occlusion notification arrives later. Initial state is queried too.
             for (name, locked) in [("com.apple.screenIsLocked", true), ("com.apple.screenIsUnlocked", false)] {
                 distributed.append(DistributedNotificationCenter.default().addObserver(forName: Notification.Name(name), object: nil, queue: .main) { [weak self] _ in
-                    self?.state.locked = locked; self?.refresh(queryLock: false)
+                    self?.state.locked = locked; self?.refresh(reconcileSession: false)
                 })
             }
-            refresh(queryLock: true)
+            refresh(reconcileSession: true)
         }
         private func observe(_ center: NotificationCenter, _ name: Notification.Name, object: Any? = nil,
                              action: @escaping (Notification) -> Void) {
             observations.append((center, center.addObserver(forName: name, object: object, queue: .main, using: action)))
         }
-        private func refresh(closing: Bool = false, queryLock: Bool = false, synchronous: Bool = false) {
+        private func refresh(closing: Bool = false, reconcileSession: Bool = false, synchronous: Bool = false) {
             state.windowVisible = !closing && window?.isVisible == true
             state.minimized = window?.isMiniaturized == true
             state.occluded = window?.occlusionState.contains(.visible) != true
@@ -124,7 +133,10 @@ struct DashboardVisibilityObserver: NSViewRepresentable {
             // Query at attachment/return/wake. Departure and geometry events use
             // the lock notifications' cached state, without a session-state query
             // on the critical path before invalidating the display link.
-            if queryLock, let locked = queryLocked() { state.locked = locked }
+            if reconcileSession, let session = querySession() {
+                state.locked = session.locked
+                state.sessionActive = session.onConsole
+            }
             let value = state
             guard value != lastValue else { return }
             lastValue = value

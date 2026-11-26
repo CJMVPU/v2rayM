@@ -2,15 +2,15 @@ import SwiftUI
 
 enum PageLayout {
     static let gap: CGFloat = 8
-    static let space = "dashboard-navigation"
 }
 
 private struct OpenDashboardPage: EnvironmentKey {
-    static let defaultValue: (Page, CGPoint) -> Void = { _, _ in }
+    static let defaultValue: (Page) -> Void = { _ in }
 }
 
 extension EnvironmentValues {
-    var openDashboardPage: (Page, CGPoint) -> Void {
+    @Entry var dashboardNavigationLocked = false
+    var openDashboardPage: (Page) -> Void {
         get { self[OpenDashboardPage.self] }
         set { self[OpenDashboardPage.self] = newValue }
     }
@@ -21,15 +21,17 @@ extension EnvironmentValues {
 struct DashboardTarget: View {
     let page: Page
     var circular = false
+    var hover: Binding<Bool>? = nil
     @Environment(\.openDashboardPage) private var open
     @Environment(\.isEnabled) private var enabled
+    @Environment(\.dashboardNavigationLocked) private var locked
     var body: some View {
-        GeometryReader { geometry in
-            NavigationButton(label: page.rawValue, enabled: enabled, circular: circular) { location in
-                let frame = geometry.frame(in: .named(PageLayout.space))
-                open(page, CGPoint(x: frame.minX + location.x * frame.width,
-                                   y: frame.minY + location.y * frame.height))
+        NavigationButton(label: page.rawValue, enabled: enabled && !locked, circular: circular, hoverChanged: hover.map { binding in
+            { value in
+                if binding.wrappedValue != value { binding.wrappedValue = value }
             }
-        }
+        }) { _ in open(page) }
+            .onDisappear { hover?.wrappedValue = false }
+            .onChange(of: enabled && !locked) { _, active in if !active { hover?.wrappedValue = false } }
     }
 }

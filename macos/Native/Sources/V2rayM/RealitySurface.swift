@@ -35,11 +35,13 @@ struct RealitySurfaceStyle: Equatable {
     var enabled = true
     var angle: Double = 0
     var tilt: Double = 0
+    var faceScale: CGFloat = 1
     var viewportID: UUID? = nil
     var parentID: UUID? = nil
     var layoutFrame: CGRect?
     var facePoint: CGPoint?
     var rowOffset: CGFloat? = nil
+    var insidePage = false
     var visible = true
     var flipToken = 0
     var allowsFlip = true
@@ -55,6 +57,8 @@ private struct RealitySceneKey: EnvironmentKey {
 private struct RealityParentKey: EnvironmentKey { static let defaultValue: UUID? = nil }
 private struct RealityContentVisibleKey: EnvironmentKey { static let defaultValue = true }
 extension EnvironmentValues {
+    @Entry var isRealityPage = false
+    @Entry var presentsInitialDashboard = false
     var realityParentSurface: UUID? {
         get { self[RealityParentKey.self] }
         set { self[RealityParentKey.self] = newValue }
@@ -71,6 +75,7 @@ extension EnvironmentValues {
 
 struct RealityWindow<Content: View>: View {
     @Environment(\.dashboardVisibilityOverride) private var visibilityOverride
+    @Environment(\.presentsInitialDashboard) private var presentsInitialDashboard
     @State private var scene = RealityWindowScene()
     @StateObject private var visibility = DashboardVisibilityCoordinator()
     @ViewBuilder var content: Content
@@ -79,7 +84,7 @@ struct RealityWindow<Content: View>: View {
             .coordinateSpace(name: ObjectIdentifier(scene))
             .environment(\.realityScene, scene)
             .environment(\.dashboardMotionEnabled, visibilityOverride ?? visibility.phase.rendersMotion)
-            .background { RealityStage(scene: scene).allowsHitTesting(false).accessibilityHidden(true) }
+            .background { RealityStage(scene: scene, preparesDashboard: presentsInitialDashboard).allowsHitTesting(false).accessibilityHidden(true) }
             .background {
                 DashboardVisibilityObserver(rendering: visibility.phase.rendersMotion) { state in
                     if let visibilityOverride {
@@ -108,13 +113,16 @@ extension View {
 struct RealitySurface: NSViewRepresentable {
     var style: RealitySurfaceStyle
     var id: UUID? = nil
+    // Authored window-space geometry cannot be parented to a card face.
+    var attachesToSceneRoot = false
     @Environment(\.realityScene) private var scene
     @Environment(\.realityParentSurface) private var parent
     @Environment(\.realityViewport) private var viewport
     @Environment(\.realityContentVisible) private var visible
+    @Environment(\.isRealityPage) private var insidePage
     func makeNSView(context: Context) -> RealitySurfaceAnchor { RealitySurfaceAnchor(id: id ?? UUID()) }
     func updateNSView(_ view: RealitySurfaceAnchor, context: Context) {
-        var style = style; style.parentID = parent; style.visible = visible; style.viewportID = viewport
+        var style = style; style.insidePage = insidePage; style.parentID = attachesToSceneRoot ? nil : parent; style.visible = visible; style.viewportID = viewport
         view.configure(scene: scene, style: style)
     }
     static func dismantleNSView(_ view: RealitySurfaceAnchor, coordinator: ()) { view.detach() }
@@ -134,10 +142,11 @@ struct RealitySurface: NSViewRepresentable {
     init(id: UUID = UUID()) { surfaceID = id; super.init(frame: .zero) }
     required init?(coder: NSCoder) { fatalError("init(coder:) unavailable") }
     func configure(scene: RealityWindowScene?, style: RealitySurfaceStyle) {
-        if owner !== scene { detach(); owner = scene; scene?.register(self) }
+        let attached = owner !== scene
+        if attached { detach(); owner = scene; scene?.register(self) }
+        let changed = self.style != style || attached
         self.style = style
-        synchronize()
-        scene?.requestLayoutSync()
+        if changed { synchronize(); scene?.requestLayoutSync(recheckScrollAncestors: attached) }
     }
     override func layout() { super.layout(); synchronize() }
     override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); synchronize() }
@@ -184,8 +193,12 @@ struct RealitySurface: NSViewRepresentable {
             if let textureImage { owner.setFace(textureImage, for: surfaceID) }
             return
         }
-        let rect = style.layoutFrame ?? convert(bounds, to: stage)
-        var visible = (style.layoutFrame ?? convert(visibleRect, to: stage)).intersection(stage.bounds)
+        let layout = style.layoutFrame.map { frame in
+            if style.insidePage, let page = owner.nativePage { return page.convert(frame, to: stage) }
+            return frame
+        }
+        let rect = layout ?? convert(bounds, to: stage)
+        var visible = (layout ?? convert(visibleRect, to: stage)).intersection(stage.bounds)
         // The renderer already crops at the window edges. Keep the complete
         // mesh when a sliding page crosses either edge, including a wide ring.
         if (rect.minX < stage.bounds.minX || rect.maxX > stage.bounds.maxX), !visible.isEmpty {
@@ -206,7 +219,8 @@ struct RealitySurface: NSViewRepresentable {
 
 private struct RealityStage: NSViewRepresentable {
     let scene: RealityWindowScene
-    func makeNSView(context: Context) -> RealityStageView { RealityStageView(owner: scene) }
+    let preparesDashboard: Bool
+    func makeNSView(context: Context) -> RealityStageView { RealityStageView(owner: scene, preparesDashboard: preparesDashboard) }
     func updateNSView(_ view: RealityStageView, context: Context) { view.synchronize() }
     static func dismantleNSView(_ view: RealityStageView, coordinator: ()) { view.stop() }
 }
@@ -217,12 +231,16 @@ private struct RealityStage: NSViewRepresentable {
     private let frozenImage = NSImageView()
     private var suspensionGeneration = 0
     private(set) var suspended = false
+    private var initialDashboard: InitialDashboardPresentation?
+    private var freezeAfterFirstFrame = false
+    private var recoveringInitialDrawable = false
     private var backgroundScrollAllowed = false
     private var scrollDeadline = 0.0
     private var scrollIdleTimer: Timer?
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
-    init(owner: RealityWindowScene) {
+    init(owner: RealityWindowScene, preparesDashboard: Bool = false) {
+        initialDashboard = preparesDashboard ? InitialDashboardPresentation() : nil
         self.owner = owner
         super.init(frame: .zero)
         renderer.environment.background = .color(NSColor(DashboardTheme.background))
@@ -237,12 +255,40 @@ private struct RealityStage: NSViewRepresentable {
     }
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        guard window != nil else { suspend(); return }
+        guard let window else { initialDashboard?.detach(); suspend(); return }
+        initialDashboard?.attach(to: window) { [weak self] image in self?.presentFirstFrame(image) }
         // Only this window's visibility coordinator may freeze the shared scene.
         // Dashboard subtree observers also publish lifecycle notifications.
         resume()
     }
-    func synchronize() { owner.resize(bounds.size); owner.synchronizeAnchors() }
+    func synchronize() {
+        owner.resize(bounds.size)
+        owner.synchronizeAnchors()
+        prepareFirstFrame()
+    }
+
+    func prepareFirstFrame() {
+        guard let initialDashboard, window != nil, !bounds.isEmpty, let gauge = owner.initialDashboardGauge else { return }
+        initialDashboard.render(gauge: gauge, stageSize: renderer.bounds.size) { [weak self] completion in
+            guard let self else { return }
+            self.renderer.snapshot(saveToHDR: false, completion: completion)
+        }
+    }
+    private func presentFirstFrame(_ image: NSImage?) {
+        initialDashboard = nil
+        guard let image else {
+            recoveringInitialDrawable = true
+            // Visibility can change while the initial drawable is unavailable.
+            // Reconcile native geometry again after WindowServer reveals us.
+            owner.requestLayoutSync()
+            return
+        }
+        frozenImage.image = image
+        if freezeAfterFirstFrame {
+            suspended = true
+            renderer.removeFromSuperview()
+        }
+    }
     func allowBackgroundScroll(_ allowed: Bool) {
         backgroundScrollAllowed = allowed
         if !allowed { scrollIdleTimer?.invalidate(); scrollIdleTimer = nil }
@@ -266,6 +312,7 @@ private struct RealityStage: NSViewRepresentable {
         RunLoop.main.add(timer, forMode: .common)
     }
     func suspend() {
+        if initialDashboard != nil { freezeAfterFirstFrame = true; return }
         guard !suspended else { return }
         suspended = true
         suspensionGeneration += 1
@@ -276,16 +323,31 @@ private struct RealityStage: NSViewRepresentable {
         // asynchronous snapshot must never remove a renderer that has resumed.
         renderer.snapshot(saveToHDR: false) { [weak self] image in
             guard let self, self.suspended, self.suspensionGeneration == generation else { return }
-            if let image { self.frozenImage.image = image; self.renderer.removeFromSuperview() }
+            if self.recoveringInitialDrawable, self.owner.nativePage?.page == .home || self.owner.nativePage?.page == nil {
+                guard let image, let gauge = self.owner.initialDashboardGauge,
+                      InitialDashboardPresentation.containsGauge(image, frame: gauge, stageSize: self.bounds.size) else {
+                    // A timeout restores interaction. Keep Metal live until it
+                    // has real artwork, including if the window is inactive.
+                    self.suspended = false
+                    return
+                }
+            }
+            if let image {
+                self.recoveringInitialDrawable = false
+                self.frozenImage.image = image
+                self.renderer.removeFromSuperview()
+            }
         }
     }
     func resume() {
+        freezeAfterFirstFrame = false
         suspensionGeneration += 1
         suspended = false
         if renderer.superview == nil { addSubview(renderer); renderer.frame = bounds }
         synchronize()
     }
     func stop() {
+        initialDashboard?.detach(); initialDashboard = nil
         allowBackgroundScroll(false)
         suspend(); owner.detach(self)
         renderer.removeFromSuperview(); frozenImage.image = nil
@@ -378,6 +440,7 @@ private struct RealityStage: NSViewRepresentable {
     weak var stage: RealityStageView?
     let root = AnchorEntity(world: .zero)
     let camera = Entity()
+    weak var nativePage: PageFaceView?
     private var anchors: [UUID: WeakAnchor] = [:]
     private var items: [UUID: Item] = [:]
     private var childIDs: [UUID: Set<UUID>] = [:]
@@ -406,6 +469,12 @@ private struct RealityStage: NSViewRepresentable {
     private var needsScrollAncestorCheck = false
     private(set) var meshBuilds = 0
     var entityCount: Int { items.count }
+    var initialDashboardGauge: CGRect? {
+        let page = items.values.filter { $0.style.insidePage && $0.entity.isActive && $0.entity.parent === root }
+        guard page.contains(where: { $0.style.shape == .dashboard(.dial) }),
+              page.contains(where: { $0.style.shape == .dashboard(.card) }) else { return nil }
+        return page.filter { $0.style.shape == .ringTrack }.map(\.frame).max { $0.width < $1.width }
+    }
     var activeNavigationFlips: Int { turnTimes.count }
     init() {
         camera.position = [0, 0, 4]
@@ -460,6 +529,7 @@ private struct RealityStage: NSViewRepresentable {
             self.layoutSyncQueued = false
             self.stage?.window?.contentView?.layoutSubtreeIfNeeded()
             self.synchronizeAnchors(recheckScrollAncestors: checkAncestors)
+            self.stage?.prepareFirstFrame()
         }
     }
     func resize(_ newSize: CGSize) {
@@ -612,12 +682,9 @@ private struct RealityStage: NSViewRepresentable {
                 for child in part.children { applyFace(child) }
             }
             applyFace(shell)
-        } else if case .dashboard = style.shape, geometryChanged || previous?.style.highlighted != style.highlighted,
-           let shell = entity.findEntity(named: "dashboard-shell") {
-            // Keep the face parallel to its glyphs; a shell-only tilt can
-            // otherwise pass through the figures at the far edge of the dial.
-            let scale: Float = style.highlighted ? 1.008 : 1
-            shell.scale = [Float(clipped.width)/1000 * scale, Float(clipped.height)/1000 * scale, style.depth/1000]
+        }
+        if style.faceScale != (previous?.style.faceScale ?? 1) {
+            entity.scale = SIMD3(repeating: Float(style.faceScale))
         }
         entity.isEnabled = style.visible
         if case .symbol = style.shape, !style.allowsFlip || !style.enabled {

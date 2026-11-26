@@ -65,8 +65,9 @@ import V2rayMDomain
             try await runtime.refresh()
             guard runtime.canObserve, current() else { return }
             let observed = runtime.observation
-            if runtime.connection.requested, !observed.updating, observed.coreStopped {
-                runtime.beginRecovery(restart: true)
+            if runtime.connection.requested, !observed.updating, observed.coreStopped || observed.lostTun {
+                // Recheck an inactive helper after debounce. It may recover while the core is still alive.
+                runtime.beginRecovery(restart: observed.coreStopped)
                 return
             }
             if !observed.updating && observed.systemProxyEnabled && runtime.operationsObservationValid {

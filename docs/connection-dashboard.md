@@ -82,10 +82,12 @@ messages, record ordering and Reduce Motion behavior are unchanged.
 
 ## Location and historical map
 
-The node city and recent-connection location details still use system DNS and
-the offline IP database. Unknown locations remain unknown. The unused map renderer and its dedicated textures are removed. Location lookup
-uses memory-mapped IPv4/IPv6 ranges and an indexed places.bin table, retaining
-source attribution and returning unknown for corrupt or missing records.
+The selected node can use system DNS to look up its city. Recent connections use the
+IP already present in the access record and the offline city database. A domain-only
+destination keeps its name with an unknown location. Viewing these records issues
+no DNS queries. The location database maps IPv4 and IPv6 change points and an
+indexed places.bin table. A gap marker represents uncovered addresses. Both the
+source attribution and the original location coordinates are retained.
 Regenerate missing geographic resources with `python3 scripts/prepare-macos-geo.py`;
 verify fixed input/output digests with `--verify-only`. Retired map designs remain in Git history.
 

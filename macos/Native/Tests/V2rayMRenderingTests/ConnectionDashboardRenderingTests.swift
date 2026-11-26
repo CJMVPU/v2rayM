@@ -5,6 +5,36 @@ import AppKit
 @testable import V2rayM
 
 final class ConnectionDashboardRenderingTests: XCTestCase {
+    @MainActor func testReconnectButtonSurfaceOnlyExistsWhenReconnectionIsAvailable() async throws {
+        func content(_ state: DashboardStatus, connecting: Bool) -> AnyView {
+            AnyView(RealityWindow {
+                ConnectionDashboard(state: state, city: "测试", nodeName: "示例", startedAt: nil,
+                    coreRunning: state == .tun, rates: nil, trend: TrafficTrend(), trafficEnabled: false,
+                    now: Date(), connecting: connecting, reconnect: {})
+                    .buttonStyle(HoverButtonStyle())
+            }.environment(\.dashboardVisibilityOverride, true))
+        }
+        let host = NSHostingView(rootView: content(.offline, connecting: false))
+        let window = NSWindow(contentRect: CGRect(x: 40, y: 40, width: 560, height: 540),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.orderFront(nil)
+        defer { window.close() }
+        func anchors(_ v: NSView) -> [RealitySurfaceAnchor] {
+            (v as? RealitySurfaceAnchor).map { [$0] } ?? v.subviews.flatMap(anchors)
+        }
+        for (state, connecting, expected) in [(DashboardStatus.offline, false, 1), (.offline, true, 0), (.tun, false, 0), (.offline, false, 1)] {
+            host.rootView = content(state, connecting: connecting)
+            host.layoutSubtreeIfNeeded()
+            try await Task.sleep(for: .milliseconds(60))
+            let surfaces = anchors(host)
+            let dial = try XCTUnwrap(surfaces.first { $0.style.shape == .dashboard(.dial) })
+            let buttons = surfaces.filter { $0.style.parentID == dial.surfaceID && $0.style.shape == .panel(5) && $0.style.level == 75 }
+            XCTAssertEqual(buttons.count, expected)
+        }
+    }
+
     func testHoverExcludesRingsAndBoundingBoxCorners() {
         XCTAssertTrue(ConnectionDashboard.containsDisc(CGPoint(x: 192, y: 192), diameter: 384))
         XCTAssertTrue(ConnectionDashboard.containsDisc(CGPoint(x: 192, y: 335), diameter: 384))
@@ -152,7 +182,7 @@ final class ConnectionDashboardRenderingTests: XCTestCase {
             LogEntry(timestamp: formatter.string(from: now), source: "core",
                 message: "from tcp:127.0.0.1:1234 accepted tcp:192.0.2.\(index):443 [socks >> \(index > 4 ? "direct" : "proxy")]", sequence: Int64(index))
         }
-        model.dashboard.update(state: try XCTUnwrap(model.status), node: nil, entries: entries)
+        model.dashboard.update(state: try XCTUnwrap(model.status), node: nil, recent: GlobeConnection.recent(entries, previous: [], since: .distantPast))
         for dark in [true, false] {
             let home = NSHostingView(rootView: HomeDashboard().environmentObject(model).environment(\.dashboardVisibilityOverride, true)
                 .font(AppFont.body).frame(width: 860, height: 568)

@@ -8,6 +8,7 @@ public enum HelperIdentity {
 }
 
 @objc public protocol TunHelperProtocol {
+    func openTunnel(_ parameters: Data, withReply reply: @escaping (Data, FileHandle?) -> Void)
     func request(_ data: Data, withReply reply: @escaping (Data) -> Void)
 }
 
@@ -19,6 +20,7 @@ public struct HelperRequest: Codable {
     public var paths: [String: String]?
     public var configureSystemDNS: Bool?
     public var sessionToken: String?
+    public var bundledCoreSHA256: String?
     public var releaseURL: String?
     public var archive: Data?
     public var updateToken: String?
@@ -46,6 +48,12 @@ public struct HelperResponse: Codable {
     public var logs: [String] = []
     public var coreVersion: String?
     public var verifiedSHA256: String?
+    public var supportsTunnelDescriptor: Bool?
+    public var supportsTunnelIPv6Address: Bool?
+    public var tunnelInterface: String?
+    /// Set on an open response when the helper can attest whether it recorded the requested lease.
+    public var leaseAccepted: Bool?
+    public var supportsBundledCorePin: Bool?
     public var previousVersionPresent: Bool?
     public var forced = false
     public init(success: Bool = true, code: String = "ok", state: String = "idle") {

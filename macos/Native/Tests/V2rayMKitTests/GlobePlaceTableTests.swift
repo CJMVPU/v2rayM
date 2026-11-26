@@ -1,6 +1,13 @@
 import XCTest
 @testable import V2rayMKit
 
+func rangeTable(_ rows: [UInt8], width: Int) -> Data {
+    let stride = width + 4
+    var count = UInt32(rows.count / stride).bigEndian, size = UInt32(stride).bigEndian
+    return Data("V2MRNG02".utf8) + withUnsafeBytes(of: &count) { Data($0) }
+        + withUnsafeBytes(of: &size) { Data($0) } + Data(rows)
+}
+
 func encodePlaces(_ places: [GlobePlace]) -> Data {
     func encoded(_ value: UInt64, _ width: Int) -> Data {
         Data((0..<width).reversed().map { UInt8(truncatingIfNeeded: value >> ($0 * 8)) })
@@ -43,8 +50,9 @@ final class GlobePlaceTableTests: XCTestCase {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let address = GlobeGeoDatabase.addressBytes("2606:4700::1111")!
-        try Data().write(to: root.appendingPathComponent("ipv4.bin"))
-        try Data(address + address + [0, 0, 0, 0]).write(to: root.appendingPathComponent("ipv6.bin"))
+        try rangeTable([], width: 4).write(to: root.appendingPathComponent("ipv4.bin"))
+        let end = GlobeGeoDatabase.addressBytes("2606:4700::1112")!
+        try rangeTable(address + [0, 0, 0, 0] + end + [255, 255, 255, 255], width: 16).write(to: root.appendingPathComponent("ipv6.bin"))
         try encodePlaces([GlobePlace(country: "US", city: "IPv6 fixture", latitude: 1, longitude: 2)])
             .write(to: root.appendingPathComponent("places.bin"))
         let db = try GlobeGeoDatabase(directory: root)

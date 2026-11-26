@@ -31,10 +31,12 @@ import V2rayMKit
     @Published var moduleScope: ModuleUpdateScope?
     @Published var moduleUpdateActive = false
     @Published var moduleUpdateError: String?
-    @Published var moduleTargets: [String] = ["Xray", "GeoFiles"]
+    let moduleTargets = ["GeoFiles"]
     private var logBuffer = RollingLogBuffer()
     private var logCursor: Int64 = 0
+    private var logGeneration: Int64?
     private var profileObservations: [ProfileObservation]?
+    private var observedSelection: String?
     private var updateStarting = false
     private var mutationGeneration: Int { connection.revision }
     @Published var ready = false
@@ -53,6 +55,7 @@ import V2rayMKit
     private let clock: any NativeClock
     private let checkTunnel: @Sendable () async throws -> Void
     private let observations: ObservationScheduler
+    private let connectionParser: any RecentConnectionParsing
     @Published private var pendingDisconnect = false
     private var disconnectRetryAt = Date.distantPast
     private var recoveringInFlight = false
@@ -72,7 +75,9 @@ import V2rayMKit
     let dataDirectory: URL
     init(backend: (any NativeBackend)? = nil, proxy: (any NativeProxy)? = nil,
          clock: any NativeClock = SystemNativeClock(), network: (any NetworkEvents)? = nil,
-         dataDirectory: URL? = nil, checkTunnel: @escaping @Sendable () async throws -> Void = { try await TunnelConflict.check() }) {
+         dataDirectory: URL? = nil,
+         connectionParser: any RecentConnectionParsing = RecentConnectionParser(),
+         checkTunnel: @escaping @Sendable () async throws -> Void = { try await TunnelConflict.check() }) {
         let arguments = CommandLine.arguments
         func argument(_ name: String) -> String? {
             guard let index = arguments.firstIndex(of: name), index + 1 < arguments.count else { return nil }
@@ -80,9 +85,10 @@ import V2rayMKit
         }
         self.dataDirectory = dataDirectory ?? argument("--data-directory").map { URL(fileURLWithPath: $0, isDirectory: true) }
             ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/v2rayM")
-        self.backend = backend ?? BackendController(dataDirectory: self.dataDirectory, port: argument("--api-port").flatMap(Int.init) ?? 19888)
+        self.backend = backend ?? NativeRuntimeHost(dataDirectory: self.dataDirectory)
         self.proxy = proxy ?? SystemProxyController(dataDirectory: self.dataDirectory)
         self.checkTunnel = checkTunnel
+        self.connectionParser = connectionParser
         self.clock = clock; observations = ObservationScheduler(clock: clock)
         lifecycle = network ?? NetworkLifecycle()
         lifecycle.observe(sleep: { [weak self] asleep in
@@ -129,6 +135,7 @@ import V2rayMKit
         }
         func startBackend() async throws {
             owner.api = try await owner.backend.startClient(); owner.logCursor = 0
+            owner.logState.restartHistory()
             owner.profileObservations = nil
         }
         func readTunState() async throws -> TunModeState {
@@ -175,7 +182,8 @@ import V2rayMKit
             coreRunning: status?.coreRunning == true, runtimeState: status?.runtimeState ?? "",
             coreStartedAt: status?.coreStartedAt,
             updating: moduleUpdateActive || RuntimeUpdateActivity.isActive(operations),
-            proxyNeedsRecovery: proxyNeedsRecovery)
+            proxyNeedsRecovery: proxyNeedsRecovery,
+            coreSessionID: status?.coreSessionID, inactiveTunSessionID: tun?.confirmedInactiveSessionID)
     }
     @MainActor private final class RecoveryAdapter: NativeRecoveryRuntime {
         let owner: AppModel
@@ -260,27 +268,36 @@ import V2rayMKit
         func beginRecovery(restart: Bool) { owner.beginNetworkRecovery(restart: restart) }
         func retryRecovery() { owner.connection.recovery.retry(now: now) }
         func reportObservationFailure(_ error: Error) { owner.observationErrors["runtime"] = error.localizedDescription }
-        func reportUpdateWaiting() { owner.moduleUpdateError = "正在等待后台恢复，将自动重试" }
+        func reportUpdateWaiting() {
+            if owner.observationErrors["updates"] != nil {
+                owner.moduleUpdateError = "暂时无法读取更新进度，将自动重试"
+            }
+        }
         func isTransient(_ error: Error) -> Bool { NetworkRecovery.isTransient(error) }
     }
     @discardableResult func refresh(forceMetadata: Bool = true) async throws -> Bool {
         guard let api, !shuttingDown else { return false }
         let revision = mutationGeneration, generation = networkRecovery.generation
+        async let statusRead = api.runtimeStatus()
         if moduleUpdateActive {
-            async let updates: [ModuleUpdateProgress] = api.value("/api/core-updates/progress")
-            async let tasks: [String] = api.value("/api/operations")
-            let snapshot = try await (updates, tasks)
-            guard connection.isCurrent(revision: revision, recoveryGeneration: generation) else { return false }
-            moduleProgress = snapshot.0
-            if operations != snapshot.1 { operations = snapshot.1 }
-            if moduleUpdateError != nil { moduleUpdateError = nil }
-            finishModuleObservation()
-            scheduleObservations(api: api, force: forceMetadata)
-            return false
+            do {
+                async let updates: [ModuleUpdateProgress] = api.value("/api/core-updates/progress")
+                async let tasks: [String] = api.value("/api/operations")
+                let snapshot = try await (updates, tasks)
+                guard connection.isCurrent(revision: revision, recoveryGeneration: generation) else { return false }
+                moduleProgress = snapshot.0
+                if operations != snapshot.1 { operations = snapshot.1 }
+                if moduleUpdateError != nil { moduleUpdateError = nil }
+                clearObservationError("updates")
+                clearObservationError("operations")
+                finishModuleObservation()
+            } catch {
+                guard connection.isCurrent(revision: revision, recoveryGeneration: generation) else { return false }
+                moduleUpdateError = "暂时无法读取更新进度，将自动重试"
+                observationErrors["updates"] = error.localizedDescription
+            }
         }
-        // Runtime publication does not await node lists, logs, helper probes,
-        // routes, or update history. Their failures retain their last good data.
-        let state: RuntimeStatus = try await api.value("/api/status")
+        let state = try await statusRead
         guard connection.isCurrent(revision: revision, recoveryGeneration: generation) else { return false }
         let now = clock.now()
         status = state; lastStatusRefresh = now; clearObservationError("runtime")
@@ -312,36 +329,47 @@ import V2rayMKit
         }
         func current() -> Bool { !Task.isCancelled && connection.isCurrent(revision: revision, recoveryGeneration: generation) }
         schedule("logs", interval: 2) { [self] in
-            let tail: LogTail = try await api.value("/api/logs/tail?after=\(logCursor)&limit=10000")
+            let tail: LogTail = try await api.logTail(after: logCursor, limit: 10000)
             guard current() else { return }
-            if logBuffer.append(tail.items) { logs = logBuffer.entries }
+            let session = GlobeMonitor.Session(status)
+            let recent = tail.items.isEmpty ? [] : await connectionParser.recent(tail.items, since: session.start)
+            // A superseded poll must leave its cursor available to the next one.
+            guard current(), GlobeMonitor.Session(status) == session else { return }
+            let cleared = logGeneration.map { $0 != tail.generation } ?? false
+            if cleared { logBuffer = RollingLogBuffer(); logState.restartHistory() }
+            if logBuffer.append(tail.items) || cleared { logState.publish(logBuffer) }
+            logGeneration = tail.generation
             logCursor = tail.latestSequence
             clearObservationError("logs")
             if let state = status {
                 let id = state.coreRunning ? state.runningProfileId : state.currentProfileId
-                dashboard.update(state: state, node: profiles.first { $0.id == id }, entries: tail.items)
+                dashboard.update(state: state, node: profiles.first { $0.id == id }, recent: recent)
             }
         }
         schedule("profiles", interval: 30) { [self] in
-            let metadata: [Profile] = try await api.value("/api/profiles?subscriptionId=&includeStatistics=false")
+            let metadata = try await api.profileMetadata()
             guard current() else { return }
-            let value = profileObservations.map { ProfileObservation.applying($0, to: metadata, selectedID: status?.currentProfileId) } ?? metadata
+            observedSelection = status?.currentProfileId
+            let value = profileObservations.map { ProfileObservation.applying($0, to: metadata, selectedID: observedSelection) } ?? metadata
             if profiles != value { profiles = value }; clearObservationError("profiles")
             if let state = status {
                 let id = state.coreRunning ? state.runningProfileId : state.currentProfileId
-                dashboard.update(state: state, node: profiles.first { $0.id == id }, entries: [])
+                dashboard.update(state: state, node: profiles.first { $0.id == id }, recent: [])
             }
         }
         schedule("profile-observations", interval: 5) { [self] in
-            let values: [ProfileObservation] = try await api.value("/api/profiles/observations")
+            let values = try await api.profileObservations()
             guard current() else { return }
-            profileObservations = values
-            let updated = ProfileObservation.applying(values, to: profiles, selectedID: status?.currentProfileId)
-            if profiles != updated { profiles = updated }
             clearObservationError("profile-observations")
+            let selected = status?.currentProfileId
+            guard values != profileObservations || selected != observedSelection else { return }
+            profileObservations = values
+            observedSelection = selected
+            let updated = ProfileObservation.applying(values, to: profiles, selectedID: selected)
+            if profiles != updated { profiles = updated }
         }
         schedule("routes", interval: 30) { [self] in
-            let value: [RoutingProfile] = try await api.value("/api/settings/routing-profiles")
+            let value = try await api.routingProfiles()
             guard current() else { return }
             if routes != value { routes = value }; clearObservationError("routes")
         }
@@ -350,14 +378,21 @@ import V2rayMKit
             guard current() else { return }
             if tun != value { tun = value }; clearObservationError("tun")
         }
+        guard !moduleUpdateActive else { return }
         schedule("operations", interval: 2) { [self] in
             let value: [String] = try await api.value("/api/operations")
-            guard current() else { return }
+            guard current(), !moduleUpdateActive else { return }
             if operations != value { operations = value }; clearObservationError("operations")
+            if value.contains("geo-update") {
+                moduleScope = .geo
+                moduleUpdateError = nil
+                moduleProgress = []
+                moduleUpdateActive = true
+            }
         }
         schedule("updates", interval: 15) { [self] in
             let value: [ModuleUpdateProgress] = try await api.value("/api/core-updates/progress")
-            guard current() else { return }
+            guard current(), !moduleUpdateActive else { return }
             if moduleProgress != value { moduleProgress = value }; clearObservationError("updates")
         }
     }
@@ -464,7 +499,18 @@ import V2rayMKit
     func authorizeTun() {
         run({ [self] api in
             let service = SMAppService.daemon(plistName: "io.github.CJMVPU.v2rayM.tun-helper.plist")
-            if service.status != .enabled {
+            func verify() async throws -> MacTunStatus {
+                try await api.value("/api/macos/tun?verifyHelper=true&fresh=true")
+            }
+            if service.status == .enabled {
+                let current = try await verify()
+                tun = current
+                if current.helperAvailable { return }
+                guard current.helperCode == "helper_protocol_mismatch" else { throw ClientFailure(current.helperCode) }
+                try await checkTunnel()
+                try await service.unregister()
+            }
+            if service.status != .requiresApproval {
                 do { try service.register() }
                 catch { guard service.status == .requiresApproval else { throw error } }
             }
@@ -473,7 +519,9 @@ import V2rayMKit
                 throw ClientFailure("tun_approval_required")
             }
             guard service.status == .enabled else { throw ClientFailure("mac_tun_helper_unavailable") }
-            tun = try await api.freshTunStatus()
+            let current = try await verify()
+            tun = current
+            guard current.helperAvailable else { throw ClientFailure(current.helperCode) }
         }, success: "TUN 后台服务已就绪，可以开启 TUN")
     }
     func openTunApproval() { SMAppService.openSystemSettingsLoginItems() }
@@ -488,8 +536,12 @@ import V2rayMKit
         }
     }
     private func synchronizeProxyPort() async throws {
-        guard systemProxyEnabled, status?.coreRunning == true, let port = status?.runningProxyPort else { return }
-        do { try await proxy.rebind(port: port) }
+        guard systemProxyEnabled, let status, status.coreRunning else { return }
+        guard let endpoints = status.runningProxyEndpoints ?? status.runningProxyPort.map(ProxyEndpoints.init(loopbackPort:)) else {
+            try await restoreProxy()
+            throw ClientFailure("proxy_no_usable_listener")
+        }
+        do { try await proxy.rebind(endpoints: endpoints) }
         catch {
             systemProxyEnabled = await proxy.isEnabled
             proxyNeedsRecovery = await proxy.needsRecovery
@@ -528,45 +580,71 @@ import V2rayMKit
         moduleScope = scope; moduleUpdateError = nil; moduleProgress = []
         moduleUpdateActive = true; updateStarting = true
         operation = Task {
-            defer { updateStarting = false }
             do {
-                try await NativeModuleUpdateService().submit(scope, runtime: ModuleUpdateAdapter(self, api: api))
-                do { try await refresh() }
-                catch { moduleUpdateError = "正在等待后台恢复，将自动重试" }
+                try await NativeModuleUpdateService().submit(scope, runtime: ModuleUpdateAdapter(api: api))
+                updateStarting = false
+                _ = await observeAfterCommand()
             } catch {
+                updateStarting = false
                 moduleUpdateError = error.localizedDescription
                 moduleUpdateActive = false
             }
         }
     }
     @MainActor private final class ModuleUpdateAdapter: NativeModuleUpdateRuntime {
-        let owner: AppModel
         let api: any NativeAPI
-        init(_ owner: AppModel, api: any NativeAPI) { self.owner = owner; self.api = api }
-        var coreRunning: Bool { owner.status?.coreRunning == true }
-        func loadPlan() async throws -> NativeModuleUpdatePlan {
-            let settings: ModuleUpdateSettings = try await api.value("/api/core-updates")
-            owner.moduleTargets = settings.nativeTargets
-            return settings.plan
-        }
-        func savePreferences(_ plan: NativeModuleUpdatePlan) async throws {
-            try await api.send("/api/core-updates/settings", method: "PUT", body: ModuleUpdateSettings.Input(plan))
-        }
+        init(api: any NativeAPI) { self.api = api }
         func submit(_ scope: ModuleUpdateScope) async throws {
-            if let core = scope.coreType {
-                try await api.perform("/api/core-updates/\(core)/update?preRelease=true")
-            } else if scope == .geo {
-                try await api.perform("/api/core/geo/update?scope=\(scope.rawValue)")
-            } else {
-                try await api.send("/api/core-updates/batch", body: ["apply": true])
-            }
+            try await api.perform("/api/core/geo/update?scope=geo")
         }
     }
+    func profileDocument(id: String) async throws -> SettingsValue {
+        guard ready, let api else { throw ClientFailure("backend_exited") }
+        return try await api.profileDocument(id: id)
+    }
+
+    func exportBackup(to destination: URL) async throws {
+        _ = try await writeAndRefresh { api in
+            let data = try await api.encodedResponse("/api/backup/download", method: "GET", body: nil)
+            try await Task.detached {
+                try data.write(to: destination, options: .atomic)
+                try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: destination.path)
+            }.value
+            return .null
+        }
+    }
+
+    func restoreBackup(from file: URL) async throws {
+        _ = try await writeAndRefresh { api in
+            let bytes = try await Task.detached {
+                guard let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize, (1...64 * 1024 * 1024).contains(size) else {
+                    throw ClientFailure("backup_archive_invalid")
+                }
+                return try Data(contentsOf: file, options: .mappedIfSafe)
+            }.value
+            _ = try await api.encodedResponse("/api/backup/restore", method: "POST", body: bytes)
+            return .null
+        }
+    }
+
     func settingsRead(_ path: String) async throws -> SettingsValue {
         guard ready, let api else { throw ClientFailure("backend_exited") }
         return try await api.value(path)
     }
     @discardableResult func settingsWrite(_ path: String, method: String = "PUT", body: SettingsValue? = nil) async throws -> SettingsValue {
+        try await writeAndRefresh { api in
+            let bytes = try await api.encodedResponse(path, method: method, body: try body.map { try JSONEncoder().encode($0) })
+            return try JSONDecoder().decode(APIEnvelope<SettingsValue>.self, from: bytes).data ?? .null
+        }
+    }
+
+    @discardableResult func saveProfile(id: String, original: SettingsValue, edited: SettingsValue) async throws -> SettingsValue {
+        try await writeAndRefresh { api in
+            try await api.saveProfile(id: id, original: original, edited: edited)
+        }
+    }
+
+    private func writeAndRefresh(_ write: @escaping (any NativeAPI) async throws -> SettingsValue) async throws -> SettingsValue {
         guard ready, !busy, !moduleUpdateActive, !shuttingDown, !pendingDisconnect, let api else { throw ClientFailure("operation_in_progress") }
         connection.invalidateObservations()
         busy = true
@@ -576,9 +654,7 @@ import V2rayMKit
             var committed = false
             do {
                 _ = try await NativeCommandService().execute({
-                    let bytes = try await api.encodedResponse(path, method: method, body: try body.map { try JSONEncoder().encode($0) })
-                    let envelope = try JSONDecoder().decode(APIEnvelope<SettingsValue>.self, from: bytes)
-                    response = envelope.data ?? .null
+                    response = try await write(api)
                     committed = true
                 }, runtime: CommandAdapter(self), allowDeferredRetry: false)
             } catch {
@@ -630,7 +706,7 @@ import V2rayMKit
             guard let api = owner.api else { throw ClientFailure("backend_exited") }
             try await api.perform("/api/core/stop")
             let stopped = try await api.freshTunStatus()
-            return TunnelStopEvidence(ownedProcessIDs: stopped.privilegedCoreProcessIds, runtimeState: stopped.runtimeState)
+            return TunnelStopEvidence(ownedProcessIDs: stopped.tunnelProcessIDs, runtimeState: stopped.runtimeState)
         }
         func stopOwnedBackend() async throws { try await owner.backend.stop() }
     }

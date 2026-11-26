@@ -39,7 +39,7 @@ public struct TrafficTrend: Equatable, Sendable {
             // Keep one predecessor for the curve crossing the left clip edge.
             samples.removeFirst(max(0, first - 1))
         } else { samples.removeAll(keepingCapacity: true) }
-        let identity = profile + "|" + start
+        let identity = profile + "|" + (state.coreSessionID?.uuidString ?? start)
         if session != identity {
             // The chart belongs to the app, not an individual core session.
             // Retain recent history, but never join lines across restarts or nodes.
@@ -66,9 +66,17 @@ public struct TrafficTrend: Equatable, Sendable {
     /// Directional maxima of the existing five-second samples in (now - 60s, now].
     public func peaks(at now: Date) -> [Double] {
         let now = displayDate(at: now)
-        let recent = samples.filter { $0.date <= now && now.timeIntervalSince($0.date) < 60 }
-        return [recent.map(\.upload).max() ?? 0, recent.map(\.download).max() ?? 0,
-                recent.map(\.directUpload).max() ?? 0, recent.map(\.directDownload).max() ?? 0]
+        let cutoff = now.addingTimeInterval(-60)
+        var peaks = [Double](repeating: 0, count: 4)
+        for sample in samples.reversed() {
+            if sample.date <= cutoff { break }
+            guard sample.date <= now else { continue }
+            peaks[0] = max(peaks[0], sample.upload)
+            peaks[1] = max(peaks[1], sample.download)
+            peaks[2] = max(peaks[2], sample.directUpload)
+            peaks[3] = max(peaks[3], sample.directDownload)
+        }
+        return peaks
     }
 
     public func visible(at now: Date) -> [TrafficTrendSample] {

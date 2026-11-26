@@ -14,5 +14,12 @@
     "patches": {
       "darwin-process-lookup.patch": "6cc29cf712da02ac2b7f33a9b602a43f0a59f44abe9bcbe696f7aa5bd76973c5"
     }
+  },
+  "xrayLibraryPatches": {
+    "darwin-embedded-outbound-lifetime.patch": "9f048a8086585ac4401837c4b50a321e8b6686daecb8595de11c3d63e1a408e5",
+    "darwin-embedded-diagnostic-handlers.patch": "7e696d373b3ea5e9f690abac8e856011093c29d3bcfa23f80db40ed44f580bd8",
+    "darwin-embedded-feature-scopes.patch": "af10d40a90ffd1c1411d1f74e63783a1fdaa084d9668a6b5b9f29919aa874818",
+    "darwin-embedded-log-observer.patch": "167ec619a86de7870199b35b24e27d5eaeb242bca8e34234c63bbab6d98048af",
+    "darwin-embedded-transport-recovery.patch": "66e9ac5d00986011238e6eaeecc461a51e194cf6b9ac1dfeda3e440d84ca3cbf"
   }
 }

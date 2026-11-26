@@ -57,8 +57,7 @@ struct ConnectionDashboard: View {
             }
             .accessibilityHidden(true)
             ZStack {
-                DashboardDiscSurface(hovered: discHovered)
-                    .overlay { DashboardTarget(page: .settings, circular: true) }
+                DashboardDiscSurface(hovered: false).allowsHitTesting(false)
                 VStack(spacing: 9) {
                     RealityGlyph(asset: running ? .shieldActive : state == .recovering ? .sync : .shield, size: 22, color: statusColor)
                     Text(city).font(AppFont.size(25)).lineLimit(1).minimumScaleFactor(0.7)
@@ -67,24 +66,16 @@ struct ConnectionDashboard: View {
                     DashboardNumericText(text: duration, size: 24).padding(.top, 4)
                     Text(connecting && state == .offline ? "正在连接本地服务" : state.title)
                         .font(AppFont.size(12)).foregroundStyle(statusColor).lineLimit(1)
-                    Button("重新连接服务", action: reconnect).font(AppFont.caption)
-                        .environment(\.realityContentVisible, state == .offline && !connecting)
-                        .disabled(state != .offline || connecting)
-                        .opacity(state == .offline && !connecting ? 1 : 0)
-                        .accessibilityHidden(state != .offline || connecting)
+                    if state == .offline && !connecting {
+                        Button("重新连接服务", action: reconnect).font(AppFont.caption)
+                    }
                 }.padding(.horizontal, 18)
                     .allowsHitTesting(state == .offline && !connecting)
             }.frame(width: max(0, diameter - Self.discInset * 2), height: max(0, diameter - Self.discInset * 2))
-                .modifier(DashboardActivationFlip(active: coreRunning, kind: .disc, highlighted: discHovered))
+                .modifier(DashboardActivationFlip(active: coreRunning, kind: .disc, hovered: discHovered))
+                .background { DashboardTarget(page: .settings, circular: true, hover: $discHovered) }
         }.frame(width: diameter, height: diameter)
             .contentShape(Circle())
-            .onContinuousHover { phase in
-                switch phase {
-                case .active(let location): discHovered = Self.containsDisc(location, diameter: diameter)
-                case .ended: discHovered = false
-                }
-            }
-            .onDisappear { discHovered = false }
             .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: discHovered)
     }
     static let discInset: CGFloat = 48
@@ -127,7 +118,7 @@ struct TrafficTrendView: View {
     var awaitingSample = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dashboardMotionEnabled) private var presentationActive
-    @State private var finishedCatchUp: Date?
+    @State private var resumedWithData: Date?
     @State private var scaleFrom = 1.0
     @State private var scaleTo = 1.0
     @State private var scaleChanged = Date.distantPast
@@ -177,16 +168,8 @@ struct TrafficTrendView: View {
                 catch { return }
                 retirement = nil
             }
-            .task(id: presentationActive && !reduceMotion ? catchUp?.startedAt : nil) {
-                guard presentationActive, !reduceMotion, let catchUp else { return }
-                do { try await Task.sleep(for: .seconds(max(0, catchUp.duration - Date().timeIntervalSince(catchUp.startedAt)))) }
-                catch { return }
-                guard !Task.isCancelled else { return }
-                // Hand off at the same scale/full endpoint, rather than falling
-                // back to an older scale or last-segment reveal animation.
-                scaleFrom = scaleTo; scaleChanged = .distantPast
-                sampleArrived = .distantPast
-                finishedCatchUp = catchUp.startedAt
+            .onChange(of: points.isEmpty ? nil : catchUp?.startedAt, initial: true) { _, resume in
+                if let resume { resumedWithData = resume }
             }
             .onChange(of: points.last?.id) { _, _ in sampleArrived = Date() }
             .accessibilityElement(children: .ignore)
@@ -194,18 +177,15 @@ struct TrafficTrendView: View {
     }
     private func plot(points: [TrafficTrendSample], maximum: Double) -> some View {
             GeometryReader { geometry in
-                let replaying = catchUp != nil && catchUp?.startedAt != finishedCatchUp && !reduceMotion
-                let history = replaying ? (catchUp?.merged(with: trend) ?? []) : []
                 let input = TrendLayerInput(points)
-                let replayInput = TrendLayerInput(history)
                 let retired = retirement.map { TrendLayerInput($0.samples) }
                 DashboardTrendPlot(configuration: TrendFrameConfiguration(
-                    input: input, replayInput: replayInput, retired: retired, now: now, maximum: maximum,
-                    animate: animate, presentationActive: presentationActive, replaying: replaying,
+                    input: input, retired: retired, now: now, maximum: maximum,
+                    animate: animate, presentationActive: presentationActive, reduceMotion: reduceMotion,
                     catchUp: catchUp, retirement: retirement, scaleFrom: scaleFrom, scaleTo: scaleTo,
                     scaleChanged: scaleChanged, sampleArrived: sampleArrived))
             }.overlay {
-                if points.isEmpty && retirement == nil {
+                if points.isEmpty && retirement == nil && (catchUp?.samples.isEmpty != false || resumedWithData == catchUp?.startedAt) {
                     if awaitingSample {
                         VStack {
                             Spacer(minLength: 0)

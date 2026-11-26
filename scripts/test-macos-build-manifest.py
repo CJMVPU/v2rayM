@@ -54,9 +54,21 @@ class PackagedDataTests(unittest.TestCase):
         self.plist = self.app / 'Contents/Info.plist'
         self.plist.write_bytes(plistlib.dumps({'CFBundleShortVersionString': '0.3.6', 'CFBundleVersion': '0.3.6'}))
         for name in ('geoip.dat', 'geosite.dat'): (self.data / name).write_bytes(name.encode())
-        self.receipt = {'source': {'version': '0.3.6'}, 'artifacts': {}, 'resourceDigests': {},
+        library = self.app / manifest.LIBRARY_PATH
+        library.parent.mkdir()
+        library.write_bytes(b'embedded fixture')
+        self.receipt = {'source': {'version': '0.3.6'}, 'artifacts': {manifest.LIBRARY_PATH: manifest.sha(library)}, 'resourceDigests': {},
                         'runtimeData': {'SHA256': {name: manifest.sha(self.data / name) for name in ('geoip.dat', 'geosite.dat')}}}
     def tearDown(self): self.temp.cleanup()
+    def test_managed_runtime_cannot_be_added_to_native_package(self):
+        for name in ('v2rayN.WebAPI', 'libcoreclr.dylib', 'libhostfxr.dylib', 'ServiceLib.dll', 'v2rayN.WebAPI.runtimeconfig.json'):
+            with self.subTest(name=name):
+                extra = self.data / name
+                extra.write_bytes(b'fixture')
+                with self.assertRaisesRegex(ValueError, 'managed runtime'):
+                    manifest.verify_app_files(self.app, self.receipt)
+                extra.unlink()
+
     def test_unchanged_runtime_data_passes(self):
         manifest.verify_app_files(self.app, self.receipt)
     def test_each_changed_dat_is_rejected(self):
@@ -78,6 +90,32 @@ class PackagedDataTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'versions'): manifest.verify_app_files(self.app, self.receipt)
 
 class ReviewedInputTests(unittest.TestCase):
+    def test_prebuilt_library_requires_current_common_and_embedded_patches(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            patches = root / 'patches/xray'
+            patches.mkdir(parents=True)
+            common = patches / 'common.patch'
+            embedded = patches / 'embedded.patch'
+            for patch in (common, embedded):
+                patch.write_text(patch.name)
+            inputs = {'xray': {'patches': {common.name: manifest.sha(common)}},
+                      'xrayLibraryPatches': {embedded.name: manifest.sha(embedded)}, 'goVersion': 'fixture'}
+            (root / 'contracts').mkdir()
+            (root / 'contracts/macos-build-inputs.json').write_text(json.dumps(inputs))
+            library = root / 'libV2rayMXray.dylib'
+            library.write_bytes(b'fixture library')
+            receipt = {'inputs': inputs['xray'], 'libraryPatches': inputs['xrayLibraryPatches'],
+                       'goVersion': inputs['goVersion'], 'bridgeSources': {}, 'binarySHA256': manifest.sha(library)}
+            library.with_name('library-build.json').write_text(json.dumps(receipt))
+            self.assertEqual(receipt, manifest.verify_library_input(library, root))
+            for patch in (common, embedded):
+                with self.subTest(patch=patch.name):
+                    patch.write_text('changed')
+                    with self.assertRaisesRegex(ValueError, patch.name):
+                        manifest.verify_library_input(library, root)
+                    patch.write_text(patch.name)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='v2raym-input-test-')
         self.core_bin = Path(self.temp.name)
