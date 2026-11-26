@@ -16,6 +16,7 @@ enum FileProfileImport {
         let decoder = JSONDecoder()
         decoder.allowsJSON5 = true
         let value = try decoder.decode(SettingsValue.self, from: Data(text.utf8))
+        if let rows = try ShareLinkImport.sip008(value) { return rows }
         func visit(_ input: SettingsValue) throws -> [RuntimeDatabase.Row] {
             if case .array(let items) = input { return try items.flatMap(visit) }
             guard case .object = input else { throw ClientFailure("profile_config_file_invalid") }

@@ -8,6 +8,8 @@ private final class WebDAVRedirectPolicy: NSObject, URLSessionTaskDelegate {
 }
 
 struct NativeWebDAV {
+    private let base: URL
+    private let components: [String]
     let directory: URL
     private let authorization: String
 
@@ -22,7 +24,9 @@ struct NativeWebDAV {
         let configured = item["DirName"].text.trimmingCharacters(in: .whitespacesAndNewlines)
         let parts = (configured.isEmpty ? "v2rayN_backup" : configured).split(separator: "/")
         guard !parts.isEmpty, !parts.contains("."), !parts.contains("..") else { throw ClientFailure("webdav_settings_invalid") }
-        directory = parts.reduce(base) { $0.appendingPathComponent(String($1), isDirectory: true) }
+        self.base = base
+        components = parts.map(String.init)
+        directory = components.reduce(base) { $0.appendingPathComponent($1, isDirectory: true) }
         authorization = "Basic " + Data((user + ":" + password).utf8).base64EncodedString()
     }
 
@@ -42,9 +46,20 @@ struct NativeWebDAV {
     }
 
     private func ensureCollection(_ session: URLSession) async throws {
-        let (_, response) = try await session.data(for: request("MKCOL", url: directory))
-        guard let code = (response as? HTTPURLResponse)?.statusCode, (200..<300).contains(code) || code == 405 else {
-            throw ClientFailure("webdav_collection_failed")
+        func makeCollection(_ url: URL) async throws -> Bool {
+            let (_, response) = try await session.data(for: request("MKCOL", url: url))
+            let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+            if code == 409 { return false } // Missing parent collection.
+            guard (200..<300).contains(code) || code == 405 else { throw ClientFailure("webdav_collection_failed") }
+            return true
+        }
+        // Established collections may be writable while their parents forbid MKCOL.
+        if try await makeCollection(directory) { return }
+        guard components.count > 1 else { throw ClientFailure("webdav_collection_failed") }
+        var collection = base
+        for component in components {
+            collection.appendPathComponent(component, isDirectory: true)
+            guard try await makeCollection(collection) else { throw ClientFailure("webdav_collection_failed") }
         }
     }
 
@@ -57,10 +72,27 @@ struct NativeWebDAV {
         defer { session.invalidateAndCancel() }
         try await ensureCollection(session)
         let file = directory.appendingPathComponent("readme_test-" + UUID().uuidString)
-        let (_, stored) = try await session.upload(for: request("PUT", url: file), from: Data("readme_test".utf8))
+        let payload = Data(UUID().uuidString.utf8)
+        let (_, stored) = try await session.upload(for: request("PUT", url: file), from: payload)
         try check(stored)
-        let (_, deleted) = try await session.data(for: request("DELETE", url: file))
-        try check(deleted)
+        func removeProbe() async throws {
+            let (_, deleted) = try await session.data(for: request("DELETE", url: file))
+            try check(deleted)
+        }
+        do {
+            let (bytes, response) = try await session.bytes(for: request("GET", url: file))
+            try check(response)
+            var actual = bytes.makeAsyncIterator()
+            for expected in payload {
+                guard try await actual.next() == expected else { throw ClientFailure("webdav_transfer_failed") }
+            }
+            guard try await actual.next() == nil else { throw ClientFailure("webdav_transfer_failed") }
+        } catch {
+            // The task may be cancelled after the upload. Still remove its remote file.
+            _ = await Task { try await removeProbe() }.result
+            throw error
+        }
+        try await removeProbe()
     }
 
     func upload(_ archive: URL) async throws {

@@ -74,3 +74,42 @@ extension ShareLinkImport {
         }
     }
 }
+
+extension ShareLinkImport {
+    static func sip008(_ document: SettingsValue) throws -> [RuntimeDatabase.Row]? {
+        let servers: [SettingsValue]
+        if case .array(let items) = document["servers"], document["outbounds"] == .null {
+            servers = items
+        } else if case .array(let items) = document, items.contains(where: { $0["server_port"] != .null }) {
+            servers = items
+        } else {
+            return nil
+        }
+        guard !servers.isEmpty else { throw ClientFailure("profile_import_empty") }
+        return try servers.map { item in
+            guard case .string(let host) = item["server"], !host.isEmpty,
+                  let port = Int64(item["server_port"].text), (1...65535).contains(port),
+                  case .string(let method) = item["method"], !method.isEmpty,
+                  case .string(let password) = item["password"], !password.isEmpty else {
+                throw ClientFailure("profile_validation_failed")
+            }
+            var options: [String: SettingsValue] = ["SsMethod": .string(method)]
+            if let id = UUID(uuidString: item["id"].text) {
+                options["Sip008ServerId"] = .string(id.uuidString)
+            }
+            var row: RuntimeDatabase.Row = ["ConfigType": .integer(3), "Address": .text(host), "Port": .integer(port),
+                "Password": .text(password), "Remarks": .text(item["remarks"].text.isEmpty ? host : item["remarks"].text),
+                "ProtoExtra": .text(try SettingsValue.object(options).json())]
+            var network = "raw", security = ""
+            var transport: [String: SettingsValue] = [:]
+            if !item["plugin"].text.isEmpty {
+                let plugin = [item["plugin"].text, item["plugin_opts"].text].filter { !$0.isEmpty }.joined(separator: ";")
+                try applyShadowsocksPlugin(plugin, to: &row, transport: &transport, network: &network, security: &security)
+            }
+            row["Network"] = .text(network)
+            row["StreamSecurity"] = .text(security)
+            row["TransportExtra"] = .text(try SettingsValue.object(transport).json())
+            return row
+        }
+    }
+}

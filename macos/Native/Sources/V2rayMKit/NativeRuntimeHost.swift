@@ -83,6 +83,7 @@ public actor NativeRuntimeHost: NativeBackend, NativeAPI {
         if initialized && !closing { return self }
         guard lockFile == -1, !closing else { throw ClientFailure("operation_in_progress") }
         try FileManager.default.createDirectory(at: dataDirectory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        // Keep the historical lock filename so two app versions cannot write the same database.
         let url = dataDirectory.appendingPathComponent("v2rayN.WebAPI.instance.lock")
         let fd = open(url.path, O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, 0o600)
         guard fd >= 0 else { throw ClientFailure("database_open_failed") }
@@ -851,8 +852,10 @@ public actor NativeRuntimeHost: NativeBackend, NativeAPI {
     private func removeProfiles(_ requested: [String], subscription: String? = nil) async throws -> SettingsValue {
         try await mutate("deleteProfiles") {
             let ids = try await store.removalIDs(requested, subscription: subscription)
+            let wasServing = serving != nil
             let restart = try await applyRemoval(ids, subscription: subscription)
-            return .object(["deleted": .number(Double(ids.count)), "coreRestarted": .bool(restart)])
+            return .object(["deleted": .number(Double(ids.count)), "coreRestarted": .bool(restart),
+                            "stoppedServing": .bool(wasServing && serving == nil)])
         }
     }
 

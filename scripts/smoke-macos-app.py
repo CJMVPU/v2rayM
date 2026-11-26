@@ -292,12 +292,17 @@ def check(app, checker, host_fixture_only=False):
                     if region == 'iran':
                         rules.insert(0, dict(enabled=True, ip=['geoip:v2raym-nonexistent-fixture'], outboundTag='block'))
                     payload = json.dumps(rules).encode()
-            if self.path == '/dav/fixture/backup.zip':
+            if self.path.startswith('/dav/fixture/'):
                 if not self.dav_allowed():
                     return
-                HTTP.dav_reads += 1
+                if self.path not in HTTP.dav_files:
+                    self.send_error(404)
+                    return
                 payload = HTTP.dav_files[self.path]
-                if HTTP.dav_reads == 2:
+                is_backup = self.path == '/dav/fixture/backup.zip'
+                if is_backup:
+                    HTTP.dav_reads += 1
+                if is_backup and HTTP.dav_reads == 2:
                     # Valid old archive format, but this listener belongs to the fixture server.
                     changed = io.BytesIO()
                     with zipfile.ZipFile(io.BytesIO(payload)) as original, zipfile.ZipFile(changed, 'w') as replacement:

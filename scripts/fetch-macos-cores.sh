@@ -11,8 +11,8 @@ case "$rid" in
 esac
 [[ ! -e "$destination" ]] || { echo 'Destination already exists; refusing to replace it.' >&2; exit 1; }
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-locked_ref="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["coreBundleCommit"])' "$repo_root/contracts/macos-build-inputs.json")"
-ref="${CORE_BUNDLE_REF:-$locked_ref}"
+ref="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["coreBundleCommit"])' "$repo_root/contracts/macos-build-inputs.json")"
+[[ "${CORE_BUNDLE_REF:-$ref}" == "$ref" ]] || { echo 'Core bundle override differs from reviewed commit.' >&2; exit 1; }
 [[ "$ref" =~ ^[a-fA-F0-9]{40}$ ]] || { echo 'Invalid upstream ref.' >&2; exit 1; }
 temporary_directory="$(mktemp -d)"
 trap 'rm -rf "$temporary_directory"' EXIT

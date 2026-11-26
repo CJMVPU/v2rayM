@@ -2,7 +2,6 @@
 """Enforce the dependency direction of extracted product domain modules."""
 from pathlib import Path
 import re
-import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -18,28 +17,6 @@ def check_native_source(path, root, allowed_imports, layer, errors):
 
 def check(root=ROOT):
     errors = []
-    domain = root / 'v2rayN/V2rayM.Domain'
-    project = ET.parse(domain / 'V2rayM.Domain.csproj').getroot()
-    for reference in project.iter():
-        if reference.tag in {'ProjectReference', 'PackageReference', 'FrameworkReference', 'Reference'}:
-            errors.append('Domain must not reference framework, upstream or infrastructure assemblies')
-    for path in domain.rglob('*.cs'):
-        if {'obj', 'bin'} & set(path.parts): continue
-        for number, line in enumerate(path.read_text().splitlines(), 1):
-            if re.search(r'\b(ServiceLib|v2rayN|Microsoft\.AspNetCore|System\.IO|System\.Net|System\.Diagnostics)\b', line):
-                errors.append(f'{path.relative_to(root)}:{number}: external dependency in domain')
-    application = root / 'v2rayN/V2rayM.Application'
-    project = ET.parse(application / 'V2rayM.Application.csproj').getroot()
-    for reference in project.iter():
-        if reference.tag == 'ProjectReference' and reference.get('Include') != '../V2rayM.Domain/V2rayM.Domain.csproj':
-            errors.append('Application may reference only the domain project')
-        if reference.tag in {'PackageReference', 'FrameworkReference', 'Reference'}:
-            errors.append('Application must not reference infrastructure assemblies')
-    for path in application.rglob('*.cs'):
-        if {'obj', 'bin'} & set(path.parts): continue
-        for number, line in enumerate(path.read_text().splitlines(), 1):
-            if re.search(r'\b(ServiceLib|v2rayN|Microsoft\.AspNetCore|System\.IO|System\.Net|System\.Diagnostics)\b', line):
-                errors.append(f'{path.relative_to(root)}:{number}: external dependency in application')
     native = root / 'macos/Native/Sources/V2rayMDomain'
     for path in native.rglob('*.swift'):
         check_native_source(path, root, {'Foundation'}, 'domain', errors)
@@ -51,12 +28,6 @@ def check(root=ROOT):
         check_native_source(path, root, {'Foundation', 'V2rayMDomain'}, 'application', errors)
     if not re.search(r'\.target\s*\(\s*name\s*:\s*"V2rayMApplication"\s*,\s*dependencies\s*:\s*\[\s*"V2rayMDomain"\s*,?\s*\]\s*,?\s*\)', package):
         errors.append('Native application target may depend only on the domain target')
-    # Keep the reusable upstream library independent of fork-specific workflows.
-    upstream = root / 'v2rayN/ServiceLib/ServiceLib.csproj'
-    if upstream.exists():
-        for reference in ET.parse(upstream).getroot().iter('ProjectReference'):
-            if 'V2rayM.' in reference.get('Include', ''):
-                errors.append('ServiceLib must not depend on fork-specific domain or application projects')
     return errors
 
 if __name__ == '__main__':

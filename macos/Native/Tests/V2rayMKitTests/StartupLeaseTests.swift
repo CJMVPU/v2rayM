@@ -39,6 +39,36 @@ final class StartupLeaseTests: XCTestCase {
         try await host.stop()
     }
 
+    func testCustomProfileStartupDiagnosticsHideCredentialsInHostLogs() async throws {
+        guard let app = ProcessInfo.processInfo.environment["V2RAYM_TEST_SIGNED_APP"] else {
+            throw XCTSkip("Set V2RAYM_TEST_SIGNED_APP to exercise the packaged Xray")
+        }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = NativeConfigurationStore(dataDirectory: root)
+        try await store.initializeRuntimeStore()
+        let fakeSecret = "private-test-marker"
+        let payload = #"{"inbounds":[],"outbounds":[{"protocol":"shadowsocks","tag":"proxy","settings":{"address":"127.0.0.1","port":9,"method":"2022-blake3-aes-128-gcm","password":"\#(fakeSecret)"}}]}"#
+        _ = try await store.importProfiles(content: payload, groupID: nil, isSubscription: false)
+        let catalog = try await store.profileCatalog()
+        var settings = try await store.readSettings()
+        settings["IndexId"] = .string(try XCTUnwrap(catalog.first?.id))
+        try await store.writeSettings(settings)
+        let host = NativeRuntimeHost(bundle: URL(fileURLWithPath: app), dataDirectory: root, mayContactHelper: false, automaticMaintenance: false)
+        _ = try await host.startClient()
+        do {
+            try await host.startTunCore()
+            XCTFail("The packaged core accepted an invalid custom PSK")
+        } catch let failure as ClientFailure {
+            XCTAssertEqual(failure.code, "core_start_failed")
+            XCTAssertFalse(failure.localizedDescription.contains(fakeSecret))
+        }
+        let logs = await host.history.recent(limit: 100, filter: nil)
+        XCTAssertTrue(logs.contains { $0.message.contains("Xray 启动失败") && $0.message.contains("Shadowsocks 2022") })
+        XCTAssertFalse(logs.contains { $0.message.contains(fakeSecret) })
+        try await host.stop()
+    }
+
     private static func freePort(requested: UInt16 = 0) throws -> UInt16 {
         let fd = socket(AF_INET, SOCK_STREAM, 0)
         guard fd >= 0 else { throw POSIXError(.ENFILE) }

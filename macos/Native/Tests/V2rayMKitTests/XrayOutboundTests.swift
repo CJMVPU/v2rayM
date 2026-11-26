@@ -10,10 +10,11 @@ final class XrayOutboundTests: XCTestCase {
     }
 
     func testWireGuardMultilineAddressDNSAndReservedRetainTheirBoundaries() throws {
-        let options: SettingsValue = .object(["WgInterfaceAddress": .string("172.16.0.2/32\nfd00::1/128"),
+        let key = Data(repeating: 7, count: 32).base64EncodedString()
+        let options: SettingsValue = .object(["WgPublicKey": .string(key), "WgInterfaceAddress": .string("172.16.0.2/32\nfd00::1/128"),
             "WgReserved": .string("7, 12\r\n45"), "WgDns": .string("1.1.1.1,\n 2606:4700:4700::1111")])
         let node: SettingsValue = .object(["address": .string("127.0.0.1"), "port": .number(51820),
-            "configType": .string("wireGuard"), "protoExtra": .string(try options.json())])
+            "configType": .string("wireGuard"), "password": .string(key), "protoExtra": .string(try options.json())])
         let settings = try XrayOutbound(node: node, config: .null).build()["settings"]
         XCTAssertEqual(settings["address"].items.map(\.text), ["172.16.0.2/32", "fd00::1/128"])
         XCTAssertEqual(settings["reserved"].items.map(\.text), ["7", "12", "45"])

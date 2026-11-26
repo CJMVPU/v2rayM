@@ -90,6 +90,8 @@ def run(checker, library):
                     {'protocol': 'freedom', 'tag': 'tcp', 'settings': {'redirect': f'127.0.0.1:{server.server_port}'}},
                     {'protocol': 'dns', 'tag': 'dns'}]
                 config['routing'] = {'rules': [
+                    {'inboundTag': ['tun'], 'network': 'udp', 'ip': ['192.0.2.53/32', '2001:db8::53/128'],
+                     'port': '53', 'outboundTag': 'udp'},
                     {'inboundTag': ['tun'], 'port': '53', 'outboundTag': 'dns'},
                     {'network': 'tcp', 'outboundTag': 'tcp'}]}
             (folder / (mode + '.json')).write_text(json.dumps(config))

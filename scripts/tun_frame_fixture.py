@@ -14,7 +14,7 @@ def checksum(data):
 
 
 class TunnelFlow:
-    def __init__(self, wire, family, protocol, source_port, target_port):
+    def __init__(self, wire, family, protocol, source_port, target_port, target=None):
         self.wire = wire
         self.family = family
         self.protocol = protocol
@@ -22,7 +22,7 @@ class TunnelFlow:
         self.target_port = target_port
         self.ipv6 = family == socket.AF_INET6
         self.source = socket.inet_pton(family, 'fd00:dead::2' if self.ipv6 else '10.9.0.2')
-        self.target = socket.inet_pton(family, '2001:db8::1' if self.ipv6 else '192.0.2.10')
+        self.target = socket.inet_pton(family, target or ('2001:db8::1' if self.ipv6 else '192.0.2.10'))
 
     def send(self, payload, sequence=0, acknowledgment=0, flags=0):
         if self.protocol == socket.IPPROTO_TCP:
@@ -99,6 +99,17 @@ def check_tun_frames(wire, udp, nonce, cycle):
         stream = TunnelFlow(wire, family, socket.IPPROTO_TCP, base + 1, 80)
         response = stream.tcp_exchange(b'GET / HTTP/1.0\r\nHost: localhost\r\n\r\n', nonce)
         assert response.split(b'\r\n\r\n', 1)[1] == nonce
+
+        # A resolver explicitly routed to the direct outbound must receive the original DNS datagram.
+        direct = TunnelFlow(wire, family, socket.IPPROTO_UDP, base + 4, 53,
+                            '2001:db8::53' if index else '192.0.2.53')
+        direct.send(query)
+        received, sender = udp.recvfrom(65535)
+        assert received == query
+        response = query[:2] + bytes.fromhex('81800001000100000000') + query[12:]
+        response += bytes.fromhex('c00c000100010000003c0004') + answer_ip
+        udp.sendto(response, sender)
+        assert direct.receive()[8:] == response
 
         dns_udp = TunnelFlow(wire, family, socket.IPPROTO_UDP, base + 2, 53)
         dns_udp.send(query)

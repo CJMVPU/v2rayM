@@ -108,7 +108,10 @@ public actor SystemProxyController {
     public func enable(endpoints: ProxyEndpoints) throws {
         guard !hasJournal else { throw ClientFailure("proxy_recovery") }
         try Self.validate(endpoints)
-        let store = try makeStore()
+        try enable(endpoints: endpoints, store: makeStore())
+    }
+
+    private func enable(endpoints: ProxyEndpoints, store: ProxyPreferencesStore) throws {
         let original = try store.services()
         guard !original.isEmpty else { throw ClientFailure("proxy_no_services") }
         try FileManager.default.createDirectory(at: journalURL.deletingLastPathComponent(), withIntermediateDirectories: true,
@@ -144,28 +147,44 @@ public actor SystemProxyController {
     public func rebind(endpoints: ProxyEndpoints) throws {
         try Self.validate(endpoints)
         guard let ownedEndpoints, hasJournal else { throw ClientFailure("proxy_recovery") }
-        if ownedEndpoints != endpoints {
-            let changedElsewhere = try restore()
-            guard !changedElsewhere else { throw ClientFailure("proxy_changed") }
-            try enable(endpoints: endpoints)
+        let revision = readRevision()
+        if ownedEndpoints == endpoints, let revision, revision == serviceRevision { return }
+        let store = try makeStore()
+        let records = try loadJournal()
+        let services = try store.services()
+        let current = Dictionary(uniqueKeysWithValues: services.map { ($0.id, $0.configuration) })
+        let drifted = try records.contains { record in
+            guard let settings = current[record.id] else { return false }
+            return !Self.fieldsEqual(settings, try Self.decode(record.applied), keys: Self.managedKeys)
+        }
+        if drifted || ownedEndpoints != endpoints {
+            // Reuse the locked preferences session for detection, cleanup and rebinding.
+            self.ownedEndpoints = nil
+            serviceRevision = nil
+            let changedElsewhere = try restore(records, store: store)
+            guard !drifted && !changedElsewhere else { throw ClientFailure("proxy_changed") }
+            try enable(endpoints: endpoints, store: store)
             return
         }
-        let revision = readRevision()
-        if let revision, revision == serviceRevision { return }
-        let store = try makeStore()
-        let records = try PropertyListDecoder().decode([ProxyRecord].self, from: Data(contentsOf: journalURL))
         let known = Set(records.map(\.id))
-        let added = try store.services().filter { !known.contains($0.id) }
+        let added = services.filter { !known.contains($0.id) }
         if !added.isEmpty { try enroll(added, endpoints: endpoints, preserving: records, store: store) }
         serviceRevision = revision
     }
+
+    private func loadJournal() throws -> [ProxyRecord] {
+        try PropertyListDecoder().decode([ProxyRecord].self, from: Data(contentsOf: journalURL))
+    }
+
     /// Restore only fields still matching our applied settings. Never erase a later change by another app.
     @discardableResult public func restore() throws -> Bool {
         ownedEndpoints = nil
         serviceRevision = nil
         guard hasJournal else { return false }
-        let records = try PropertyListDecoder().decode([ProxyRecord].self, from: Data(contentsOf: journalURL))
-        let store = try makeStore()
+        return try restore(loadJournal(), store: makeStore())
+    }
+
+    private func restore(_ records: [ProxyRecord], store: ProxyPreferencesStore) throws -> Bool {
         let current = try store.recoveryServices()
         var replacements: [ProxyService] = []
         var changedElsewhere = false

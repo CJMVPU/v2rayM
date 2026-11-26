@@ -1,6 +1,6 @@
 import Foundation
 
-/// A malformed or timed-out expression leaves the original snapshot visible, as in ServiceLib.
+/// A malformed or timed-out expression leaves the original snapshot visible.
 enum RuntimeSearch {
     static func filter<T>(_ snapshot: [T], pattern: String?, budget: Duration,
                           fields: (T) -> [String]) -> [T] {

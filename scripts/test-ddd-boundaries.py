@@ -15,10 +15,8 @@ class BoundaryTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        for relative in ['v2rayN/V2rayM.Domain/V2rayM.Domain.csproj',
-                         'v2rayN/V2rayM.Application/V2rayM.Application.csproj',
-                         'macos/Native/Package.swift']:
-            self.write(relative, (ROOT / relative).read_text())
+        package = 'macos/Native/Package.swift'
+        self.write(package, (ROOT / package).read_text())
 
     def write(self, relative, text):
         path = self.root / relative
@@ -27,20 +25,6 @@ class BoundaryTests(unittest.TestCase):
 
     def test_valid_direction(self):
         self.assertEqual(guard.check(self.root), [])
-
-    def test_domain_cannot_reference_upstream(self):
-        self.write('v2rayN/V2rayM.Domain/V2rayM.Domain.csproj',
-                   '<Project><ItemGroup><ProjectReference Include="../ServiceLib/ServiceLib.csproj" /></ItemGroup></Project>')
-        self.assertTrue(guard.check(self.root))
-
-    def test_application_cannot_reference_web(self):
-        self.write('v2rayN/V2rayM.Application/V2rayM.Application.csproj',
-                   '<Project><ItemGroup><ProjectReference Include="../v2rayN.WebAPI/v2rayN.WebAPI.csproj" /></ItemGroup></Project>')
-        self.assertTrue(guard.check(self.root))
-
-    def test_csharp_source_cannot_use_infrastructure(self):
-        self.write('v2rayN/V2rayM.Application/Bad.cs', 'using System.IO;\n')
-        self.assertTrue(guard.check(self.root))
 
     def test_native_application_cannot_import_kit(self):
         self.write('macos/Native/Sources/V2rayMApplication/Bad.swift', 'import V2rayMKit\n')
@@ -61,11 +45,6 @@ class BoundaryTests(unittest.TestCase):
         path.write_text(path.read_text().replace('.target(name: "V2rayMDomain"),',
             '.target(\n    name: "V2rayMDomain"\n),').replace('dependencies: ["V2rayMDomain"]', 'dependencies: [\n "V2rayMDomain",\n]'))
         self.assertEqual(guard.check(self.root), [])
-
-    def test_upstream_library_cannot_depend_on_fork_workflows(self):
-        self.write('v2rayN/ServiceLib/ServiceLib.csproj',
-            '<Project><ItemGroup><ProjectReference Include="../V2rayM.Application/V2rayM.Application.csproj" /></ItemGroup></Project>')
-        self.assertTrue(guard.check(self.root))
 
     def test_native_domain_target_cannot_gain_dependencies(self):
         path = self.root / 'macos/Native/Package.swift'

@@ -140,25 +140,53 @@ final class ProxyRecoveryTests: XCTestCase {
         XCTAssertEqual(store.values[0].configuration["HTTPProxy"] as? String, "previous.proxy")
         XCTAssertEqual(store.values[1].configuration["HTTPPort"] as? Int, 9999)
     }
-    func testNewServiceJoinsWithItsOwnBaselineAndExistingExternalEditsSurvive() async throws {
+    func testNewServiceJoinsWithItsOwnBaselineAndUnmanagedEditsSurvive() async throws {
         let directory = temporary(); defer { try? FileManager.default.removeItem(at: directory) }
         let store = MemoryPreferences(), controller = SystemProxyController(dataDirectory: directory, makeStore: { store })
         let ipv6 = ProxyEndpoint(host: "::1", port: 31111)
         let http = ProxyEndpoints(http: ipv6, socks: nil)
         try await controller.enable(endpoints: http)
-        store.values[0].configuration["HTTPPort"] = 9999
+        store.values[0].configuration["UnmanagedField"] = "user edit"
         let original: [String: Any] = ["SOCKSEnable": 1, "SOCKSProxy": "example.invalid", "SOCKSPort": 1444]
         store.values.append(ProxyService(id: "new", configuration: original))
         try await controller.rebind(endpoints: http)
-        XCTAssertEqual(store.values[0].configuration["HTTPPort"] as? Int, 9999)
+        XCTAssertEqual(store.values[0].configuration["UnmanagedField"] as? String, "user edit")
         XCTAssertEqual(store.values[1].configuration["HTTPSProxy"] as? String, "::1")
         XCTAssertEqual(store.values[1].configuration["HTTPPort"] as? Int, 31111)
         XCTAssertEqual(store.values[1].configuration["SOCKSEnable"] as? Int, 0)
         XCTAssertNil(store.values[1].configuration["SOCKSProxy"])
         let changed = try await controller.restore()
-        XCTAssertTrue(changed)
-        XCTAssertEqual(store.values[0].configuration["HTTPPort"] as? Int, 9999)
+        XCTAssertFalse(changed)
+        XCTAssertEqual(store.values[0].configuration["UnmanagedField"] as? String, "user edit")
         XCTAssertTrue(NSDictionary(dictionary: store.values[1].configuration).isEqual(to: original))
+    }
+
+    func testSamePortPollDetectsExternalDisableBeforeEnrollingAnotherService() async throws {
+        let directory = temporary(); defer { try? FileManager.default.removeItem(at: directory) }
+        let store = MemoryPreferences(), controller = SystemProxyController(dataDirectory: directory, makeStore: { store })
+        try await controller.enable(port: 31001)
+        for kind in ["HTTP", "HTTPS", "SOCKS"] { store.values[0].configuration[kind + "Enable"] = 0 }
+        store.values.append(ProxyService(id: "ethernet", configuration: [:]))
+        do { try await controller.rebind(port: 31001); XCTFail("Expected external settings to end the session") }
+        catch { XCTAssertEqual((error as? ClientFailure)?.code, "proxy_changed") }
+        for kind in ["HTTP", "HTTPS", "SOCKS"] { XCTAssertEqual(store.values[0].configuration[kind + "Enable"] as? Int, 0) }
+        XCTAssertEqual(store.values[0].configuration["ProxyAutoConfigEnable"] as? Int, 1)
+        XCTAssertTrue(store.values[1].configuration.isEmpty)
+        let enabled = await controller.isEnabled, pending = await controller.needsRecovery
+        XCTAssertFalse(enabled); XCTAssertFalse(pending)
+    }
+
+    func testRebindRespectsExternalRestoreToOriginalSettings() async throws {
+        let directory = temporary(); defer { try? FileManager.default.removeItem(at: directory) }
+        let store = MemoryPreferences(), controller = SystemProxyController(dataDirectory: directory, makeStore: { store })
+        let original = store.values
+        try await controller.enable(port: 31001)
+        store.values = original
+        do { try await controller.rebind(port: 31002); XCTFail("A new port must respect external takeover") }
+        catch { XCTAssertEqual((error as? ClientFailure)?.code, "proxy_changed") }
+        XCTAssertEqual(store.applyCount, 1)
+        let enabled = await controller.isEnabled
+        XCTAssertFalse(enabled)
     }
 
     func testFailedNewServiceEnrollmentKeepsOriginalRecoveryRecords() async throws {

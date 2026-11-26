@@ -42,9 +42,8 @@ final class XrayProfileGraph {
         case "vMess": return UUID(uuidString: password) != nil
         case "vless": return !password.isEmpty && (password.count <= 30 || UUID(uuidString: password) != nil)
             && ["","xtls-rprx-vision","xtls-rprx-vision-udp443"].contains(proto["Flow"].text)
-        case "shadowsocks": return !password.isEmpty && ["aes-256-gcm","aes-128-gcm","chacha20-poly1305",
-            "chacha20-ietf-poly1305","xchacha20-poly1305","xchacha20-ietf-poly1305","none","plain",
-            "2022-blake3-aes-128-gcm","2022-blake3-aes-256-gcm","2022-blake3-chacha20-poly1305"].contains(proto["SsMethod"].text)
+        case "wireGuard": return XrayOutbound.acceptsWireGuardKeys(secret: password, options: proto)
+        case "shadowsocks": return XrayOutbound.acceptsShadowsocksPassword(password, method: proto["SsMethod"].text.lowercased())
         default: return true
         }
     }

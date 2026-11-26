@@ -225,9 +225,11 @@ final class DashboardRenderingEfficiencyTests: XCTestCase {
         XCTAssertFalse(state.permitsRendering)
         try await Task.sleep(for: .milliseconds(60))
         XCTAssertEqual(coordinator.phase, .suspended)
+        let resumed = expectation(description: "Dashboard finished catching up")
+        coordinator.phaseChanged = { if $0 == .live { resumed.fulfill() } }
         state.appActive = true; coordinator.update(state)
         XCTAssertEqual(coordinator.phase, .returning)
-        try await Task.sleep(for: .milliseconds(60))
+        await fulfillment(of: [resumed], timeout: 2)
         XCTAssertEqual(coordinator.phase, .live)
         coordinator.stop()
     }

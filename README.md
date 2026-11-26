@@ -8,6 +8,8 @@
 2. 在标题栏或菜单栏开启“系统代理”或“TUN”；两种模式互斥，关闭当前模式即可停止。
 3. 首次使用 TUN，在设置页注册并按 macOS 提示授权后台服务。开启前先暂停其他 VPN/TUN。
 
+节点导入和订阅刷新支持 SIP008 Shadowsocks JSON 及 WireGuard 配置文本。每个 WireGuard Peer 生成一个节点。
+
 支持节点编辑、延迟测试、参数/路由/DNS 设置、原生 TUN、流量趋势与累计统计。固定紧凑窗口，关闭窗口后继续在菜单栏运行。仅运行 Xray；不支持的节点明确报错并保留记录。
 
 日志逐条保留，按错误红、警告琥珀、启动/停止绿、信息蓝、调试紫区分。位于末尾时，新记录平滑滚入；阅读历史时保持位置，支持横向滚动并遵循“减少动态效果”。应用内最多保留 10,000 条，并限制字符总量。启用内核文件日志后，可在数据目录的 `guiLogs` 中查看。
@@ -24,7 +26,7 @@ Swift 直接读取 v2rayM 的 SQLite 数据库、生成配置、管理订阅和�
 
 ## 构建与验证
 
-需要 Xcode 工具链、Python 3 和 Go 1.27.3。对照旧 C# 实现时另需 .NET 10 SDK。以下为 Apple Silicon 示例，输出目录须尚不存在：
+需要 Xcode 工具链、Python 3 和 Go 1.27.3。以下为 Apple Silicon 示例，输出目录须尚不存在：
 
 ```sh
 bash scripts/fetch-macos-cores.sh osx-arm64 /tmp/v2raym-cores --data-only
@@ -33,14 +35,12 @@ SIGN_IDENTITY='Apple Development: YOUR_SIGNING_IDENTITY' \
   --output /tmp/v2raym-product --core-bin /tmp/v2raym-cores
 ```
 
-统一入口检查产品边界、固定输入、源码/组件摘要，构建并签名整包，执行隔离回环检查。定位资源按固定摘要生成。没有 Apple 团队签名的 ad-hoc 包不能用于特权 TUN。
+统一入口检查产品边界、固定输入、源码/组件摘要，构建并签名整包，执行隔离回环检查。打包会按锁定的上游提交和 SHA-256 核对两份分流 DAT，并验证主程序的名称与可执行权限。定位资源按固定摘要生成。没有 Apple 团队签名的 ad-hoc 包不能用于特权 TUN。
 
 ```sh
 python3 scripts/check-macos-product-boundaries.py
 python3 scripts/check-ddd-boundaries.py
 python3 scripts/generate-helper-contract.py --check
-dotnet test --project v2rayN/ServiceLib.Tests --configuration Release
-dotnet test --project v2rayN/v2rayN.WebAPI/Tests --configuration Release
 swift test --package-path macos/Native
 swift test --package-path macos/TunHelper
 ```

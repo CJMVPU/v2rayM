@@ -1,13 +1,14 @@
 /// A stronger match in a later feed entry takes precedence over an earlier weak match.
 package enum SubscriptionMatchPass: CaseIterable {
-    case exact, credentials, name, endpoint, address
+    case providerIdentity, exact, peerIdentity, credentials, name, endpoint, address
 }
 
 package struct SubscriptionIdentityMatches<Row> {
     package let matches: [Row?]
     package let unmatched: [Row]
 
-    package init<Key: Hashable>(stored: [Row], incoming: [Row], key: (SubscriptionMatchPass, Row) -> Key?) {
+    package init<Key: Hashable>(stored: [Row], incoming: [Row], key: (SubscriptionMatchPass, Row) -> Key?,
+                                compatible: (Row, Row) -> Bool) {
         var used = Set<Int>()
         var matches = [Row?](repeating: nil, count: incoming.count)
         for pass in SubscriptionMatchPass.allCases {
@@ -22,7 +23,7 @@ package struct SubscriptionIdentityMatches<Row> {
             }
             for (key, indices) in new {
                 guard let candidates = old[key], pass == .exact || (candidates.count == 1 && indices.count == 1) else { continue }
-                for (i, candidate) in zip(indices, candidates) {
+                for (i, candidate) in zip(indices, candidates) where compatible(stored[candidate], incoming[i]) {
                     matches[i] = stored[candidate]
                     used.insert(candidate)
                 }

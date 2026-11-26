@@ -206,7 +206,14 @@ extension NativeConfigurationStore {
             item["Subid"] = .text(subscription.id)
             item["IsSub"] = .integer(1)
             item["ConfigVersion"] = .integer(4)
-            if index.matches[i] != nil {
+            if let original = index.matches[i] {
+                // Older or alternate feeds may omit the ID for an otherwise matched server.
+                if let id = SubscriptionMatchIndex.providerID(original), SubscriptionMatchIndex.providerID(item) == nil,
+                   case let .text(json) = item["ProtoExtra"] {
+                    var options = try SettingsValue.parse(json)
+                    options["Sip008ServerId"] = .string(id.uuidString)
+                    item["ProtoExtra"] = .text(try options.json())
+                }
                 for key in ["CoreType","Username","Password","Sni","Alpn","Fingerprint","PublicKey","ShortId","SpiderX",
                             "Mldsa65Verify","EchConfigList","VerifyPeerCertByName","CertSha","Cert","Finalmask","AllowInsecure"] where item[key] == nil {
                     item[key] = .null

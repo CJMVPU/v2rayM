@@ -5,9 +5,8 @@ explicit user decision is **native macOS (SwiftUI/AppKit host + RealityKit visua
 Older documents describing multi-core support are historical, not requirements.
 
 ## Product boundaries
-- Keep the upstream Git/fork relationship. Reuse and improve ServiceLib/WebAPI
-  behind the native SwiftUI app. Do not restore Avalonia/WPF/Windows/Linux GUIs.
-- Xray is the only proxy executable. Do not restore sing-box compatibility,
+- Keep the upstream Git/fork relationship. Port applicable upstream behavior into Swift and keep compatibility fixtures in native tests. Do not restore Avalonia/WPF/Windows/Linux GUIs.
+- The embedded Xray library is the only proxy engine. Do not restore sing-box compatibility,
   models, generators, assets, SRS rules, downloads, or a SOCKS-to-TUN bridge.
   Do not add Mihomo or other engines, their update buttons, or executable fallbacks.
 - Unsupported imported or stored nodes must fail clearly; never silently route
@@ -43,7 +42,7 @@ Older documents describing multi-core support are historical, not requirements.
 - Run `python3 scripts/check-macos-product-boundaries.py` before builds and merges.
   Do not weaken the guard to pass an upstream merge; changes to scope require
   explicit user authorization.
-- Run affected backend/Swift/helper tests and packaged loopback smoke checks.
+- Run affected native Swift/helper tests and packaged loopback smoke checks.
   Record build, signing, installation and real-network acceptance separately.
 - Preserve uncommitted user work and secrets. Do not commit, push, publish, or
   modify other apps unless requested. Do not claim a local package is notarized.

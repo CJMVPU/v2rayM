@@ -3,6 +3,51 @@ import Security
 
 /// Generates an Xray outbound from a stored node and the user's core settings.
 struct XrayOutbound {
+    // Matches cipherFromString and shadowsocks_2022.GetCipherMethod in the bundled Xray revision.
+    static let shadowsocksMethods: Set<String> = [
+        "aes-128-gcm", "aead_aes_128_gcm", "aes-256-gcm", "aead_aes_256_gcm",
+        "chacha20-poly1305", "aead_chacha20_poly1305", "chacha20-ietf-poly1305",
+        "xchacha20-poly1305", "aead_xchacha20_poly1305", "xchacha20-ietf-poly1305",
+        "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm", "2022-blake3-chacha20-poly1305"
+    ]
+
+    static func acceptsShadowsocksPassword(_ password: String, method: String) -> Bool {
+        guard shadowsocksMethods.contains(method), !password.isEmpty else { return false }
+        guard method.hasPrefix("2022-") else { return true }
+        let length = method == "2022-blake3-aes-128-gcm" ? 16 : 32
+        let keys = password.components(separatedBy: ":")
+        guard keys.count == 1 || method != "2022-blake3-chacha20-poly1305" else { return false }
+        return keys.allSatisfy { key in
+            // The pinned Xray accepts raw bytes only if standard Base64 decoding fails.
+            let encoded = key.utf8.filter { $0 != 13 && $0 != 10 }
+            let padding = encoded.drop(while: { $0 != 61 })
+            if encoded.count.isMultiple(of: 4), padding.count <= 2, padding.allSatisfy({ $0 == 61 }),
+               let bytes = Data(base64Encoded: Data(encoded)) { return bytes.count == length }
+            return key.utf8.count == length
+        }
+    }
+
+    static func wireGuardKeyIdentity(_ value: String) -> String? {
+        if value.utf8.count == 64, value.utf8.allSatisfy({ (48...57).contains($0) || (65...70).contains($0) || (97...102).contains($0) }) {
+            return value.lowercased()
+        }
+        let unpadded = value.hasSuffix("=") ? String(value.dropLast()) : value
+        let raw = String(decoding: unpadded.utf8.filter { $0 != 13 && $0 != 10 }, as: UTF8.self)
+        guard raw.utf8.count == 43 else { return nil }
+        guard !raw.contains("=") else { return nil }
+        let standard = raw.contains("+") || raw.contains("/")
+        guard !standard || (!raw.contains("-") && !raw.contains("_")) else { return nil }
+        let base64 = raw.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        guard let bytes = Data(base64Encoded: base64 + "="), bytes.count == 32 else { return nil }
+        return bytes.map { String(format: "%02x", $0) }.joined()
+    }
+
+    static func acceptsWireGuardKeys(secret: String, options: SettingsValue) -> Bool {
+        let shared = options["WgPresharedKey"].text
+        return wireGuardKeyIdentity(secret) != nil && wireGuardKeyIdentity(options["WgPublicKey"].text) != nil
+            && (shared.isEmpty || wireGuardKeyIdentity(shared) != nil)
+    }
+
     let node: SettingsValue
     let config: SettingsValue
     let protocolOptions: SettingsValue
@@ -49,8 +94,14 @@ struct XrayOutbound {
             settings["ota"] = .bool(false)
             settings["level"] = .number(1)
             if kind == "shadowsocks" {
-                guard let method = protocolOptions["SsMethod"].nonemptyString else { throw ClientFailure("profile_validation_failed") }
-                settings["method"] = method
+                let method = protocolOptions["SsMethod"].text.lowercased()
+                guard Self.shadowsocksMethods.contains(method) else {
+                    throw ClientFailure("profile_validation_failed", "当前 Xray 内核不支持此 Shadowsocks 加密方式。")
+                }
+                guard Self.acceptsShadowsocksPassword(node["password"].text, method: method) else {
+                    throw ClientFailure("profile_validation_failed", "Shadowsocks 密钥格式或长度无效。")
+                }
+                settings["method"] = .string(method)
                 if protocolOptions["Uot"].flag { settings["uot"] = .bool(true) }
             }
         case "hysteria2": settings["version"] = .number(2)
@@ -92,17 +143,28 @@ struct XrayOutbound {
             return text.split { $0 == "," || $0.isNewline }
                 .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         }
+        guard Self.acceptsWireGuardKeys(secret: node["password"].text, options: protocolOptions) else {
+            throw ClientFailure("profile_validation_failed", "WireGuard 密钥须为 32 字节的 Base64 或十六进制编码。")
+        }
         let address = node["address"].text
         let host = address.contains(":") && !address.hasPrefix("[") ? "[\(address)]" : address
         var peer: [String: SettingsValue] = ["endpoint": .string("\(host):\(port)"),
                                               "publicKey": .string(protocolOptions["WgPublicKey"].text)]
         peer["preSharedKey"] = protocolOptions["WgPresharedKey"].optionalValue
+        if let allowed = list("WgAllowedIPs") { peer["allowedIPs"] = .array(allowed.map(SettingsValue.string)) }
+        if !protocolOptions["WgKeepAlive"].text.isEmpty {
+            guard let seconds = UInt16(protocolOptions["WgKeepAlive"].text) else { throw ClientFailure("profile_validation_failed") }
+            peer["keepAlive"] = .number(Double(seconds))
+        }
         let mtu = Int(protocolOptions["WgMtu"].text) ?? 0
         var settings: [String: SettingsValue] = [
             "address": .array((list("WgInterfaceAddress") ?? ["172.16.0.2/32"]).map(SettingsValue.string)),
             "secretKey": node["password"], "mtu": .number(Double(mtu > 0 ? mtu : 1280)), "peers": .array([.object(peer)])
         ]
         if let reserved = list("WgReserved") {
+            guard reserved.count == 3 else {
+                throw ClientFailure("profile_validation_failed", "WireGuard Reserved 须留空或填写三个字节。")
+            }
             settings["reserved"] = .array(try reserved.map {
                 guard let byte = UInt8($0) else { throw ClientFailure("profile_validation_failed") }
                 return .number(Double(byte))

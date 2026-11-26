@@ -61,11 +61,18 @@ public actor EmbeddedXray {
         return ok == 1 ? counts.map { $0 / 1024 } : nil
     }
 
+    // The pinned core includes the entire PSK list in this diagnostic. Discard that
+    // diagnostic even for file-backed configurations, including embedded newlines.
+    nonisolated static func safeDiagnostic(_ message: String) -> String {
+        if message.contains("shadowsocks_2022: invalid key:") { return "Shadowsocks 2022 密钥格式或长度无效。" }
+        return message
+    }
+
     func drainLogs() -> [String] {
         guard let result = drain() else { return [] }
         defer { release(result) }
         let bytes = Data(bytes: result, count: strlen(result))
-        return (try? JSONDecoder().decode([String].self, from: bytes)) ?? []
+        return ((try? JSONDecoder().decode([String].self, from: bytes)) ?? []).map(Self.safeDiagnostic)
     }
 
     public init(bundle: URL) throws {
@@ -118,7 +125,7 @@ public actor EmbeddedXray {
         }
         if let error {
             defer { release(error) }
-            throw ClientFailure("core_start_failed", String(cString: error))
+            throw ClientFailure("core_start_failed", Self.safeDiagnostic(String(cString: error)))
         }
         owner = sessionID
     }
@@ -132,7 +139,7 @@ public actor EmbeddedXray {
         try Task.checkCancellation()
         if let error = openProbe(key, try configuration.json(), assets.path) {
             defer { release(error) }
-            throw ClientFailure("speedtest_invalid_profile", String(cString: error))
+            throw ClientFailure("speedtest_invalid_profile", Self.safeDiagnostic(String(cString: error)))
         }
         // The Go call can block in a network read. Keep both the actor and Swift's
         // cooperative executors available for mode switches and cancellation.

@@ -11,6 +11,9 @@ private actor RuntimeFixtureAPI: NativeAPI {
     var logBatch: [[String: Any]] = []
     var sampleProfiles = false
     var selectedID = "fixture"
+    var runningID = "fixture"
+    var deletionReplacement: String?
+    func prepareDeletion(replacement: String?) { deletionReplacement = replacement }
     func restartFixture(at date: String) { startedAt = date }
     func selectFixture(_ id: String) { selectedID = id; sampleProfiles = true }
     func setLogHosts(_ values: [String]) {
@@ -87,8 +90,15 @@ private actor RuntimeFixtureAPI: NativeAPI {
         case "/api/status":
             statusReads += 1
             result = ["coreRunning": running, "xrayAvailable": true, "runtimeState": running ? "running" : faulted ? "faulted" : "stopped",
-                      "currentProfileId": selectedID, "runningProfileId": "fixture", "runningProxyPort": proxyPort,
+                      "currentProfileId": selectedID, "runningProfileId": runningID, "runningProxyPort": proxyPort,
                       "coreStartedAt": startedAt] as [String: Any]
+        case "/api/profiles" where method == "DELETE":
+            let wasRunning = running
+            selectedID = deletionReplacement ?? ""
+            runningID = selectedID
+            running = wasRunning && deletionReplacement != nil
+            if running { proxyPort += 1 }
+            result = ["stoppedServing": wasRunning && !running]
         case "/api/profiles?subscriptionId=&includeStatistics=false":
             result = sampleProfiles ? ["first", "second"].map { id -> [String: Any] in
                 ["indexId": id, "remarks": id, "protocol": "vless", "address": id + ".invalid", "port": 443,
@@ -177,10 +187,16 @@ private actor RuntimeFixtureProxy: NativeProxy {
     var needsRecovery = false
     var restores = 0
     var boundPort: Int?
+    var takenOver = false
+    func takeOver() { takenOver = true }
     func enableProxy(endpoints: ProxyEndpoints) { isEnabled = true; boundPort = endpoints.preferredPort }
     func restoreProxy() { restores += 1; isEnabled = false }
     func restore() -> Bool { restores += 1; isEnabled = false; return false }
-    func rebind(endpoints: ProxyEndpoints) throws { if !isEnabled { throw ClientFailure("proxy_recovery") }; boundPort = endpoints.preferredPort }
+    func rebind(endpoints: ProxyEndpoints) throws {
+        if takenOver { takenOver = false; isEnabled = false; throw ClientFailure("proxy_changed") }
+        guard isEnabled else { throw ClientFailure("proxy_recovery") }
+        boundPort = endpoints.preferredPort
+    }
 }
 private final class RuntimeFixtureClock: NativeClock, @unchecked Sendable {
     private let lock = NSLock()
@@ -530,6 +546,53 @@ private actor HeldConnectionBatch: RecentConnectionParsing {
         XCTAssertTrue(enabled); XCTAssertNotNil(model.observationErrors["runtime"])
         _ = await model.shutdown()
     }
+    func testDeletingCurrentNodeReconcilesSystemProxyWithCommittedRemoval() async throws {
+        for scenario in ["replacement", "last", "rejected"] {
+            let (model, api, _, proxy, _, _) = await fixture()
+            await api.selectFixture("first")
+            await api.prepareDeletion(replacement: scenario == "replacement" ? "second" : nil)
+            model.toggleProxy(true)
+            await settle(model)
+            let current = try XCTUnwrap(model.profiles.first(where: \.isCurrent))
+            let before = await proxy.restores
+            if scenario == "rejected" { await api.fail("/api/profiles") }
+            model.deleteProfile(current)
+            await settle(model)
+            let restores = await proxy.restores
+            let boundPort = await proxy.boundPort
+            if scenario == "last" {
+                XCTAssertEqual(model.desiredMode, .off)
+                XCTAssertFalse(model.systemProxyEnabled)
+                XCTAssertEqual(restores, before + 1)
+                XCTAssertEqual(model.status?.coreRunning, false)
+            } else {
+                XCTAssertEqual(model.desiredMode, .system)
+                XCTAssertTrue(model.systemProxyEnabled)
+                XCTAssertEqual(restores, before)
+                XCTAssertEqual(boundPort, scenario == "replacement" ? 10809 : 10808)
+                XCTAssertEqual(model.status?.currentProfileId, scenario == "replacement" ? "second" : "first")
+            }
+            XCTAssertEqual(model.error != nil, scenario == "rejected")
+            _ = await model.shutdown()
+        }
+    }
+
+    func testDeletingLastServingTunnelNodeClearsTunIntent() async throws {
+        let (model, api, _, _, _, _) = await fixture()
+        await api.selectFixture("first")
+        model.toggleTun(true)
+        await settle(model)
+        XCTAssertEqual(model.desiredMode, .tun)
+        let current = try XCTUnwrap(model.profiles.first(where: \.isCurrent))
+        model.deleteProfile(current)
+        await settle(model)
+        XCTAssertNil(model.error)
+        XCTAssertEqual(model.desiredMode, .off)
+        let persistedTunIntent = await api.tunEnabled
+        XCTAssertFalse(persistedTunIntent)
+        _ = await model.shutdown()
+    }
+
     func testOwnedBackendExitRestoresProxy() async {
         let (model, _, backend, proxy, _, _) = await fixture()
         model.toggleProxy(true); await settle(model)
@@ -760,6 +823,19 @@ private actor HeldConnectionBatch: RecentConnectionParsing {
         XCTAssertEqual(finalRestarts, 1); XCTAssertFalse(model.networkRecovery.active)
         _ = await model.shutdown()
     }
+    func testSystemProxyTakeoverStopsTheListenerAndRecoveryIntent() async {
+        let (model, api, _, proxy, clock, _) = await fixture()
+        model.toggleProxy(true); await settle(model)
+        await proxy.takeOver()
+        clock.advance(4); await model.pollOnce()
+        let running = await api.running
+        XCTAssertFalse(running)
+        XCTAssertFalse(model.systemProxyEnabled)
+        XCTAssertFalse(model.networkRecovery.active)
+        XCTAssertEqual(model.error, ClientFailure("proxy_changed").localizedDescription)
+        _ = await model.shutdown()
+    }
+
     func testSystemRecoveryRebindsAChangedProxyPort() async {
         let (model, api, _, proxy, clock, network) = await fixture()
         model.toggleProxy(true); await settle(model)

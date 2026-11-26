@@ -209,7 +209,7 @@ enum ProfileTransfer {
             default: break
             }
         case "wireguard":
-            for (key,field) in [("publickey","WgPublicKey"),("presharedkey","WgPresharedKey"),("reserved","WgReserved"),("address","WgInterfaceAddress"),("dns","WgDns"),("mtu","WgMtu")] { parameter(key,field) }
+            for (key,field) in [("publickey","WgPublicKey"),("presharedkey","WgPresharedKey"),("reserved","WgReserved"),("address","WgInterfaceAddress"),("dns","WgDns"),("mtu","WgMtu"),("allowedips","WgAllowedIPs"),("keepalive","WgKeepAlive")] { parameter(key,field) }
             add("fm",node["finalmask"].text)
         case "hysteria2":
             guard proto["Hy2RealmUrl"].text.isEmpty else { throw ClientFailure("share_realm_unsupported") }

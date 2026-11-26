@@ -545,7 +545,19 @@ import V2rayMKit
         catch {
             systemProxyEnabled = await proxy.isEnabled
             proxyNeedsRecovery = await proxy.needsRecovery
-            if !systemProxyEnabled && desiredMode == .system { connection.request(.off) }
+            if !systemProxyEnabled && desiredMode == .system {
+                connection.request(.off)
+                if (error as? ClientFailure)?.code == "proxy_changed", let api {
+                    // The system no longer uses this listener. Finish the disconnect
+                    // without acquiring ownership of the other application's settings.
+                    do { try await api.stopProxyCore() }
+                    catch {
+                        pendingDisconnect = true
+                        disconnectRetryAt = clock.now().addingTimeInterval(2)
+                        observationErrors["disconnect"] = error.localizedDescription
+                    }
+                }
+            }
             self.error = error.localizedDescription
             throw error
         }
@@ -569,8 +581,18 @@ import V2rayMKit
     }
     func deleteProfile(_ item: Profile) {
         run { [self] api in
-            if item.isCurrent { try await restoreProxy() }
-            try await api.send("/api/profiles", method: "DELETE", body: ProfileIDs([item.id]))
+            struct Removal: Decodable { let stoppedServing: Bool }
+            let response = try await api.encodedResponse("/api/profiles", method: "DELETE",
+                                                         body: JSONEncoder().encode(ProfileIDs([item.id])))
+            guard let removal = try JSONDecoder().decode(APIEnvelope<Removal>.self, from: response).data else {
+                throw ClientFailure("response_missing")
+            }
+            if removal.stoppedServing {
+                let wasTun = desiredMode == .tun || tun?.enabled == true
+                connection.request(.off)
+                if systemProxyEnabled { try await restoreProxy() }
+                if wasTun { try await api.setTunEnabled(false) }
+            }
         }
     }
     func updateModules(_ scope: ModuleUpdateScope) {

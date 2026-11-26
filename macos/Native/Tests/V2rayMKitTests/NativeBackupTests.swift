@@ -2,6 +2,46 @@ import XCTest
 @testable import V2rayMKit
 
 final class NativeBackupTests: XCTestCase {
+    func testWebDAVCheckVerifiesReadbackAndCleansNestedProbe() async throws {
+        let storage = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let serverRoot = storage.appendingPathComponent("server")
+        try FileManager.default.createDirectory(at: serverRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: storage) }
+        let script = try XCTUnwrap(Bundle.module.url(forResource: "webdav-server", withExtension: "py", subdirectory: "Fixtures"))
+        let peer = Process(), input = Pipe(), output = Pipe()
+        peer.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        peer.arguments = [script.path, serverRoot.path]
+        peer.standardInput = input
+        peer.standardOutput = output
+        try peer.run()
+        defer { try? input.fileHandleForWriting.close(); peer.waitUntilExit() }
+        let port = try XCTUnwrap(Int(String(decoding: output.fileHandleForReading.availableData, as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)))
+        let host = NativeRuntimeHost(dataDirectory: storage.appendingPathComponent("app"), mayContactHelper: false, automaticMaintenance: false)
+        let api = try await host.startClient()
+        for scenario in ["ok", "shared", "denied", "corrupt"] {
+            let base = serverRoot.appendingPathComponent(scenario)
+            try FileManager.default.createDirectory(at: base, withIntermediateDirectories: false)
+            if scenario == "shared" {
+                try FileManager.default.createDirectory(at: base.appendingPathComponent("team/backup"), withIntermediateDirectories: true)
+            }
+            let settings: SettingsValue = .object(["url": .string("http://127.0.0.1:\(port)/\(scenario)"),
+                                                  "dirName": .string("team/backup"), "userName": .string("test"),
+                                                  "password": .string("test")])
+            try await api.send("/api/settings/webdav", method: "PUT", body: settings)
+            do {
+                try await api.perform("/api/backup/webdav/check")
+                XCTAssertTrue(["ok", "shared"].contains(scenario), "unreadable or corrupted data passed verification")
+            } catch let failure as ClientFailure {
+                XCTAssertTrue(["denied", "corrupt"].contains(scenario))
+                XCTAssertEqual(failure.code, "webdav_transfer_failed")
+            }
+            let files = try FileManager.default.contentsOfDirectory(atPath: base.appendingPathComponent("team/backup").path)
+            XCTAssertTrue(files.isEmpty, "probe left a file after \(scenario)")
+        }
+        try await host.stop()
+    }
+
     private func oldBackup() throws -> Data {
         let file = try XCTUnwrap(Bundle.module.url(forResource: "legacy-backup", withExtension: "zip", subdirectory: "Fixtures"))
         return try Data(contentsOf: file)

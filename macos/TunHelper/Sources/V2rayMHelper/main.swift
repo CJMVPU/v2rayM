@@ -9,10 +9,12 @@ final class SessionEndpoint: NSObject, TunHelperProtocol {
     let cancellation = HelperCancellation()
     let recovery: SessionRecoveryStore
     let limiter: SlotLimiter
+    private let owner: uid_t
     private let slot = UUID()
     private var sessionToken: String?
     private var lease: NetworkLease?
-    init(limiter: SlotLimiter, recovery: SessionRecoveryStore) {
+    init(limiter: SlotLimiter, recovery: SessionRecoveryStore, owner: uid_t) {
+        self.owner = owner
         self.limiter = limiter
         self.recovery = recovery
     }
@@ -26,9 +28,13 @@ final class SessionEndpoint: NSObject, TunHelperProtocol {
                 }
                 let plan = try JSONDecoder().decode(TunnelNetworkPlan.self, from: parameters)
                 guard self.limiter.acquire(self.slot) else { throw HelperFailure("tunnel_busy") }
-                guard self.recovery.begin(plan.token.uuidString) else {
+                do {
+                    guard try self.recovery.begin(plan.token.uuidString, owner: self.owner) else {
+                        throw HelperFailure("session_token_invalid")
+                    }
+                } catch {
                     self.limiter.release(self.slot)
-                    throw HelperFailure("session_token_invalid")
+                    throw error
                 }
                 accepted = true
                 self.sessionToken = plan.token.uuidString
@@ -66,7 +72,7 @@ final class SessionEndpoint: NSObject, TunHelperProtocol {
                     try self.restore()
                     response = HelperResponse(state: "stopped")
                 case "cleanup-status":
-                    response = self.recovery.status(request.sessionToken)
+                    response = self.recovery.status(request.sessionToken, owner: self.owner)
                 default: throw HelperFailure("unsupported_helper_action")
                 }
             } catch {
@@ -80,8 +86,8 @@ final class SessionEndpoint: NSObject, TunHelperProtocol {
         guard let token = sessionToken else { return }
         try lease?.restore()
         lease = nil
+        try recovery.finish(token, confirmed: true, owner: owner)
         limiter.release(slot)
-        recovery.finish(token, confirmed: true)
         sessionToken = nil
     }
 
@@ -97,7 +103,7 @@ final class ListenerDelegate: NSObject, NSXPCListenerDelegate {
     let signing: SigningPolicy
     let limiter = SlotLimiter(capacity: 1)
     let cleanup = SessionCleanupCoordinator()
-    let recovery = SessionRecoveryStore()
+    let recovery: SessionRecoveryStore
     private let lock = NSLock()
     private var sessions: [UUID: SessionEndpoint] = [:]
     private var stopping = false
@@ -110,11 +116,12 @@ final class ListenerDelegate: NSObject, NSXPCListenerDelegate {
         guard bundle.pathExtension == "app", executable.lastPathComponent == "V2rayMHelper" else {
             throw HelperFailure("signed_app_bundle_required")
         }
+        recovery = try SessionRecoveryStore(directory: URL(fileURLWithPath: "/private/var/db/" + HelperIdentity.service))
         super.init()
     }
     func listener(_ listener: NSXPCListener, shouldAcceptNewConnection connection: NSXPCConnection) -> Bool {
         connection.setCodeSigningRequirement(signing.requirement(identifiers: [HelperIdentity.app]))
-        let endpoint = SessionEndpoint(limiter: limiter, recovery: recovery)
+        let endpoint = SessionEndpoint(limiter: limiter, recovery: recovery, owner: connection.effectiveUserIdentifier)
         let id = UUID()
         lock.lock()
         guard !stopping else { lock.unlock(); return false }

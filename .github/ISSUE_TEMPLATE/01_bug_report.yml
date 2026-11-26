@@ -18,8 +18,8 @@ body:
   - type: input
     id: "os-version"
     attributes:
-      label: "操作系统 / v2rayN / Core 版本"
-      description: "操作系统 / v2rayN / Core 版本"
+      label: "macOS / v2rayM / Xray 版本"
+      description: "macOS / v2rayM / Xray 版本"
     validations:
       required: true
 
@@ -52,8 +52,8 @@ body:
     id: "gui-log"
     attributes:
       label: "软件日志"
-      description: "位置在软件当前目录下的guiLogs"
-      placeholder: "在日志开始和结束位置粘贴冒号后的内容到这："
+      description: "在 v2rayM 的日志页复制相关时段的记录。"
+      placeholder: "粘贴相关时段的日志"
     validations:
       required: true
 
@@ -61,8 +61,8 @@ body:
     id: "core-log"
     attributes:
       label: "内核日志"
-      description: "位置在软件主界面的信息框内"
-      placeholder: "在信息框内鼠标右键复制全部信息粘贴在这："
+      description: "在日志页查找同一时段的 Xray 记录。"
+      placeholder: "粘贴相关 Xray 日志"
     validations:
       required: true
 

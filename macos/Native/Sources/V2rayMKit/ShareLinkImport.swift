@@ -3,10 +3,12 @@ import Foundation
 /// Decode the share link into the existing SQLite representation before opening a write transaction.
 struct ShareLinkImport {
     static func decode(_ content: String, subscriptionName: String? = nil) throws -> [RuntimeDatabase.Row] {
-        var text = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        let padding = CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "\u{FEFF}"))
+        var text = content.trimmingCharacters(in: padding)
         if !text.contains("://"), let decoded = base64Text(text.components(separatedBy: .whitespacesAndNewlines).joined()) {
-            text = decoded
+            text = decoded.trimmingCharacters(in: padding)
         }
+        if let peers = try WireGuardImport.decodeIfPresent(text) { return peers }
         if text.hasPrefix("{") || text.hasPrefix("[") { return try FileProfileImport.decode(text, subscriptionName: subscriptionName) }
         let links = text.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         guard !links.isEmpty else { throw ClientFailure("profile_import_empty") }
@@ -87,7 +89,7 @@ struct ShareLinkImport {
             if let flow = query["flow"] { proto["Flow"] = .string(flow) }
             if kind == 9 {
                 for (key, field) in [("publickey","WgPublicKey"),("presharedkey","WgPresharedKey"),("reserved","WgReserved"),
-                                     ("address","WgInterfaceAddress"),("dns","WgDns")] {
+                                     ("address","WgInterfaceAddress"),("dns","WgDns"),("allowedips","WgAllowedIPs"),("keepalive","WgKeepAlive")] {
                     proto[field] = query[key].map(SettingsValue.string)
                 }
                 if let mtu = Int(query["mtu"] ?? "") { proto["WgMtu"] = .number(Double(mtu)) }
