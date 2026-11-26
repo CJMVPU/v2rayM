@@ -6,10 +6,14 @@ import SwiftUI
 
 @MainActor final class DashboardPlotLayerTests: XCTestCase {
     private func samples(_ count: Int = 61) -> [TrafficTrendSample] {
-        (0..<count).map { index in
-            TrafficTrendSample(date: Date(timeIntervalSince1970: 1000 + Double(index) * 5),
-                upload: Double(index % 13) * 20, download: Double(index % 19) * 100,
-                directUpload: Double(index % 17) * 40, directDownload: Double(index % 23) * 80, segment: index < 30 ? 1 : 2)
+        (0..<count).map { index -> TrafficTrendSample in
+            let date = Date(timeIntervalSince1970: 1000 + Double(index) * 5)
+            let upload = Double(index % 13) * 20
+            let download = Double(index % 19) * 100
+            let directUpload = Double(index % 17) * 40
+            let directDownload = Double(index % 23) * 80
+            return TrafficTrendSample(date: date, upload: upload, download: download,
+                directUpload: directUpload, directDownload: directDownload, segment: index < 30 ? 1 : 2)
         }
     }
     private func frameConfiguration(animate: Bool = true, supplied: [TrafficTrendSample]? = nil,
