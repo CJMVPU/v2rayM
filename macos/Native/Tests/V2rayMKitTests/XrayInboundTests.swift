@@ -18,35 +18,55 @@ final class XrayInboundTests: XCTestCase {
 
     func testSocksUDPAssociationUsesEphemeralPortAndOnlyTCPIsPreflighted() throws {
         let udp = socket(AF_INET, SOCK_DGRAM, 0)
-        XCTAssertGreaterThanOrEqual(udp, 0)
+        guard udp >= 0 else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }
         defer { close(udp) }
         var address = sockaddr_in()
         address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
         address.sin_family = sa_family_t(AF_INET)
         address.sin_addr.s_addr = inet_addr("127.0.0.1")
         var length = socklen_t(MemoryLayout<sockaddr_in>.size)
-        let bound = withUnsafeMutablePointer(to: &address) { ptr in
-            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.bind(udp, $0, length) == 0 && getsockname(udp, $0, &length) == 0 }
+        func bindSocket(_ fd: Int32) -> Int32 {
+            withUnsafeMutablePointer(to: &address) { pointer in
+                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.bind(fd, $0, length) }
+            }
         }
-        XCTAssertTrue(bound)
+
+        // Reserve TCP first: a port chosen by the UDP allocator can already be in use by TCP.
+        func reserveBothProtocols() throws -> Int32 {
+            for _ in 0..<16 {
+                let tcp = socket(AF_INET, SOCK_STREAM, 0)
+                guard tcp >= 0 else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }
+                var reserved = false
+                defer { if !reserved { close(tcp) } }
+                address.sin_port = 0
+                guard bindSocket(tcp) == 0 else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }
+                let result = withUnsafeMutablePointer(to: &address) { pointer in
+                    pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(tcp, $0, &length) }
+                }
+                guard result == 0 else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }
+                if bindSocket(udp) == 0 {
+                    reserved = true
+                    return tcp
+                }
+                guard errno == EADDRINUSE else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }
+            }
+            throw POSIXError(.EADDRINUSE)
+        }
+
         var entry = try SettingsValue.parse("""
-        {"protocol":"mixed","listen":"127.0.0.1","port":\(UInt16(bigEndian: address.sin_port)),"settings":{"udp":false}}
+        {"protocol":"mixed","listen":"127.0.0.1","settings":{"udp":false}}
         """)
+        let occupiedTCP = try reserveBothProtocols()
+        entry["port"] = .number(Double(UInt16(bigEndian: address.sin_port)))
+        XCTAssertThrowsError(try XrayInbound.checkNewListeners(before: [], after: [entry])) {
+            XCTAssertEqual(($0 as? ClientFailure)?.code, "proxy_port_in_use")
+        }
+        close(occupiedTCP)
         XCTAssertNoThrow(try XrayInbound.checkNewListeners(before: [], after: [entry]))
         let tcpOnly = entry
         entry["settings"]["udp"] = .bool(true)
         XCTAssertNoThrow(try XrayInbound.checkNewListeners(before: [tcpOnly], after: [entry]))
         XCTAssertNoThrow(try XrayInbound.checkNewListeners(before: [], after: [entry]))
-        let occupiedTCP = socket(AF_INET, SOCK_STREAM, 0)
-        XCTAssertGreaterThanOrEqual(occupiedTCP, 0)
-        defer { close(occupiedTCP) }
-        let tcpBound = withUnsafeMutablePointer(to: &address) { pointer in
-            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.bind(occupiedTCP, $0, length) == 0 }
-        }
-        XCTAssertTrue(tcpBound)
-        XCTAssertThrowsError(try XrayInbound.checkNewListeners(before: [], after: [entry])) {
-            XCTAssertEqual(($0 as? ClientFailure)?.code, "proxy_port_in_use")
-        }
     }
 
     func testSystemProxySeparatesProtocolAndAddressAndSkipsIncompatibleListeners() throws {
