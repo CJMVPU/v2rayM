@@ -1,13 +1,14 @@
 import Foundation
 import XCTest
+import V2rayMDomain
 @testable import V2rayMKit
 
 final class NativeMaintenanceTests: XCTestCase {
     func testLegacyCadenceAndGroupScopedFilesystemCleanup() async throws {
-        XCTAssertEqual(NativeMaintenance.due(minute: 1, geoHours: 2), [.subscriptions])
-        XCTAssertEqual(NativeMaintenance.due(minute: 60, geoHours: 2), [.subscriptions, .saveState, .cleanFiles])
-        XCTAssertEqual(NativeMaintenance.due(minute: 120, geoHours: 2), [.subscriptions, .saveState, .cleanFiles, .geo])
-        XCTAssertEqual(NativeMaintenance.due(minute: 1441, geoHours: 0), [.subscriptions])
+        XCTAssertEqual(MaintenanceAction.due(minute: 1, geoHours: 2), [.subscriptions])
+        XCTAssertEqual(MaintenanceAction.due(minute: 60, geoHours: 2), [.subscriptions, .saveState, .cleanFiles])
+        XCTAssertEqual(MaintenanceAction.due(minute: 120, geoHours: 2), [.subscriptions, .saveState, .cleanFiles, .geo])
+        XCTAssertEqual(MaintenanceAction.due(minute: 1441, geoHours: 0), [.subscriptions])
 
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }

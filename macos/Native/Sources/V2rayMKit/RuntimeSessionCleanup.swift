@@ -1,17 +1,12 @@
 import Foundation
+import V2rayMApplication
 
 enum RuntimeSessionCleanup {
     static func run(stopCore: () async throws -> Void, restoreNetwork: () async throws -> Void) async throws {
-        var coreError: Error?
-        do { try await stopCore() } catch { coreError = error }
-        do { try await restoreNetwork() }
-        catch {
-            if let coreError {
-                throw ClientFailure((error as? ClientFailure)?.code ?? "tun_stop_unconfirmed",
-                                    coreError.localizedDescription + " · " + error.localizedDescription)
-            }
-            throw error
+        do { try await RuntimeSessionShutdown.run(stopCore: stopCore, restoreNetwork: restoreNetwork) }
+        catch let failures as RuntimeSessionShutdown.Failures {
+            throw ClientFailure((failures.network as? ClientFailure)?.code ?? "tun_stop_unconfirmed",
+                                failures.core.localizedDescription + " · " + failures.network.localizedDescription)
         }
-        if let coreError { throw coreError }
     }
 }

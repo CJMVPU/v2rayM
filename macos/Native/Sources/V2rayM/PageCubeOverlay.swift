@@ -22,6 +22,7 @@ enum PageCube {
     private var cursorTimer: Timer?
     private var cursorIndex = 0
     private var appliedCursor: NSCursor?
+    private weak var cursorHost: NSView?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -94,7 +95,8 @@ enum PageCube {
         }
         return NSCursor(image: image, hotSpot: arrow.hotSpot)
     }
-    func startCursor() {
+    func startCursor(in host: NSView) {
+        cursorHost = host
         advanceCursor()
         let timer = Timer(timeInterval: 1/12, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.advanceCursor() }
@@ -103,8 +105,8 @@ enum PageCube {
         cursorTimer = timer
     }
     private func advanceCursor() {
-        guard let window, window.isKeyWindow,
-              bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil)) else { restoreCursor(); return }
+        guard let host = cursorHost, let window = host.window, window.isKeyWindow,
+              host.bounds.contains(host.convert(window.mouseLocationOutsideOfEventStream, from: nil)) else { restoreCursor(); return }
         let cursor = Self.cursors[cursorIndex]
         cursorIndex = (cursorIndex + 1) % Self.cursors.count
         cursor.set()
@@ -118,6 +120,7 @@ enum PageCube {
         cursorTimer?.invalidate()
         cursorTimer = nil
         restoreCursor()
-        if let window { window.invalidateCursorRects(for: self) }
+        if let host = cursorHost { host.window?.invalidateCursorRects(for: host) }
+        cursorHost = nil
     }
 }

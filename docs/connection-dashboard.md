@@ -20,8 +20,7 @@ dark background/panel colors; system light appearance does not select a light th
 - The disc and all four rings share the horizontal and vertical center of the
   gauge area above the traffic trend. Vertical position uses the actual gauge
   height, with no accumulated offsets. The four badges and trend retain their
-  positions; the redundant current-connection heading is omitted. Hover adds a clearly visible disc fill and cyan/purple rim with a
-  0.18-second transition, without changing geometry. Hover is tested against the inset disc radius,
+  positions; the redundant current-connection heading is omitted. Hover slightly enlarges and tilts the disc inside its fixed hit region. The node and recent-connection cards use the same depth effect. Hover is tested against the inset disc radius,
   excluding ring tracks and square bounding-box corners. Gauge tooltips and the
   Settings home-display explanation section are removed. Source attribution
   remains bundled in Resources/Globe/ATTRIBUTION.txt.
@@ -45,11 +44,9 @@ disabled and stopped samples do not become synthetic zeroes. Interruptions and
 gaps of 12 seconds or more break the line. A different running profile or core
 start timestamp starts a new line segment while preserving recent history;
 switching UI pages also preserves history. Stopping or disabling statistics
-freezes the chart clock. When sampling resumes, the real five-minute window
-applies again, so points older than five minutes expire naturally. On resume,
-a presentation-only snapshot of expired history crossfades into the live chart
-over 1.2 seconds; expired data never contributes to live peaks. Reduce Motion
-and hidden windows skip this transition. All four lines share one hidden axis; scale is determined from the five-minute
+freezes the chart clock. When sampling resumes, the five-minute window expires old points. On return from the background,
+the last displayed viewport blends directly to the current one over 0.45 seconds.
+Expired samples are excluded from live peaks. Reduce Motion presents the current viewport directly. All four lines share one hidden axis; scale is determined from the five-minute
 observed samples with headroom. The title, sampling description, peak and four direction legends share one baseline.
 The header displays the largest individual
 proxy/direct upload/download sample over the last minute, without axis headroom. The chart
@@ -73,10 +70,10 @@ Import is available on the Nodes page; the redundant title-bar import icon is re
 
 ## Recent connections
 
-The card shows up to six records without a heading in evenly spaced rows, with a continuous
+The card shows up to seven records without a heading in evenly spaced rows, with a continuous
 route-colored background from the host to its route label: cyan for proxy,
 green for direct and orange for blocked connections. All card insets are twelve
-points, centering the six-row group. Long hosts truncate in the middle while the route label remains visible;
+points, centering the displayed rows. Long hosts truncate in the middle while the route label remains visible;
 hover retains the complete destination and estimated location. Empty-state
 messages, record ordering and Reduce Motion behavior are unchanged.
 
@@ -102,13 +99,15 @@ Signing, installation and any real-network acceptance are recorded separately.
 
 ## Motion
 
+A page turn captures the clicked face before locking hover and mounting the destination. The busy cursor stays active during preparation. The two faces rotate together once the destination is ready. Reduce Motion switches pages directly.
+
 On a stopped-to-running core transition, the central disc and recent-connections
 card turn out to an edge and back in, without mirrored text. The outer rings stay
 in place. The disc clock uses numeric text transitions. A running core awaiting
 its first valid sample shows four small colored starting dots at the plot edge;
 these are presentation placeholders, never inserted into traffic history.
 
-Recent records use six stable row slots. Changed host/route identities flip
+Recent records use up to seven stable row slots. Changed host/route identities flip
 vertically, swapping text at the edge; location-only updates do not trigger a
 flip. A newer identity cancels an in-flight swap. Empty and partial groups remain
 centered. Reduce Motion suppresses these turns and numeric transitions.

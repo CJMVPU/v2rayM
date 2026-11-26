@@ -2,6 +2,8 @@ import Foundation
 import Darwin
 import ServiceManagement
 import TunShared
+import V2rayMApplication
+import V2rayMDomain
 
 /// The application owns its SQLite store, runtime state and forwarding engine directly.
 /// The data-directory lock is shared with older releases during an upgrade or rollback.
@@ -328,21 +330,9 @@ public actor NativeRuntimeHost: NativeBackend, NativeAPI {
                 return false
             }
         }
-        try await disconnect()
-        do {
-            try Task.checkCancellation()
-            if let next { try await launchSelected(id: next, snapshot: after) }
-            try Task.checkCancellation()
-            try await commit()
-        } catch {
-            let cause = error
-            try await Task {
-                try await self.disconnect()
-                try await self.launchSelected(id: running.id, snapshot: before)
-            }.value
-            throw cause
-        }
-        return next != nil
+        return try await ServingProfileReplacement.apply(next: next, disconnect: { try await self.disconnect() },
+            launch: { id in try await self.launchSelected(id: id, snapshot: after) }, commit: commit,
+            restorePrevious: { try await self.launchSelected(id: running.id, snapshot: before) })
     }
 
     /// Keep a reversible snapshot until both persistence and the serving core acknowledge the edit.
@@ -689,7 +679,7 @@ public actor NativeRuntimeHost: NativeBackend, NativeAPI {
     func runMaintenance(minute: Int) async {
         guard initialized, !closing, let settings = try? await store.readSettings() else { return }
         let interval = Int(settings["GuiItem"]["AutoUpdateInterval"].text) ?? 0
-        for action in NativeMaintenance.due(minute: minute, geoHours: interval) {
+        for action in MaintenanceAction.due(minute: minute, geoHours: interval) {
             guard !Task.isCancelled, !closing else { return }
             guard operation == nil else { continue }
             do {

@@ -22,8 +22,17 @@ final class PageTurnTests: XCTestCase {
         defer { navigation.cancel(); window.close() }
         try await Task.sleep(for: .milliseconds(220))
         var finished = false
-        navigation.turn(to: .profiles, mount: { host.rootView = page(.profiles); return true },
+        navigation.turn(to: .profiles, mount: {
+            let cover = navigation.view?.subviews.compactMap { $0 as? PageCubeOverlay }.first
+            XCTAssertNotNil(cover?.layer?.sublayers?.first?.sublayers?.first?.contents)
+            host.rootView = page(.profiles)
+            return true
+        },
                         finished: { finished = true })
+        XCTAssertFalse(navigation.view?.subviews.contains { $0 is PageCubeOverlay } ?? true,
+                       "Keep the live page under the pointer until its source face is ready")
+        navigation.turn(to: .settings, mount: { XCTFail("A second click replaced an in-flight turn"); return false },
+                        finished: { XCTFail("A rejected turn unlocked navigation") })
         let deadline = ContinuousClock.now + .seconds(2)
         while navigation.view?.page != .profiles, ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(10))

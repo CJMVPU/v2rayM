@@ -106,5 +106,32 @@ import XCTest
             }
             XCTAssertEqual(try currentSolid().style.faceScale, 1, accuracy: 0.002, name)
         }
+
+        guard !reduced else { return }
+        let disc = try target(.settings)
+        disc.hoverChanged?(true)
+        let face = try XCTUnwrap(all(host).compactMap { $0 as? PageFaceView }.first)
+        let dial = try XCTUnwrap(anchors().first { $0.style.shape == .dashboard(.dial) })
+        let hoverDeadline = ContinuousClock.now + .seconds(2)
+        while dial.style.faceScale < 1.031 && ContinuousClock.now < hoverDeadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(dial.style.faceScale, 1.032, accuracy: 0.002)
+        disc.sendAction(disc.action, to: disc.target)
+        let turnDeadline = ContinuousClock.now + .seconds(3)
+        while face.page == .home && ContinuousClock.now < turnDeadline {
+            let cover = face.subviews.compactMap { $0 as? PageCubeOverlay }.first
+            if let cover {
+                XCTAssertNotNil(cover.layer?.sublayers?.first?.sublayers?.first?.contents)
+            } else {
+                XCTAssertEqual(dial.style.faceScale, 1.032, accuracy: 0.002, "The live disc must retain its hover until covered")
+            }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        XCTAssertEqual(face.page, .settings)
+        while face.subviews.contains(where: { $0 is PageCubeOverlay }) && ContinuousClock.now < turnDeadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertFalse(face.subviews.contains { $0 is PageCubeOverlay })
     }
 }

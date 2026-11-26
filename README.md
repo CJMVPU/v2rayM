@@ -1,6 +1,6 @@
 # v2rayM
 
-基于 [v2rayN](https://github.com/2dust/v2rayN) 的原生 macOS 代理客户端，采用 **SwiftUI/AppKit + RealityKit + Xray**，保留上游 fork 和提交历史。当前版本 **0.9.1**，要求 macOS 15 或以上。
+基于 [v2rayN](https://github.com/2dust/v2rayN) 的原生 macOS 代理客户端，采用 **SwiftUI/AppKit + RealityKit + Xray**，保留上游 fork 和提交历史。当前版本 **0.9.2**，要求 macOS 15 或以上。
 
 ## 使用
 
@@ -37,6 +37,7 @@ SIGN_IDENTITY='Apple Development: YOUR_SIGNING_IDENTITY' \
 
 ```sh
 python3 scripts/check-macos-product-boundaries.py
+python3 scripts/check-ddd-boundaries.py
 python3 scripts/generate-helper-contract.py --check
 dotnet test --project v2rayN/ServiceLib.Tests --configuration Release
 dotnet test --project v2rayN/v2rayN.WebAPI/Tests --configuration Release
@@ -55,7 +56,7 @@ swift test --package-path macos/TunHelper
 - [架构与恢复边界](docs/macos-architecture.md) · [TUN helper 与本机自检](docs/macos-tun-helper.md)
 - [主页与定位数据](docs/connection-dashboard.md)
 - [Darwin 出口绑定补丁](docs/xray-darwin-binding-fix.md) · [进程查询补丁](docs/xray-process-lookup-fix.md)
-- [上游合并规则](docs/upstream-merge-policy.md) · [最终收敛记录](docs/audits/2026-10-24-final-stabilization.md)
+- [上游合并规则](docs/upstream-merge-policy.md) · [DDD 模块边界](docs/ddd-architecture.md) · [扩展指南](docs/ddd-extension-guide.md)
 
 本机发布时，先验证新版安装包的签名、版本及回环测试，再用新版替换 `/Applications/v2rayM.app`。核对已安装应用后，卸载本次挂载的安装镜像，删除旧版安装包、旧应用及构建目录里的应用副本。仅保留当前版本的安装包和一份已安装应用。本地构建回执和测试记录放在忽略提交的 `artifacts/`。清理范围限于桌面应用及其分发产物，用户数据和特权服务的可信内核存储独立维护。
 

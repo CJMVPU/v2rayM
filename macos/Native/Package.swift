@@ -13,7 +13,7 @@ let package = Package(
         .target(name: "V2rayMKit", dependencies: ["CSystemArchive", "V2rayMDomain", "V2rayMApplication", .product(name: "TunShared", package: "TunHelper")], resources: [.copy("RuntimeDefaults")]),
         .executableTarget(name: "V2rayM", dependencies: ["V2rayMKit"], resources: [.copy("Resources/Fonts"), .copy("Resources/Globe"), .copy("Resources/Navigation"), .copy("Resources/Dashboard"), .copy("Resources/Controls")]),
         .executableTarget(name: "V2rayMCheck", dependencies: ["V2rayMKit"]),
-        .testTarget(name: "V2rayMKitTests", dependencies: ["V2rayMKit"], resources: [.copy("Fixtures")]),
+        .testTarget(name: "V2rayMKitTests", dependencies: ["V2rayMKit", "V2rayMDomain"], resources: [.copy("Fixtures")]),
         .testTarget(name: "V2rayMApplicationTests", dependencies: ["V2rayMApplication"]),
         .testTarget(name: "V2rayMRenderingTests", dependencies: ["V2rayM"]),
     ]

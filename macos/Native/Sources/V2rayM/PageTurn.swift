@@ -108,14 +108,15 @@ struct PageTurnHost<Content: View>: NSViewRepresentable {
     func pageDidMount() { readiness?.yield(()) }
     func editorDidLoad() { editorReady = true; readiness?.yield(()) }
     private var task: Task<Void, Never>?
+    var isTurning: Bool { task != nil }
     func cancel() { task?.cancel() }
 
     func turn(to target: Page, mount: @escaping () -> Bool, finished: @escaping () -> Void) {
+        guard task == nil else { return }
         guard let view, view.window != nil else { _ = mount(); finished(); return }
         let overlay = PageCubeOverlay(frame: view.bounds)
         overlay.autoresizingMask = [.width, .height]
-        view.addSubview(overlay, positioned: .above, relativeTo: view.hosting)
-        overlay.startCursor()
+        overlay.startCursor(in: view)
         editorReady = false
         task = Task { @MainActor in
             defer {
@@ -123,12 +124,17 @@ struct PageTurnHost<Content: View>: NSViewRepresentable {
                 readiness = nil
                 overlay.stopCursor()
                 overlay.removeFromSuperview()
-                finished()
                 task = nil
+                finished()
             }
             let source = await view.snapshot()
             guard !Task.isCancelled else { return }
-            if let source { overlay.cover(with: source) }
+            if let source {
+                // Present the clicked face before locking hover or replacing live content.
+                view.addSubview(overlay, positioned: .above, relativeTo: view.hosting)
+                overlay.cover(with: source)
+                CATransaction.flush()
+            }
             let (events, signal) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
             readiness = signal
             let needsEditor = mount()

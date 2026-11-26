@@ -152,14 +152,14 @@ struct ContentView: View {
     }
 
     private func returnHome() {
-        guard page != .home, !transitioning else { return }
+        guard page != .home, !cube.isTurning else { return }
         if editingContent { editorHomeRequest += 1 } else { beginReturn() }
     }
 
     private func beginReturn() { turn(to: .home) }
 
     private func turn(to target: Page) {
-        guard !transitioning else { return }
+        guard !cube.isTurning else { return }
         func switchContent() {
             if target == .profiles {
                 let id = model.status?.coreRunning == true ? model.status?.runningProfileId : model.status?.currentProfileId
@@ -173,8 +173,8 @@ struct ContentView: View {
             page = target
         }
         guard !reduced else { switchContent(); return }
-        transitioning = true
         cube.turn(to: target, mount: {
+            transitioning = true
             switchContent()
             return editingProfile != nil
         }, finished: { transitioning = false })
