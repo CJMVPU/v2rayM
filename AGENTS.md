@@ -39,7 +39,7 @@ Older documents describing multi-core support are historical, not requirements.
   and 0.9.9 to 1.0.0. Do not add a fourth component or rename upstream Xray versions.
 - No blanket “take upstream” resolution on protected areas. Review each change
   against the policy, port useful Xray/security fixes, omit retired features.
-- Run `python3 scripts/check-macos-product-boundaries.py` before builds and merges.
+- Run `scripts/project-tool check-macos-product-boundaries` before builds and merges.
   Do not weaken the guard to pass an upstream merge; changes to scope require
   explicit user authorization.
 - Run affected native Swift/helper tests and packaged loopback smoke checks.

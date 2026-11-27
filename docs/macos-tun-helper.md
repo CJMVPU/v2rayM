@@ -16,7 +16,7 @@
 助手策略与网络租约测试使用 `swift test --package-path macos/TunHelper`。打包回环通过本地套接字对验证应用内 TUN 转发。对签名 App 可运行只读预检：
 
 ```sh
-python3 scripts/test-macos-tun-local.py --check-only --app /Applications/v2rayM.app
+scripts/network-check tun-acceptance --check-only --app /Applications/v2rayM.app
 ```
 
 真实 utun、休眠、切网和系统路由/DNS 恢复需要单独验收。执行 `scripts/验证新版v2rayM.command` 前关闭其他 VPN/TUN 和系统代理。该入口使用隔离数据副本，并记录启动、转发、重新连接与停止恢复的结果。构建及签名要求见 [README](../README.md#构建与验证)。

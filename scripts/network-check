@@ -1,0 +1,12 @@
+#!/bin/bash
+set -euo pipefail
+repo=$(cd "$(dirname "$0")/.." && pwd)
+export V2RAYM_PROJECT_ROOT="$repo"
+go_tool="${GO:-go}"
+if ! command -v "$go_tool" >/dev/null && [[ -x "$repo/artifacts/toolchains/go/bin/go" ]]; then
+  go_tool="$repo/artifacts/toolchains/go/bin/go"
+fi
+executable=$(mktemp "${TMPDIR:-/tmp}/v2raym-network-check.XXXXXXXX")
+trap 'rm -f "$executable"' EXIT
+"$go_tool" -C "$repo/scripts/loopback" build -o "$executable" .
+"$executable" "$@"

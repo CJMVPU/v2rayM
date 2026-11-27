@@ -32,25 +32,11 @@ swiftc -parse-as-library "$repo_root/macos/TunHelper/Sources/TunShared/SigningPo
   "$repo_root/macos/TunHelper/Sources/TunShared/HelperContract.generated.swift" \
   "$repo_root/macos/TunHelper/Sources/TunShared/Wire.swift" "$test_root/Check.swift" -o "$fixture"
 codesign --force --sign - "$fixture"
-python3 - "$fixture" <<'PY'
-import subprocess
-import sys
-from pathlib import Path
-fixture = str(Path(sys.argv[1]).resolve())
-result = subprocess.run(['Contents/MacOS/V2rayMHelper', 'location'], executable=fixture,
-                        cwd='/', capture_output=True, text=True, timeout=15)
-assert result.returncode == 0 and Path(result.stdout.strip()).resolve() == Path(fixture), (result.returncode, result.stdout, result.stderr)
-print('PASS: bundle-relative argv[0] resolves to the actual loaded executable')
-result = subprocess.run([fixture], capture_output=True, text=True, timeout=15)
-assert result.returncode != 0 and 'apple_team_signature_required' in result.stderr, result
-print('PASS: ad-hoc signing cannot supply an Apple Team ID')
-PY
+location=$(cd / && /bin/bash -c 'exec -a Contents/MacOS/V2rayMHelper "$1" location' bash "$fixture")
+[[ "$location" -ef "$fixture" ]] || { echo "Unexpected helper location" >&2; exit 1; }
+if "$fixture" > "$test_root/result" 2>&1; then echo "Expected ad-hoc rejection" >&2; exit 1; fi
+grep -q 'apple_team_signature_required' "$test_root/result"
 codesign --force --sign "$identity" "$fixture"
-python3 - "$fixture" <<'PY'
-import re
-import subprocess
-import sys
-result = subprocess.run([sys.argv[1]], capture_output=True, text=True, timeout=15)
-assert result.returncode == 0 and re.fullmatch(r'[A-Z0-9]{10}', result.stdout.strip()), result
-print('PASS: Apple-signed code returns its Team ID through the signing-information API')
-PY
+team=$("$fixture")
+[[ "$team" =~ ^[A-Z0-9]{10}$ ]] || { echo "Missing signed team" >&2; exit 1; }
+echo "Helper executable location and Apple team signature verified."

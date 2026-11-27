@@ -45,6 +45,6 @@
 
 ## 整包与安装记录
 
-版本为 0.3.5，显示版本和 bundle build 一致。构建通过统一 `build-macos-product.py` 入口，使用已核对版本/补丁/工具链标记的 Xray M2 与已校验 Geo 数据。构建、签名和整包回环结果以本机 `artifacts/reviews/remediation-2026-10-24/product/verification.json` 为准；源码身份以同目录 source-snapshot/product-manifest 为准。安装替换、旧包备份、最终 Git 提交和重新启动检查单独记录在 `artifacts/reviews/remediation-2026-10-24/installation.json`，不把安装状态写成构建通过。
+版本为 0.3.5，显示版本和 bundle build 一致。构建通过当时的统一构建入口，使用已核对版本/补丁/工具链标记的 Xray M2 与已校验 Geo 数据。构建、签名和整包回环结果以本机 `artifacts/reviews/remediation-2026-10-24/product/verification.json` 为准；源码身份以同目录 source-snapshot/product-manifest 为准。安装替换、旧包备份、最终 Git 提交和重新启动检查单独记录在 `artifacts/reviews/remediation-2026-10-24/installation.json`，不把安装状态写成构建通过。
 
 本轮环境另有 v2rayN 持有 TUN/系统代理，因此不执行真实 TUN 接管，不修改其配置/进程。隔离回环不是休眠、切网或真实 TUN 联网验收。开发签名包未公证；未运行远程 Windows/Linux CI 或容器构建。系统强制终止仍可能使路由恢复无法确认，错误状态不会被报告为正常完成。

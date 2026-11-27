@@ -1,0 +1,5 @@
+module ArchiveReader [system] {
+    header "archive.h"
+    link "archive"
+    export *
+}

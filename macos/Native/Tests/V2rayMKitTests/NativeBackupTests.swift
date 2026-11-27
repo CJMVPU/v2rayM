@@ -7,10 +7,10 @@ final class NativeBackupTests: XCTestCase {
         let serverRoot = storage.appendingPathComponent("server")
         try FileManager.default.createDirectory(at: serverRoot, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: storage) }
-        let script = try XCTUnwrap(Bundle.module.url(forResource: "webdav-server", withExtension: "py", subdirectory: "Fixtures"))
+        let script = try XCTUnwrap(Bundle.module.url(forResource: "LoopbackPeer", withExtension: "swift", subdirectory: "Fixtures"))
         let peer = Process(), input = Pipe(), output = Pipe()
-        peer.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
-        peer.arguments = [script.path, serverRoot.path]
+        peer.executableURL = URL(fileURLWithPath: "/usr/bin/swift")
+        peer.arguments = [script.path, "webdav", serverRoot.path]
         peer.standardInput = input
         peer.standardOutput = output
         try peer.run()

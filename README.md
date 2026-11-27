@@ -1,6 +1,6 @@
 # v2rayM
 
-基于 [v2rayN](https://github.com/2dust/v2rayN) 的原生 macOS 代理客户端，采用 **SwiftUI/AppKit + RealityKit + Xray**，保留上游 fork 和提交历史。当前版本 **0.9.3**，要求 macOS 15 或以上。
+基于 [v2rayN](https://github.com/2dust/v2rayN) 的原生 macOS 代理客户端，采用 **SwiftUI/AppKit + RealityKit + Xray**，保留上游 fork 和提交历史。当前版本 **0.9.4**，要求 macOS 15 或以上。
 
 ## 使用
 
@@ -26,28 +26,32 @@ Swift 直接读取 v2rayM 的 SQLite 数据库、生成配置、管理订阅和�
 
 ## 构建与验证
 
-需要 Xcode 工具链、Python 3 和 Go 1.27.3。以下为 Apple Silicon 示例，输出目录须尚不存在：
+需要 Xcode 工具链和 Go 1.27.3。以下为 Apple Silicon 示例，输出目录须尚不存在：
 
 ```sh
 bash scripts/fetch-macos-cores.sh osx-arm64 /tmp/v2raym-cores --data-only
 SIGN_IDENTITY='Apple Development: YOUR_SIGNING_IDENTITY' \
-  python3 scripts/build-macos-product.py \
+  scripts/build-macos-product.sh \
   --output /tmp/v2raym-product --core-bin /tmp/v2raym-cores
 ```
+
+工程工具位于 `scripts/ProjectTools/`，独立网络验证程序位于 `scripts/loopback/`。两者均只在开发和验收时运行。
 
 统一入口检查产品边界、固定输入、源码/组件摘要，构建并签名整包，执行隔离回环检查。打包会按锁定的上游提交和 SHA-256 核对两份分流 DAT，并验证主程序的名称与可执行权限。定位资源按固定摘要生成。没有 Apple 团队签名的 ad-hoc 包不能用于特权 TUN。
 
 ```sh
-python3 scripts/check-macos-product-boundaries.py
-python3 scripts/check-ddd-boundaries.py
-python3 scripts/generate-helper-contract.py --check
+scripts/project-tool check-macos-product-boundaries
+scripts/project-tool check-ddd-boundaries
+scripts/project-tool generate-helper-contract --check
+swift test --package-path scripts/ProjectTools
+go -C scripts/loopback test ./...
 swift test --package-path macos/Native
 swift test --package-path macos/TunHelper
 ```
 
 在有图形桌面的测试机上，可运行 `xcrun swift scripts/test-macos-startup-render.swift /Applications/v2rayM.app --runs 10 --report /tmp/v2raym-startup-check`。工具用 Release 主程序副本与临时空数据库连续冷启动，从目标进程的首张窗口截图检查首页圆环。
 
-签名包还可用 `python3 scripts/test-macos-tun-local.py --check-only --app /Applications/v2rayM.app` 做离线预检，验证原生宿主和隔离数据目录。需要实际验收 TUN 时，退出其他 VPN、关闭代理并运行 `scripts/验证新版v2rayM.command`。脚本复制当前节点，在签名应用中测试启动、转发、重新连接及停止后的路由和 DNS。
+签名包还可用 `scripts/network-check tun-acceptance --check-only --app /Applications/v2rayM.app` 做离线预检，验证原生宿主和隔离数据目录。需要实际验收 TUN 时，退出其他 VPN、关闭代理并运行 `scripts/验证新版v2rayM.command`。脚本复制当前节点，在签名应用中测试启动、转发、重新连接及停止后的路由和 DNS。
 
 隔离回环使用临时数据和真实 Xray，不修改系统代理或 TUN。真实 TUN、休眠、切网与长期运行需单独验收。当前本机包为 **Apple Development 开发签名，未公证**；对外分发需 Developer ID、公证和干净机器验收。尚未公开发布安装包。
 

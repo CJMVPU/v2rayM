@@ -14,23 +14,21 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
+      - name: Read reviewed Go toolchain version
+        id: toolchain
+        run: echo "version=$(plutil -extract goVersion raw contracts/macos-build-inputs.json)" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-go@v6
         with:
-          python-version: '3.x'
+          go-version: ${{ steps.toolchain.outputs.version }}
       - name: Check native product boundaries and helper contract
         run: |
-          python3 scripts/check-macos-product-boundaries.py
-          python3 scripts/check-ddd-boundaries.py
-          python3 scripts/test-ddd-boundaries.py
-          python3 scripts/generate-helper-contract.py --check
-          python3 scripts/test-macos-build-manifest.py
-          python3 scripts/test-macos-product-boundaries.py
-          python3 scripts/test-core-packaging.py
-          python3 scripts/test-native-tun-acceptance.py
-          python3 scripts/test-macos-signing-identity.py
-          python3 scripts/test-macos-geo-download.py
+          scripts/project-tool check-macos-product-boundaries
+          scripts/project-tool check-ddd-boundaries
+          swift test --package-path scripts/ProjectTools
+          scripts/project-tool generate-helper-contract --check
+          go -C scripts/loopback test ./...
       - name: Prepare pinned offline city data
-        run: python3 scripts/prepare-macos-geo.py
+        run: scripts/project-tool prepare-macos-geo
       - name: Test native client and signed-helper policies without installing services
         run: |
           swift test --package-path macos/TunHelper --scratch-path "$RUNNER_TEMP/helper-tests"
@@ -46,12 +44,9 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.x'
       - name: Read reviewed Go toolchain version
         id: toolchain
-        run: echo "version=$(python3 -c 'import json; print(json.load(open("contracts/macos-build-inputs.json"))["goVersion"])')" >> "$GITHUB_OUTPUT"
+        run: echo "version=$(plutil -extract goVersion raw contracts/macos-build-inputs.json)" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-go@v6
         with:
           go-version: ${{ steps.toolchain.outputs.version }}
@@ -65,7 +60,7 @@ jobs:
           case "$(uname -m)" in arm64) rid=osx-arm64 ;; x86_64) rid=osx-x64 ;; *) exit 1 ;; esac
           bash scripts/fetch-macos-cores.sh "$rid" "$RUNNER_TEMP/native-cores" --data-only
       - name: Build one source-consistent native product and exercise loopback traffic
-        run: python3 scripts/build-macos-product.py --output "$RUNNER_TEMP/product" --core-bin "$RUNNER_TEMP/native-cores"
+        run: scripts/build-macos-product.sh --output "$RUNNER_TEMP/product" --core-bin "$RUNNER_TEMP/native-cores"
       - name: Archive verified development product
         run: ditto -c -k --keepParent "$RUNNER_TEMP/product/v2rayM.app" "$RUNNER_TEMP/v2rayM-development.zip"
       - uses: actions/upload-artifact@v7

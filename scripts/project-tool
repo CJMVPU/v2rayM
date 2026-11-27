@@ -1,0 +1,5 @@
+#!/bin/bash
+set -euo pipefail
+repo=$(cd "$(dirname "$0")/.." && pwd)
+export V2RAYM_PROJECT_ROOT="$repo"
+exec swift run --quiet --configuration release --package-path "$repo/scripts/ProjectTools" ProjectTool "$@"

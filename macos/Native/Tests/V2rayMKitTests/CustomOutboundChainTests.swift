@@ -119,10 +119,10 @@ final class CustomOutboundChainTests: XCTestCase {
         }
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
-        let fixture = try XCTUnwrap(Bundle.module.url(forResource: "custom-outbound-loopback", withExtension: "py", subdirectory: "Fixtures"))
+        let fixture = try XCTUnwrap(Bundle.module.url(forResource: "LoopbackPeer", withExtension: "swift", subdirectory: "Fixtures"))
         let peers = Process(), input = Pipe(), output = Pipe()
-        peers.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
-        peers.arguments = [fixture.path]
+        peers.executableURL = URL(fileURLWithPath: "/usr/bin/swift")
+        peers.arguments = [fixture.path, "chain"]
         peers.standardInput = input
         peers.standardOutput = output
         try peers.run()

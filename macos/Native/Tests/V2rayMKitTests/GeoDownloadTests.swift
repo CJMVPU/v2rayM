@@ -4,10 +4,10 @@ import XCTest
 
 final class GeoDownloadTests: XCTestCase {
     func testDownloadsRejectBadHeadersAndBoundIdleAndTricklingPeers() async throws {
-        let script = try XCTUnwrap(Bundle.module.url(forResource: "geo-download-server", withExtension: "py", subdirectory: "Fixtures"))
+        let script = try XCTUnwrap(Bundle.module.url(forResource: "LoopbackPeer", withExtension: "swift", subdirectory: "Fixtures"))
         let peer = Process(), input = Pipe(), output = Pipe()
-        peer.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
-        peer.arguments = [script.path]
+        peer.executableURL = URL(fileURLWithPath: "/usr/bin/swift")
+        peer.arguments = [script.path, "geo"]
         peer.standardInput = input
         peer.standardOutput = output
         try peer.run()

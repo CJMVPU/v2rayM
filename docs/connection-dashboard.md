@@ -85,7 +85,7 @@ destination keeps its name with an unknown location. Viewing these records issue
 no DNS queries. The location database maps IPv4 and IPv6 change points and an
 indexed places.bin table. A gap marker represents uncovered addresses. Both the
 source attribution and the original location coordinates are retained.
-Regenerate missing geographic resources with `python3 scripts/prepare-macos-geo.py`;
+Regenerate missing geographic resources with `scripts/project-tool prepare-macos-geo`;
 verify fixed input/output digests with `--verify-only`. Retired map designs remain in Git history.
 
 ## Verification

@@ -10,7 +10,7 @@ UDP 的 wildcard ListenPacket 会选择双栈 socket，因此即使目标是 IPv
 
 ## 可复现构建与隔离检查
 
-运行 `scripts/build-macos-xray.py --go /path/to/go --output /tmp/new-core-dir`。
+运行 `scripts/build-macos-xray.sh --go /path/to/go --output /tmp/new-core-dir`。
 它要求 Go 1.27.3 Darwin，校验固定源码归档 SHA-256，应用
 `patches/xray/darwin-bound-interface.patch`，运行 socket 测试并构建内核。
 当前默认构建同时包含进程查询诊断补丁，build 字段为 `1b1647c-v2raym-darwin-bind2`，主页显示 `26.10.21（修复版 M2）`。

@@ -4,8 +4,6 @@
 .swiftpm/
 DerivedData/
 **/xcuserdata/
-__pycache__/
-*.pyc
 .DS_Store
 *.log
 *.tmp

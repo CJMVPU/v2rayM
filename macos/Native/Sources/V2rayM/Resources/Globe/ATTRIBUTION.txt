@@ -4,5 +4,5 @@ DB-IP City Lite, October 2026. Creative Commons Attribution 4.0 International.
 https://creativecommons.org/licenses/by/4.0/
 https://db-ip.com/db/download/ip-to-city-lite
 Source: https://download.db-ip.com/free/dbip-city-lite-2026-10.csv.gz
-Transformed by scripts/prepare-globe-geo.py into sorted binary range tables and an indexed binary location table.
+Transformed by scripts/project-tool prepare-globe-geo into sorted binary range tables and an indexed binary location table.
 Reduced accuracy dataset: coordinates are estimates, not physical packet routes.

@@ -47,10 +47,10 @@ macOS 无权访问的进程/socket 也可能导致归属不明；不可将所有
 ## 重建与后续交付
 
 ```sh
-python3 scripts/build-macos-xray.py --go /path/to/go \
+scripts/build-macos-xray.sh --go /path/to/go \
   --source-archive /path/to/verified-source.tar.gz \
   --output /tmp/new-m2-core
-python3 scripts/xray/test-process-lookup-loopback.py \
+scripts/network-check process-lookup \
   --core /tmp/new-m2-core/xray --output /tmp/new-m2-loopback
 ```
 
