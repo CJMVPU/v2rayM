@@ -20,6 +20,7 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: ${{ steps.toolchain.outputs.version }}
+          cache-dependency-path: scripts/loopback/go.mod
       - name: Check native product boundaries and helper contract
         run: |
           scripts/project-tool check-macos-product-boundaries
@@ -50,6 +51,7 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: ${{ steps.toolchain.outputs.version }}
+          cache-dependency-path: scripts/loopback/go.mod
       - uses: actions/download-artifact@v8
         with:
           name: macos-geodata

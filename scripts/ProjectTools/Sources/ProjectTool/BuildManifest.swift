@@ -16,8 +16,8 @@ func sourceSnapshot(_ root: URL) throws -> Object {
         if FileManager.default.fileExists(atPath: file.path) { files[name] = try fileDigest(file) }
     }
     let groups = ["xray": ["scripts/xray/library/", "patches/xray/", "contracts/macos-build-inputs.json"],
-                  "native": ["macos/Native/"], "helper": ["macos/TunHelper/", "macos/Resources/", "contracts/"],
-                  "build": ["scripts/", ".github/", "VERSION"]]
+                  "native": ["macos/Native/", "macos/SystemArchive/"], "helper": ["macos/TunHelper/", "macos/Resources/", "contracts/"],
+                  "build": ["scripts/", "macos/SystemArchive/", ".github/", "VERSION"]]
     let parts = groups.mapValues { prefixes in
         digest(canonicalDigests(files.filter { field in prefixes.contains { field.key.hasPrefix($0) } }))
     }

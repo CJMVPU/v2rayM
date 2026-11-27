@@ -4,9 +4,9 @@ import PackageDescription
 let package = Package(
     name: "ProjectTools",
     platforms: [.macOS(.v13)],
+    dependencies: [.package(path: "../../macos/SystemArchive")],
     targets: [
-        .systemLibrary(name: "ArchiveReader"),
-        .executableTarget(name: "ProjectTool", dependencies: ["ArchiveReader"]),
+        .executableTarget(name: "ProjectTool", dependencies: [.product(name: "CSystemArchive", package: "SystemArchive")]),
         .testTarget(name: "ProjectToolTests", dependencies: ["ProjectTool"]),
     ]
 )

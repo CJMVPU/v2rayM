@@ -1,4 +1,4 @@
-import ArchiveReader
+import CSystemArchive
 import Foundation
 
 func unpackArchive(_ file: URL, to destination: URL, sourceTar: Bool, prefix: String = "", files: Set<String>? = nil) throws -> Set<String> {

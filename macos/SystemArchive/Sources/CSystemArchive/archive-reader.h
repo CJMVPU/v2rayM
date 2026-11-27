@@ -1,10 +1,12 @@
-// Darwin's system libarchive exposes the ZIP reader in libarchive.tbd.
+// Swift bindings for the system libarchive used by the app and build tools.
 // Swift supplies all entry paths and streams file contents through these opaque handles.
 #include <stdint.h>
 #include <sys/types.h>
 struct archive;
 struct archive_entry;
 struct archive *archive_read_new(void);
+int archive_read_support_format_tar(struct archive *);
+int archive_read_support_filter_gzip(struct archive *);
 int archive_read_support_format_zip_seekable(struct archive *);
 int archive_read_open_filename(struct archive *, const char *, size_t);
 int archive_read_next_header(struct archive *, struct archive_entry **);
