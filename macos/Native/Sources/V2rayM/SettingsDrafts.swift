@@ -37,21 +37,18 @@ struct RoutingSettingsDraft {
     var routeID = ""
     var ruleIndex = 0
 
-    var savePath: String { "/api/settings/routing-profiles" + (routeID.isEmpty ? "" : "/" + routeID) }
-    var saveMethod: String { routeID.isEmpty ? "POST" : "PUT" }
-    func submission() throws -> SettingsValue {
+    var savedID: String? { routeID.isEmpty ? nil : routeID }
+    func submission() -> SettingsValue {
         var body = route
         let rows = rules.map { original in
             var rule = original
             rule.removeEmptyLines(in: ["domain", "ip", "protocol", "inboundTag"])
             return rule
         }
-        body["ruleSet"] = .string(try SettingsValue.array(rows).json())
+        body["ruleSet"] = .array(rows)
         return body
     }
-    mutating func acceptSaved(_ response: SettingsValue) throws {
-        let id = response["routingId"].text
-        guard !id.isEmpty else { throw ClientFailure("response_missing") }
+    mutating func acceptSaved(_ id: String) {
         routeID = id; route["id"] = .string(id)
     }
 

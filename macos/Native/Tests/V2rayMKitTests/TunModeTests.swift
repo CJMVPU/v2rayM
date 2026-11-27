@@ -1,14 +1,10 @@
 import XCTest
 @testable import V2rayMKit
 
-private func tunState(enabled: Bool = false, available: Bool = true, running: Bool = false, pids: [Int] = []) throws -> MacTunStatus {
-    let data = try JSONSerialization.data(withJSONObject: [
-        "platformSupported": true, "helperAvailable": available, "helperCode": available ? "ok" : "helper_unavailable",
-        "helperState": available ? "idle" : "unavailable", "enabled": enabled,
-        "supportedCores": ["xray"], "coreSource": "signed-app-bundle",
-        "runtimeState": running ? "running" : "stopped", "privilegedCoreProcessIds": pids,
-    ])
-    return try JSONDecoder().decode(MacTunStatus.self, from: data)
+private func tunState(enabled: Bool = false, available: Bool = true, running: Bool = false, pids: [Int] = []) -> MacTunStatus {
+    MacTunStatus(platformSupported: true, helperAvailable: available, helperCode: available ? "ok" : "helper_unavailable",
+                 helperState: available ? "idle" : "unavailable", enabled: enabled, supportedCores: ["xray"],
+                 coreSource: "signed-app-bundle", runtimeState: running ? "running" : "stopped", privilegedCoreProcessIds: pids)
 }
 
 private actor MemoryTunBackend: ProxyModeBackend, ProxyModePreferences {
@@ -20,19 +16,19 @@ private actor MemoryTunBackend: ProxyModeBackend, ProxyModePreferences {
     init(_ state: MacTunStatus, failEnable: Bool = false, failStart: Bool = false, failRollback: Bool = false) {
         self.state = state; self.failEnable = failEnable; self.failStart = failStart; self.failRollback = failRollback
     }
-    func tunStatus() async throws -> MacTunStatus { calls.append("status"); return state }
+    func tunStatus(_ mode: TunStatusReadMode) async throws -> MacTunStatus { calls.append("status"); return state }
     func setTunEnabled(_ enabled: Bool) async throws {
         calls.append(enabled ? "enable" : "disable")
         if enabled && failEnable || !enabled && failRollback { throw ClientFailure("mac_tun_apply_failed") }
         state.enabled = enabled
         if state.runtimeState == "running" { state.privilegedCoreProcessIds = enabled ? [42] : [] }
     }
-    func startTunCore() async throws {
+    func startCore() async throws {
         calls.append("start")
         if failStart { throw ClientFailure("core_start_failed") }
         state.runtimeState = "running"; state.privilegedCoreProcessIds = state.enabled ? [42] : []
     }
-    func stopProxyCore() { calls.append("stop"); state.runtimeState = "stopped"; state.privilegedCoreProcessIds = [] }
+    func stopCore() { calls.append("stop"); state.runtimeState = "stopped"; state.privilegedCoreProcessIds = [] }
     func proxyConnection() -> ProxyConnection { ProxyConnection(running: state.runtimeState == "running", port: 10808) }
     func enableProxy(endpoints: ProxyEndpoints) {}
     func restoreProxy() {}
@@ -40,26 +36,26 @@ private actor MemoryTunBackend: ProxyModeBackend, ProxyModePreferences {
 
 final class TunModeTests: XCTestCase {
     func testDisconnectedEnableStartsTheSelectedNode() async throws {
-        let backend = MemoryTunBackend(try tunState())
+        let backend = MemoryTunBackend(tunState())
         _ = try await ProxyModeSwitch.apply(.tun, systemProxyEnabled: false, hasSelectedProfile: true, backend: backend, preferences: backend, checkOtherTunnel: {})
         let calls = await backend.calls
         XCTAssertEqual(calls, ["status", "enable", "start", "status"])
     }
     func testRunningModeChangeUsesBackendRestartTransaction() async throws {
-        let backend = MemoryTunBackend(try tunState(running: true))
+        let backend = MemoryTunBackend(tunState(running: true))
         _ = try await ProxyModeSwitch.apply(.tun, systemProxyEnabled: false, hasSelectedProfile: true, backend: backend, preferences: backend, checkOtherTunnel: {})
         let calls = await backend.calls
         XCTAssertEqual(calls, ["status", "enable", "status"])
     }
     func testDisableWorksWithoutHelperOrSelectedNode() async throws {
-        let backend = MemoryTunBackend(try tunState(enabled: true, available: false))
+        let backend = MemoryTunBackend(tunState(enabled: true, available: false))
         _ = try await ProxyModeSwitch.apply(.off, systemProxyEnabled: false, hasSelectedProfile: false, backend: backend, preferences: backend,
                                      checkOtherTunnel: { throw ClientFailure("tun_conflict") })
         let calls = await backend.calls
         XCTAssertEqual(calls, ["stop", "disable"])
     }
     func testMissingNodeCannotChangeSavedMode() async throws {
-        let backend = MemoryTunBackend(try tunState())
+        let backend = MemoryTunBackend(tunState())
         do {
             _ = try await ProxyModeSwitch.apply(.tun, systemProxyEnabled: false, hasSelectedProfile: false, backend: backend, preferences: backend, checkOtherTunnel: {})
             XCTFail("Missing node must be rejected")
@@ -68,7 +64,7 @@ final class TunModeTests: XCTestCase {
         XCTAssertEqual(calls, ["status"])
     }
     func testMissingHelperCannotEnableOrStart() async throws {
-        let backend = MemoryTunBackend(try tunState(available: false))
+        let backend = MemoryTunBackend(tunState(available: false))
         do {
             _ = try await ProxyModeSwitch.apply(.tun, systemProxyEnabled: false, hasSelectedProfile: true, backend: backend, preferences: backend, checkOtherTunnel: {})
             XCTFail("Missing helper must be rejected")
@@ -77,7 +73,7 @@ final class TunModeTests: XCTestCase {
         XCTAssertEqual(calls, ["status"])
     }
     func testAnotherTunnelCannotBeOverwritten() async throws {
-        let backend = MemoryTunBackend(try tunState())
+        let backend = MemoryTunBackend(tunState())
         do {
             _ = try await ProxyModeSwitch.apply(.tun, systemProxyEnabled: false, hasSelectedProfile: true, backend: backend, preferences: backend,
                                          checkOtherTunnel: { throw ClientFailure("tun_conflict") })
@@ -87,7 +83,7 @@ final class TunModeTests: XCTestCase {
         XCTAssertEqual(calls, ["status"])
     }
     func testFailedStartRestoresPreviouslyDisabledMode() async throws {
-        let backend = MemoryTunBackend(try tunState(), failStart: true)
+        let backend = MemoryTunBackend(tunState(), failStart: true)
         do {
             _ = try await ProxyModeSwitch.apply(.tun, systemProxyEnabled: false, hasSelectedProfile: true, backend: backend, preferences: backend, checkOtherTunnel: {})
             XCTFail("Failed start must be reported")
@@ -98,14 +94,14 @@ final class TunModeTests: XCTestCase {
         XCTAssertFalse(state.enabled)
     }
     func testFailedRollbackDoesNotClaimOriginalModeWasRestored() async throws {
-        let backend = MemoryTunBackend(try tunState(), failStart: true, failRollback: true)
+        let backend = MemoryTunBackend(tunState(), failStart: true, failRollback: true)
         do {
             _ = try await ProxyModeSwitch.apply(.tun, systemProxyEnabled: false, hasSelectedProfile: true, backend: backend, preferences: backend, checkOtherTunnel: {})
             XCTFail("Failed rollback must be reported")
         } catch let failure as ProxyModeFailure { XCTAssertTrue(failure.rollbackFailed) }
     }
     func testFailedReconnectClearsNonrunningTunnelAfterRollback() async throws {
-        let backend = MemoryTunBackend(try tunState(enabled: true), failStart: true)
+        let backend = MemoryTunBackend(tunState(enabled: true), failStart: true)
         do {
             _ = try await ProxyModeSwitch.apply(.tun, systemProxyEnabled: false, hasSelectedProfile: true, backend: backend, preferences: backend, checkOtherTunnel: {})
             XCTFail("Failed reconnect must be reported")
@@ -116,7 +112,7 @@ final class TunModeTests: XCTestCase {
         XCTAssertFalse(state.enabled)
     }
     func testBackendApplyFailureRollsBackWithoutStartingStoppedMode() async throws {
-        let backend = MemoryTunBackend(try tunState(running: true), failEnable: true)
+        let backend = MemoryTunBackend(tunState(running: true), failEnable: true)
         do {
             _ = try await ProxyModeSwitch.apply(.tun, systemProxyEnabled: false, hasSelectedProfile: true, backend: backend, preferences: backend, checkOtherTunnel: {})
             XCTFail("Backend failure must be reported")
@@ -125,12 +121,12 @@ final class TunModeTests: XCTestCase {
         XCTAssertEqual(calls, ["status", "enable", "stop", "disable"])
     }
     func testOwnRunningTunnelIsNotMistakenForAnotherApp() async throws {
-        let backend = MemoryTunBackend(try tunState(enabled: true, running: true, pids: [42]))
+        let backend = MemoryTunBackend(tunState(enabled: true, running: true, pids: [42]))
         _ = try await ProxyModeSwitch.apply(.tun, systemProxyEnabled: false, hasSelectedProfile: true, backend: backend, preferences: backend,
                                      checkOtherTunnel: { throw ClientFailure("tun_conflict") })
     }
     func testReconnectAlsoChecksForOtherTunnels() async throws {
-        let backend = MemoryTunBackend(try tunState(enabled: true))
+        let backend = MemoryTunBackend(tunState(enabled: true))
         do {
             try await TunModeChange.checkBeforeConnecting(backend: backend,
                                                           checkOtherTunnel: { throw ClientFailure("tun_conflict") })
@@ -138,10 +134,10 @@ final class TunModeTests: XCTestCase {
         } catch { XCTAssertEqual((error as? ClientFailure)?.code, "tun_conflict") }
     }
     func testSavedIntentAloneDoesNotDisplayRunningTun() throws {
-        let state = try tunState(enabled: true)
+        let state = tunState(enabled: true)
         XCTAssertFalse(state.isRunning)
         XCTAssertEqual(state.modeDescription, "已启用，未连接")
-        XCTAssertFalse(try tunState(enabled: true, running: true).isRunning)
-        XCTAssertTrue(try tunState(enabled: true, running: true, pids: [42]).isRunning)
+        XCTAssertFalse(tunState(enabled: true, running: true).isRunning)
+        XCTAssertTrue(tunState(enabled: true, running: true, pids: [42]).isRunning)
     }
 }

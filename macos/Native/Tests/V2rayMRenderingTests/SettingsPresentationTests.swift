@@ -16,7 +16,7 @@ import V2rayMKit
         XCTAssertEqual(parameters.tunSettings["routeExcludeAddress"], values)
         var route = RoutingSettingsDraft()
         route.rules = [.object(["domain":values, "unknown":values])]
-        let submitted = try SettingsValue.parse(route.submission()["ruleSet"].text).items.first
+        let submitted = route.submission()["ruleSet"].items.first
         XCTAssertEqual(submitted?["domain"], clean)
         XCTAssertEqual(submitted?["unknown"], values)
     }
@@ -31,7 +31,7 @@ import V2rayMKit
         } catch { }
         XCTAssertEqual(draft.routes, [old])
         XCTAssertEqual(draft.routeID, "old")
-        XCTAssertEqual(draft.saveMethod, "PUT")
+        XCTAssertEqual(draft.savedID, draft.routeID)
         draft = try await draft.refreshing(routes: [old, new], preferActive: true) { id in
             XCTAssertEqual(id, "new"); return [.string("new rule")]
         }
@@ -101,14 +101,13 @@ import V2rayMKit
         var draft = RoutingSettingsDraft()
         draft.route = .object(["remarks": .string("New route")])
         draft.rules = [.object(["id": .string("rule")])]
-        XCTAssertEqual(draft.saveMethod, "POST")
-        try draft.acceptSaved(.object(["routingId": .string("created-id")]))
+        XCTAssertNil(draft.savedID)
+        draft.acceptSaved("created-id")
         do {
             draft = try await draft.selecting(draft.route) { _ in throw ClientFailure("read_failed") }
             XCTFail("Expected refresh failure")
         } catch { }
-        XCTAssertEqual(draft.saveMethod, "PUT")
-        XCTAssertEqual(draft.savePath, "/api/settings/routing-profiles/created-id")
+        XCTAssertEqual(draft.savedID, "created-id")
         XCTAssertEqual(draft.rules.first?["id"].text, "rule")
     }
 

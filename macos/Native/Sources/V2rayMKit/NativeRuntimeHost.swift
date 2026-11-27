@@ -38,18 +38,18 @@ public actor NativeRuntimeHost: NativeBackend, NativeAPI {
     private var geoAssets: NativeGeoAssets { NativeGeoAssets(dataDirectory: dataDirectory, bundled: assets) }
     let assets: URL
     private let presetSources: [String: RegionalSources]
-    private var regionTask: Task<SettingsValue, Error>?
+    private var regionTask: Task<Void, Error>?
     private let automaticMaintenance: Bool
     private var maintenance: Task<Void, Never>?
     private var subscriptionRetry = [String: Date]()
+    private let checkTunnelConflict: @Sendable () async throws -> Void
     private let mayContactHelper: Bool
     private var lockFile: Int32 = -1
     private var initialized = false
     private var closing = false
     private var geoTransferID: UUID?
-    private var updateName: String?
     private var updateTask: Task<Void, Never>?
-    private var moduleProgress = [String: ModuleUpdateProgress]()
+    private var latestGeoProgress: ModuleUpdateProgress?
     private var speedTest: Task<Void, Never>?
     private var subscriptionUpdate: Task<Void, Never>?
     private var geoActivationSignal: AsyncStream<Void>.Continuation?
@@ -68,6 +68,13 @@ public actor NativeRuntimeHost: NativeBackend, NativeAPI {
 
     public init(bundle: URL = Bundle.main.bundleURL, dataDirectory: URL, mayContactHelper: Bool = true, automaticMaintenance: Bool = true,
                 presetSources: [String: RegionalSources] = [:]) {
+        self.init(bundle: bundle, dataDirectory: dataDirectory, mayContactHelper: mayContactHelper,
+                  automaticMaintenance: automaticMaintenance, presetSources: presetSources, helper: NativeHelperSession())
+    }
+
+    init(bundle: URL = Bundle.main.bundleURL, dataDirectory: URL, mayContactHelper: Bool = true, automaticMaintenance: Bool = false,
+         presetSources: [String: RegionalSources] = [:], helper: NativeHelperSession,
+         checkTunnelConflict: @escaping @Sendable () async throws -> Void = { try await TunnelConflict.check() }) {
         self.bundle = bundle
         bundledXrayVersion = EmbeddedXray.bundledVersion(in: bundle)
         self.presetSources = presetSources
@@ -76,11 +83,17 @@ public actor NativeRuntimeHost: NativeBackend, NativeAPI {
         self.mayContactHelper = mayContactHelper
         assets = bundle.appendingPathComponent("Contents/Resources/Backend/bin", isDirectory: true)
         store = NativeConfigurationStore(dataDirectory: dataDirectory)
-        helper = NativeHelperSession()
+        self.helper = helper
+        self.checkTunnelConflict = checkTunnelConflict
     }
 
     public func startClient() async throws -> any NativeAPI {
-        if initialized && !closing { return self }
+        try await start()
+        return self
+    }
+
+    public func start() async throws {
+        if initialized && !closing { return }
         guard lockFile == -1, !closing else { throw ClientFailure("operation_in_progress") }
         try FileManager.default.createDirectory(at: dataDirectory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         // Keep the historical lock filename so two app versions cannot write the same database.
@@ -119,7 +132,6 @@ public actor NativeRuntimeHost: NativeBackend, NativeAPI {
                 }
             }
             history.append(source: "runtime", lines: ["原生运行服务已就绪"])
-            return self
         } catch {
             let startupError = error
             // Recovery may have already opened a listener or acquired a TUN lease.
@@ -159,21 +171,48 @@ public actor NativeRuntimeHost: NativeBackend, NativeAPI {
         if lockFile >= 0 { close(lockFile); lockFile = -1 }
     }
 
-    public func runtimeStatus() async throws -> RuntimeStatus {
+    private func requireActive() throws {
         guard initialized, !closing else { throw ClientFailure("backend_exited") }
+    }
+
+    public func activeOperations() throws -> [String] {
+        try requireActive()
+        var active: [String] = []
+        if let operation { active.append(operation) }
+        if subscriptionUpdate != nil { active.append("subscription-update") }
+        if speedTest != nil { active.append("speedtest") }
+        if updateTask != nil { active.append("geo-update") }
+        if regionTask != nil { active.append("regional-preset") }
+        return active
+    }
+
+    public func runtimeStatus() async throws -> RuntimeStatus {
+        try requireActive()
         return try await state()
     }
 
     public func logTail(after: Int64, limit: Int) async throws -> LogTail {
-        guard initialized, !closing else { throw ClientFailure("backend_exited") }
+        try requireActive()
         await collectCoreLogs()
         return history.tail(after: after, limit: limit)
     }
 
-    public func profileMetadata() async throws -> [Profile] { try await store.profileCatalog() }
-    public func profileObservations() async throws -> [ProfileObservation] { try await store.profileObservations() }
-    public func profileDocument(id: String) async throws -> SettingsValue { try await store.profileDocument(id: id) }
-    public func routingProfiles() async throws -> [RoutingProfile] { try await store.routingProfiles() }
+    public func profileMetadata() async throws -> [Profile] {
+        try requireActive()
+        return try await store.profileCatalog()
+    }
+    public func profileObservations() async throws -> [ProfileObservation] {
+        try requireActive()
+        return try await store.profileObservations()
+    }
+    public func profileDocument(id: String) async throws -> SettingsValue {
+        try requireActive()
+        return try await store.profileDocument(id: id)
+    }
+    public func routingProfiles() async throws -> [RoutingProfile] {
+        try requireActive()
+        return try await store.routingProfiles()
+    }
 
     private func state() async throws -> RuntimeStatus {
         let settings = try await store.readSettings()
@@ -209,17 +248,18 @@ public actor NativeRuntimeHost: NativeBackend, NativeAPI {
         return state
     }
 
-    public func tunStatus() async throws -> MacTunStatus { try await tunStatus(fresh: false) }
-    private func tunStatus(fresh: Bool, verifyHelper: Bool = false) async throws -> MacTunStatus {
+    public func tunStatus(_ mode: TunStatusReadMode) async throws -> MacTunStatus {
+        try requireActive()
         let tunSettings = try await store.readSettings()["TunModeItem"]
+        try requireActive()
         let enabled = tunSettings["EnableTun"].flag
         let session = currentTunID
         let poll = helperObservation.begin()
         var result: HelperResponse
         if !mayContactHelper {
             result = HelperResponse(success: false, code: "helper_isolated", state: "unavailable")
-        } else if verifyHelper || enabled || serving?.tun == true {
-            result = await helper.status(fresh: fresh, requiresIPv6: tunSettings["EnableIPv6Address"].flag)
+        } else if mode == .verifyHelper || enabled || serving?.tun == true {
+            result = await helper.status(fresh: mode != .normal, requiresIPv6: tunSettings["EnableIPv6Address"].flag)
             try Task.checkCancellation()
         } else {
             // Reading registration is passive. Polling XPC would wake the privileged daemon in proxy mode.
@@ -227,7 +267,8 @@ public actor NativeRuntimeHost: NativeBackend, NativeAPI {
             result = HelperResponse(success: registered, code: registered ? "ok" : "helper_unavailable",
                                     state: registered ? "ready" : "unavailable")
         }
-        if session != currentTunID { return try await tunStatus(fresh: fresh, verifyHelper: verifyHelper) }
+        try requireActive()
+        if session != currentTunID { return try await tunStatus(mode) }
         if let session {
             if helperObservation.record(result, for: session, poll: poll) {
                 history.append(source: "core", lines: result.logs)
@@ -263,18 +304,33 @@ public actor NativeRuntimeHost: NativeBackend, NativeAPI {
                 throw ClientFailure("geo_activation_timeout", "等待当前操作结束超时，请稍后更新")
             }
         }
-        guard initialized, !closing, operation == nil else { throw ClientFailure("operation_in_progress") }
+        try requireActive()
+        guard operation == nil else { throw ClientFailure("operation_in_progress") }
         operation = name
         defer { operation = nil }
         return try await work()
     }
 
     public func proxyConnection() async throws -> ProxyConnection {
+        try requireActive()
         let current = try await state()
         return ProxyConnection(running: current.coreRunning, endpoints: current.runningProxyEndpoints)
     }
-    public func stopProxyCore() async throws { try await mutate("stop") { try await disconnect() } }
-    public func startTunCore() async throws { try await mutate("start") { try await launchSelected() } }
+    public func startCore() async throws {
+        try await mutate("start") { try await launchSelected() }
+    }
+
+    public func stopCore() async throws {
+        try await mutate("stop") { try await disconnect() }
+    }
+
+    public func restartCore() async throws {
+        try await mutate("restart") {
+            try await disconnect()
+            try await launchSelected()
+        }
+    }
+
     public func setTunEnabled(_ enabled: Bool) async throws {
         try await mutate("mode") {
             let original = try await store.readSettings()
@@ -337,8 +393,8 @@ public actor NativeRuntimeHost: NativeBackend, NativeAPI {
     }
 
     /// Keep a reversible snapshot until both persistence and the serving core acknowledge the edit.
-    private func applyRuntimeEdit(table: ConfigurationTable? = nil, affectsCore: Bool = true,
-                                  _ edit: () async throws -> SettingsValue) async throws -> SettingsValue {
+    private func applyRuntimeEdit<T>(table: ConfigurationTable? = nil, affectsCore: Bool = true,
+                                  _ edit: () async throws -> T) async throws -> T {
         try await mutate("settings") {
             let running = serving
             let at = Date()
@@ -465,7 +521,7 @@ public actor NativeRuntimeHost: NativeBackend, NativeAPI {
         guard let node = inputs.nodesByID[id] else { throw ClientFailure("profile_not_found") }
         if tun {
             guard mayContactHelper else { throw ClientFailure("mac_tun_helper_unavailable") }
-            try await TunnelConflict.check()
+            try await checkTunnelConflict()
         }
         let device = tun ? "utun" + String((0..<1024).first { if_nametoindex("utun" + String($0)) == 0 } ?? 1024) : nil
         var generated = try inputs.generate(nodeID: id, metricsPort: nil, tunnelInterface: device,
@@ -648,7 +704,8 @@ public actor NativeRuntimeHost: NativeBackend, NativeAPI {
         }
     }
 
-    private func updateSubscriptions(id: String, useProxy: Bool) async throws {
+    public func updateSubscriptions(id: String, useProxy: Bool) async throws {
+        try requireActive()
         guard subscriptionUpdate == nil else { throw ClientFailure("subscription_update_busy") }
         let subscriptions = try await (id.isEmpty ? store.subscriptions() : [store.subscription(id: id)])
         let selected = subscriptions.filter { $0.enabled && !$0.url.isEmpty }
@@ -701,7 +758,7 @@ public actor NativeRuntimeHost: NativeBackend, NativeAPI {
                 case .cleanFiles:
                     try NativeMaintenance.clean(in: dataDirectory, now: Date())
                 case .geo:
-                    try startGeoUpdate(query: [:], batch: false)
+                    try submitGeoUpdate(useProxy: nil)
                     await updateTask?.value
 
                 }
@@ -712,8 +769,9 @@ public actor NativeRuntimeHost: NativeBackend, NativeAPI {
         }
     }
 
-    private func applyRegion(_ name: String) async throws -> SettingsValue {
-        let region = ["0":"default","1":"russia","2":"iran"][name] ?? name
+    public func applyRegion(_ name: String) async throws {
+        try requireActive()
+        let region = ["0":"default","1":"russia","2":"iran"][name] ?? name.lowercased()
         let standard = try RegionalSources.standard(region)
         guard regionTask == nil, updateTask == nil, operation == nil, !closing else { throw ClientFailure("operation_in_progress") }
         let sources = presetSources[region] ?? standard
@@ -750,7 +808,6 @@ public actor NativeRuntimeHost: NativeBackend, NativeAPI {
                     ownsCandidate = false
                     try await store.finishEdit()
                     try? geoAssets.cleanUnused()
-                    return SettingsValue.object(["preset": .string(region)])
                 } catch {
                     let cause = error
                     try await Task {
@@ -769,22 +826,22 @@ public actor NativeRuntimeHost: NativeBackend, NativeAPI {
     }
 
     private func geoDownloadProgress(transfer: UUID, files: Int, bytes: Int64, total: Int64?, batch: Bool) {
-        guard geoTransferID == transfer, let previous = moduleProgress["GeoFiles"], previous.phase == "downloading" else { return }
+        guard geoTransferID == transfer, let previous = latestGeoProgress, previous.phase == "downloading" else { return }
         guard files >= (previous.completedFiles ?? 0) else { return }
         if files == previous.completedFiles && bytes < (previous.downloadedBytes ?? 0) { return }
-        moduleProgress["GeoFiles"] = ModuleUpdateProgress(coreType: "GeoFiles", phase: "downloading", isComplete: false,
+        latestGeoProgress = ModuleUpdateProgress(coreType: "GeoFiles", phase: "downloading", isComplete: false,
             success: false, batch: batch, downloadedBytes: bytes, totalBytes: total, completedFiles: files, totalFiles: 2)
     }
 
-    private func runGeoUpdate(query: [String: String], batch: Bool) async throws {
+    private func runGeoUpdate(proxyOverride: Bool?, batch: Bool) async throws {
         let settings = try await store.readSettings()
         let source = settings["ConstItem"]["GeoSourceUrl"].text
-        let useProxy = query["useProxy"].map { $0 == "true" } ?? settings["CheckUpdateItem"]["UpdateViaProxy"].flag
+        let useProxy = proxyOverride ?? settings["CheckUpdateItem"]["UpdateViaProxy"].flag
         let candidate = try geoAssets.newGeneration()
         var committed = false
         defer { if !committed { try? FileManager.default.removeItem(at: candidate) } }
         func publish(_ phase: String, done: Bool = false) {
-            moduleProgress["GeoFiles"] = ModuleUpdateProgress(coreType: "GeoFiles", phase: phase, isComplete: done, success: done, batch: batch)
+            latestGeoProgress = ModuleUpdateProgress(coreType: "GeoFiles", phase: phase, isComplete: done, success: done, batch: batch)
         }
         let transfer = UUID()
         geoTransferID = transfer
@@ -828,34 +885,41 @@ public actor NativeRuntimeHost: NativeBackend, NativeAPI {
         publish("completed", done: true)
     }
 
-    private func startGeoUpdate(query: [String: String], batch: Bool) throws {
-        guard updateTask == nil, regionTask == nil, !closing, operation == nil else { throw ClientFailure("core_update_busy") }
-        if let scope = query["scope"], !["rules", "geo", "all"].contains(scope) { throw ClientFailure("geo_update_scope_invalid") }
-        updateName = "geo-update"
-        moduleProgress["GeoFiles"] = ModuleUpdateProgress(coreType: "GeoFiles", phase: "queued", isComplete: false, success: false, batch: batch)
+    public func geoUpdateProgress() throws -> ModuleUpdateProgress? {
+        try requireActive()
+        return latestGeoProgress
+    }
+
+    public func submitGeoUpdate(useProxy: Bool?) throws {
+        try startGeoUpdate(useProxy: useProxy, batch: false)
+    }
+
+    private func startGeoUpdate(useProxy: Bool?, batch: Bool) throws {
+        try requireActive()
+        guard updateTask == nil, regionTask == nil, operation == nil else { throw ClientFailure("core_update_busy") }
+        latestGeoProgress = ModuleUpdateProgress(coreType: "GeoFiles", phase: "queued", isComplete: false, success: false, batch: batch)
         updateTask = Task {
-            defer { updateTask = nil; updateName = nil }
+            defer { updateTask = nil }
             do {
                 try Task.checkCancellation()
-                try await runGeoUpdate(query: query, batch: batch)
+                try await runGeoUpdate(proxyOverride: useProxy, batch: batch)
             } catch {
                 let failure = error as? ClientFailure
                 let safeDetail = ["geo_download_failed", "geo_activation_timeout"].contains(failure?.code ?? "") ? failure?.detail : nil
                 let detail = Task.isCancelled ? "已取消" : safeDetail ?? failure?.code ?? "module_update_failed"
-                moduleProgress["GeoFiles"] = ModuleUpdateProgress(coreType: "GeoFiles", phase: "failed", isComplete: true, success: false,
+                latestGeoProgress = ModuleUpdateProgress(coreType: "GeoFiles", phase: "failed", isComplete: true, success: false,
                                                                   detail: detail, batch: batch)
                 history.append(source: "update", lines: ["GeoFiles " + detail])
             }
         }
     }
 
-    private func removeProfiles(_ requested: [String], subscription: String? = nil) async throws -> SettingsValue {
+    private func removeProfiles(_ requested: [String], subscription: String? = nil) async throws -> ProfileRemovalResult {
         try await mutate("deleteProfiles") {
             let ids = try await store.removalIDs(requested, subscription: subscription)
             let wasServing = serving != nil
             let restart = try await applyRemoval(ids, subscription: subscription)
-            return .object(["deleted": .number(Double(ids.count)), "coreRestarted": .bool(restart),
-                            "stoppedServing": .bool(wasServing && serving == nil)])
+            return ProfileRemovalResult(deleted: ids.count, coreRestarted: restart, stoppedServing: wasServing && serving == nil)
         }
     }
 
@@ -874,54 +938,6 @@ public actor NativeRuntimeHost: NativeBackend, NativeAPI {
         }
         try await store.finishProfileRemoval()
         return restart
-    }
-
-    private func handleRoute(tail: [String], method: String, input: SettingsValue) async throws -> SettingsValue {
-        guard let id = tail.first else {
-            if method == "GET" { return .array(try await store.routeDocuments()) }
-            if method == "POST" { return try await applyRuntimeEdit(table: .routes) { try await store.saveRoute(input) } }
-            throw ClientFailure("native_operation_unavailable")
-        }
-        if tail == ["import"], method == "POST" {
-            return try await applyRuntimeEdit(table: .routes) {
-                let base = try await store.regionSnapshot()
-                let stager = try await store.presetStager(proxyEndpoints: serving?.endpoints)
-                let plan = try await stager.routes(source: base.routeURL.text, base: base, explicitImport: true)
-                try Task.checkCancellation()
-                try await store.importRoutes(plan)
-                return .object([:])
-            }
-        }
-        let path = Array(tail.dropFirst())
-        if path == ["rules"], method == "GET" { return .array(try await store.routingRules(id: id)) }
-        return try await applyRuntimeEdit(table: .routes) {
-            switch (method, path) {
-            case ("PUT", []): return try await store.saveRoute(input, id: id)
-            case ("DELETE", []): return try await store.selectRoute(id, delete: true)
-            case ("POST", ["activate"]): return try await store.selectRoute(id, delete: false)
-            case ("PUT", ["rules"]): return try await store.editRules(id, edit: .save(input, append: false))
-            case ("POST", ["rules", "move"]):
-                return try await store.editRules(id, edit: .move(id: input["ruleId"].text, direction: input["direction"].text,
-                                                                  position: Int(input["position"].text) ?? -1))
-            case ("POST", ["rules", "import"]), ("POST", ["rules", "import-url"]):
-                var text = input["content"].text
-                if path.last == "import-url" {
-                    let address = try await store.routingSource(id: id)
-                    guard let url = URL(string: address), ["https", "http"].contains(url.scheme?.lowercased()), url.host != nil else {
-                        throw ClientFailure("routing_url_invalid")
-                    }
-                    do { text = try await SubscriptionDownload.download(URLRequest(url: url), proxyEndpoints: serving?.endpoints) }
-                    catch { try Task.checkCancellation(); throw ClientFailure("routing_url_download_failed") }
-                }
-                let rules = try NativeConfigurationStore.parseRoutingRules(text)
-                return try await store.editRules(id, edit: .save(rules, append: input["append"].flag))
-            default:
-                if method == "DELETE", path.count == 2, path[0] == "rules" {
-                    return try await store.editRules(id, edit: .delete(id: path[1]))
-                }
-                throw ClientFailure("native_operation_unavailable")
-            }
-        }
     }
 
     private func restoreArchive(_ file: URL, scratch: URL) async throws -> SettingsValue {
@@ -966,235 +982,299 @@ public actor NativeRuntimeHost: NativeBackend, NativeAPI {
         }
     }
 
-    private func backupResponse(_ path: String, method: String, body: Data?) async throws -> Data {
+    // MARK: - Settings and routing
+
+    public func settings() async throws -> SettingsValue {
+        try requireActive()
+        return try await NativeSettings.view(store.readSettings(), options: store.builtin("settings-options"))
+    }
+
+    public func settingsSection(_ section: NativeSettingsSection) async throws -> SettingsValue {
+        try requireActive()
+        return try await NativeSettings.section(section.rawValue, from: store.readSettings())
+    }
+
+    public func saveSettings(_ section: NativeSettingsSection, _ input: SettingsValue) async throws {
+        try await applyRuntimeEdit(affectsCore: section != .speedTest && section != .webDAV) {
+            let original = try await store.readSettings()
+            let updated = try await NativeSettings.applying(input, section: section.rawValue, to: original, options: store.builtin("settings-options"))
+            if updated != original { try await store.writeSettings(updated) }
+        }
+    }
+
+    public func editorResource(_ resource: NativeEditorResource) async throws -> SettingsValue {
+        try requireActive()
+        return try await store.builtin(resource.rawValue)
+    }
+
+    public func configurationProfiles(_ kind: CoreConfigurationProfile) async throws -> SettingsValue {
+        try requireActive()
+        return .array(try await store.coreConfigurationProfiles(kind))
+    }
+
+    public func saveConfigurationProfile(_ kind: CoreConfigurationProfile, _ input: SettingsValue) async throws {
+        try await applyRuntimeEdit(table: kind.table) { try await store.saveCoreConfigurationProfile(kind, input: input) }
+    }
+
+    public func routeDocuments() async throws -> SettingsValue {
+        try requireActive()
+        return .array(try await store.routeDocuments())
+    }
+
+    public func routingRules(id: String) async throws -> SettingsValue {
+        try requireActive()
+        return .array(try await store.routingRules(id: id))
+    }
+
+    @discardableResult public func saveRoute(id: String?, _ input: SettingsValue) async throws -> String {
+        return try await applyRuntimeEdit(table: .routes) { try await store.saveRoute(input, id: id) }
+    }
+
+    public func activateRoute(_ id: String) async throws {
+        try await applyRuntimeEdit(table: .routes) { try await store.selectRoute(id, delete: false) }
+    }
+
+    public func deleteRoute(_ id: String) async throws {
+        try await applyRuntimeEdit(table: .routes) { try await store.selectRoute(id, delete: true) }
+    }
+
+    public func editRules(_ id: String, _ edit: RoutingRuleEdit) async throws {
+        try await applyRuntimeEdit(table: .routes) { try await store.editRules(id, edit: edit) }
+    }
+
+    public func importRoutes() async throws {
+        try await applyRuntimeEdit(table: .routes) {
+            let base = try await store.regionSnapshot()
+            let stager = try await store.presetStager(proxyEndpoints: serving?.endpoints)
+            let plan = try await stager.routes(source: base.routeURL.text, base: base, explicitImport: true)
+            try Task.checkCancellation()
+            try await store.importRoutes(plan)
+        }
+    }
+
+    public func importRules(_ id: String, content: String?, append: Bool) async throws {
+        try await applyRuntimeEdit(table: .routes) {
+            let text: String
+            if let content {
+                text = content
+            } else {
+                let address = try await store.routingSource(id: id)
+                guard let url = URL(string: address), ["https", "http"].contains(url.scheme?.lowercased()), url.host != nil else {
+                    throw ClientFailure("routing_url_invalid")
+                }
+                do { text = try await SubscriptionDownload.download(URLRequest(url: url), proxyEndpoints: serving?.endpoints) }
+                catch { try Task.checkCancellation(); throw ClientFailure("routing_url_download_failed") }
+            }
+            let rules = try NativeConfigurationStore.parseRoutingRules(text)
+            try await store.editRules(id, edit: .save(rules, append: append))
+        }
+    }
+
+    // MARK: - Profiles and subscriptions
+
+    public func profiles(group: String?, search: String?, includeStatistics: Bool = true) async throws -> [Profile] {
+        try requireActive()
+        return try await store.profileCatalog(group: group, includeStatistics: includeStatistics, search: search)
+    }
+
+    public func selectProfile(_ id: String, connect: Bool) async throws {
+        try await mutate("select") {
+            if !connect, serving != nil { throw ClientFailure("core_selection_requires_stop") }
+            let node = try await store.profileDocument(id: id)
+            let old = try await store.readSettings()
+            var updated = old
+            updated["IndexId"] = node["indexId"]
+            try await changeSettings(from: old, to: updated, connect: connect)
+        }
+    }
+
+    @discardableResult public func importProfiles(_ content: String, group: String?, isSubscription: Bool) async throws -> Int {
+        return try await mutate("importProfiles") { try await store.importProfiles(content: content, groupID: group, isSubscription: isSubscription) }
+    }
+
+    public func exportProfiles(_ options: SettingsValue) async throws -> [SettingsValue] {
+        return try await mutate("exportProfiles") { try await store.exportProfiles(options, metricsPort: Self.freeLoopbackPort()) }
+    }
+
+    @discardableResult public func deleteProfiles(_ ids: [String]) async throws -> ProfileRemovalResult {
+        return try await removeProfiles(ids)
+    }
+
+    public func copyProfiles(_ ids: [String]) async throws {
+        try await mutate("copyProfiles") { try await store.copyProfiles(ids) }
+    }
+
+    public func moveProfiles(_ ids: [String], to group: String) async throws {
+        try await mutate("moveProfiles") {
+            guard let running = serving else { return try await store.moveProfiles(ids, group: group) }
+            let before = try await store.configurationSnapshot()
+            let after = before.movingProfiles(Set(ids), to: group)
+            try await applyProfileChange(before: before, after: after, next: running.id) {
+                try await store.moveProfiles(ids, group: group)
+            }
+        }
+    }
+
+    public func selectGroup(_ id: String) async throws {
+        try await mutate("selectGroup") { try await store.selectGroup(id) }
+    }
+
+    public func moveProfile(_ id: String, direction: String, position: Int) async throws {
+        try await mutate("moveProfile") { try await store.moveProfile(id: id, direction: direction, position: position) }
+    }
+
+    public func sortProfiles(group: String?, column: String, ascending: Bool) async throws {
+        try await mutate("sortProfiles") { try await store.sortProfiles(group: group, column: column, ascending: ascending) }
+    }
+
+    @discardableResult public func cleanProfiles(group: String?, duplicates: Bool) async throws -> Int {
+        return try await mutate("cleanProfiles") {
+            let ids = try await store.maintenanceRemovalIDs(group: group, duplicates: duplicates, serving: serving?.id)
+            _ = try await applyRemoval(ids)
+            return ids.count
+        }
+    }
+
+    @discardableResult public func generateGroups(subscription: String, regions: Bool) async throws -> SettingsValue {
+        return try await mutate("generateGroups") { try await store.generateGroups(subscription: subscription, regions: regions) }
+    }
+
+    public func subscriptions() async throws -> [Subscription] {
+        try requireActive()
+        return try await store.subscriptions()
+    }
+
+    public func subscription(id: String) async throws -> Subscription {
+        try requireActive()
+        return try await store.subscription(id: id)
+    }
+
+    public func subscriptionShare(id: String) async throws -> (id: String, url: String) {
+        let group = try await subscription(id: id)
+        return (group.id, group.url)
+    }
+
+    @discardableResult public func saveSubscription(id: String?, _ input: SettingsValue) async throws -> Subscription {
+        return try await mutate("saveSubscription") { try await store.saveSubscription(input, id: id) }
+    }
+
+    @discardableResult public func deleteSubscription(_ id: String) async throws -> ProfileRemovalResult {
+        return try await removeProfiles([], subscription: id)
+    }
+
+    // MARK: - Diagnostics and updates
+
+    public func testLatency(_ id: String) async throws {
+        try requireActive()
+        try await startLatencyTests(ids: [id], single: true)
+    }
+
+    public func testProfiles(_ ids: [String], action: NativeSpeedAction) async throws {
+        try requireActive()
+        try await startLatencyTests(ids: ids, action: action)
+    }
+
+    public func cancelSpeedTests() async throws {
+        try requireActive()
+        speedTest?.cancel()
+        await speedTest?.value
+    }
+
+    public func clearStatistics() async throws {
+        try await mutate("clearStatistics") {
+            if let sampler = trafficSampler { await sampler.setStatistics(false) }
+            do { try await store.clearStatistics() }
+            catch {
+                if let sampler = trafficSampler { await sampler.setStatistics(try await store.readSettings()["GuiItem"]["EnableStatistics"].flag) }
+                throw error
+            }
+            if let sampler = trafficSampler { await sampler.setStatistics(try await store.readSettings()["GuiItem"]["EnableStatistics"].flag) }
+        }
+    }
+
+    public func recentLogs(limit: Int, filter: String?) async throws -> [LogEntry] {
+        try requireActive()
+        await collectCoreLogs()
+        return history.recent(limit: limit, filter: filter)
+    }
+
+    public func logPage(_ page: Int, size: Int, filter: String?) async throws -> LogPage {
+        try requireActive()
+        await collectCoreLogs()
+        return history.page(page, size: size, filter: filter)
+    }
+
+    public func clearLogs() async throws {
+        try requireActive()
+        await collectCoreLogs()
+        history.clear()
+    }
+
+    public func geoPreferences() async throws -> SettingsValue {
+        try requireActive()
+        return try await NativeGeoUpdatePreferences.settings(store.readSettings())
+    }
+
+    public func saveGeoPreferences(_ input: SettingsValue) async throws {
+        try await mutate("updatePreferences") {
+            let prefs = try NativeGeoUpdatePreferences.applying(input, to: await store.readSettings())
+            try await store.writeSettings(prefs)
+        }
+    }
+
+    public func submitBatchGeoUpdate(apply: Bool, useProxy: Bool?) async throws {
+        try requireActive()
+        let prefs = NativeGeoUpdatePreferences.settings(try await store.readSettings())
+        guard prefs["geoFilesSelected"].flag, apply else { throw ClientFailure("core_update_selection_required") }
+        try startGeoUpdate(useProxy: useProxy, batch: true)
+    }
+
+    // MARK: - Backup and restore
+
+    private func withBackupArchive<T>(_ work: (URL, URL) async throws -> T) async throws -> T {
         try await mutate("backup") {
             let scratch = dataDirectory.appendingPathComponent("guiTemps/backup-" + UUID().uuidString)
             try NativeBackupArchive.privateDirectory(scratch)
             defer { try? FileManager.default.removeItem(at: scratch) }
-            let file = scratch.appendingPathComponent("backup.zip")
-            var result = SettingsValue.object([:])
-            switch (path, method) {
-            case ("/api/backup/download", "GET"):
-                try await store.createBackup(in: scratch, at: file)
-                return try Data(contentsOf: file)
-            case ("/api/backup/restore", "POST"):
-                guard let body, (1...NativeBackupArchive.limit).contains(body.count) else { throw ClientFailure("backup_archive_invalid") }
-                try body.write(to: file)
-                result = try await restoreArchive(file, scratch: scratch)
-            case ("/api/backup/webdav/check", "POST"):
-                try await NativeWebDAV(settings: store.readSettings()).probe()
-            case ("/api/backup/webdav", "POST"):
-                let dav = try await NativeWebDAV(settings: store.readSettings())
-                try await store.createBackup(in: scratch, at: file)
-                try await dav.upload(file)
-            case ("/api/backup/webdav/restore", "POST"):
-                try await NativeWebDAV(settings: store.readSettings()).download(to: file)
-                result = try await restoreArchive(file, scratch: scratch)
-            default: throw ClientFailure("native_operation_unavailable")
-            }
-            return try JSONEncoder().encode(NativeResponse(data: result))
+            return try await work(scratch, scratch.appendingPathComponent("backup.zip"))
         }
     }
 
-    public func encodedResponse(_ path: String, method: String, body: Data?) async throws -> Data {
-        guard initialized, !closing else { throw ClientFailure("backend_exited") }
-        guard let components = URLComponents(string: path) else { throw ClientFailure("invalid_api_path") }
-        let parts = components.percentEncodedPath.split(separator: "/").map { String($0).removingPercentEncoding ?? String($0) }
-        let query = Dictionary((components.queryItems ?? []).map { ($0.name, $0.value ?? "") }, uniquingKeysWith: { _, new in new })
-        if components.path.hasPrefix("/api/backup/") {
-            return try await backupResponse(components.path, method: method, body: body)
+    public func exportBackup() async throws -> Data {
+        try requireActive()
+        return try await withBackupArchive { scratch, file in
+            try await store.createBackup(in: scratch, at: file)
+            return try Data(contentsOf: file)
         }
-        let input = try body.map { try JSONDecoder().decode(SettingsValue.self, from: $0) } ?? .null
-        func reply<T: Encodable>(_ value: T) throws -> Data {
-            try JSONEncoder().encode(NativeResponse(data: value))
-        }
-        let sections = ["/api/settings/inbound":"inbound","/api/settings/core":"core","/api/settings/application":"application",
-                        "/api/settings/speedtest":"speedTest","/api/settings/routing":"routing","/api/settings/core-types":"coreTypes",
-                        "/api/settings/apply":"apply","/api/settings/dns/simple":"simpleDNS","/api/settings/webdav":"webDAV",
-                        "/api/macos/tun/settings":"nativeTun"]
-        if let section = sections[components.path] {
-            if method == "GET" { return try reply(NativeSettings.section(section,from:await store.readSettings())) }
-            if method == "PUT" {
-                return try reply(await applyRuntimeEdit(affectsCore: !["speedTest","webDAV"].contains(section)) {
-                    let original = try await store.readSettings()
-                    let updated = try await NativeSettings.applying(input,section:section,to:original,options:store.builtin("settings-options"))
-                    if updated != original { try await store.writeSettings(updated) }
-                    return .object([:])
-                })
-            }
-        }
-        if parts.count == 4, parts.prefix(3) == ["api","settings","regional-presets"], method == "POST" {
-            return try reply(await applyRegion(parts[3].lowercased()))
-        }
-        let routePrefix = ["api", "settings", "routing-profiles"]
-        if parts.starts(with: routePrefix) {
-            let tail = Array(parts.dropFirst(routePrefix.count))
-            return try reply(await handleRoute(tail: tail, method: method, input: input))
-        }
-        for (prefix, kind) in [(["api","settings","dns","profiles"], CoreConfigurationProfile.dns),
-                               (["api","settings","core-templates"], CoreConfigurationProfile.template)] where parts.starts(with: prefix) {
-            let tail = parts.dropFirst(prefix.count)
-            if tail.isEmpty, method == "GET" { return try reply(await store.coreConfigurationProfiles(kind)) }
-            if tail.count == 1, method == "PUT" {
-                guard tail.first?.lowercased() == "xray" else { throw ClientFailure(kind.invalid) }
-                return try reply(await applyRuntimeEdit(table: kind.table) {
-                    try await store.saveCoreConfigurationProfile(kind, input: input)
-                })
-            }
-        }
-        switch (components.path, method) {
-        case ("/api/core-updates", "GET"):
-            return try reply(NativeGeoUpdatePreferences.settings(await store.readSettings()))
-        case ("/api/core-updates/settings", "PUT"):
-            try await mutate("updatePreferences") {
-                let prefs = try NativeGeoUpdatePreferences.applying(input, to: await store.readSettings())
-                try await store.writeSettings(prefs)
-            }
-        case ("/api/core-updates/progress", "GET"):
-            return try reply(moduleProgress.values.sorted { $0.coreType < $1.coreType })
-        case ("/api/core-updates/Xray/check", "GET"), ("/api/core/xray/check-update", "GET"),
-             ("/api/core-updates/Xray/update", "POST"), ("/api/core/xray/update", "POST"):
-            throw ClientFailure("xray_bundled_with_app")
-        case ("/api/core/geo/update", "POST"):
-            try startGeoUpdate(query: query, batch: false)
-        case ("/api/core-updates/batch", "POST"):
-            let prefs = NativeGeoUpdatePreferences.settings(try await store.readSettings())
-            guard prefs["geoFilesSelected"].flag, input["apply"].flag else { throw ClientFailure("core_update_selection_required") }
-            try startGeoUpdate(query: query, batch: true)
-        case ("/api/settings", "GET"): return try reply(await NativeSettings.view(store.readSettings(), options:store.builtin("settings-options")))
-        case ("/api/settings/dns/editor-options", "GET"): return try reply(await store.builtin("dns-options"))
-        case ("/api/settings/dns/defaults", "GET"): return try reply(await store.builtin("dns-defaults"))
-        case ("/api/editor-options", "GET"): return try reply(await store.builtin("editor-options"))
-        case ("/api/status", "GET"): return try reply(await runtimeStatus())
-        case ("/api/operations", "GET"):
-            var operations: [String] = []
-            if let operation { operations.append(operation) }
-            if subscriptionUpdate != nil { operations.append("subscription-update") }
-            if speedTest != nil { operations.append("speedtest") }
-            if let updateName { operations.append(updateName) }
-            if regionTask != nil { operations.append("regional-preset") }
-            return try reply(operations)
-        case ("/api/macos/tun", "GET"): return try reply(await tunStatus(fresh: query["fresh"] == "true", verifyHelper: query["verifyHelper"] == "true"))
-        case ("/api/macos/tun", "PUT"): try await setTunEnabled(input["enabled"].flag)
-        case ("/api/core/start", "POST"): try await startTunCore()
-        case ("/api/core/stop", "POST"): try await stopProxyCore()
-        case ("/api/core/restart", "POST"):
-            try await mutate("restart") { try await disconnect(); try await launchSelected() }
-        case ("/api/speedtests", "POST"):
-            guard let action = NativeSpeedAction(rawValue: input["action"].text.lowercased()) else { throw ClientFailure("speedtest_action_invalid") }
-            try await startLatencyTests(ids: input["profileIds"].items.map(\.text), action: action)
-        case ("/api/speedtests", "DELETE"), ("/api/latency/stop", "POST"):
-            speedTest?.cancel()
-            await speedTest?.value
-        case ("/api/subscriptions/update", "POST"):
-            try await updateSubscriptions(id: input["subscriptionId"].text, useProxy: input["useProxy"].flag)
-        case ("/api/subscriptions", "GET"): return try reply(await store.subscriptions())
-        case ("/api/subscriptions", "POST"):
-            return try reply(await mutate("saveSubscription") { try await store.saveSubscription(input, id: nil) })
-        case ("/api/profiles", "DELETE"):
-            return try reply(await removeProfiles(input["profileIds"].items.map(\.text)))
-        case ("/api/statistics", "DELETE"):
-            try await mutate("clearStatistics") {
-                if let sampler = trafficSampler { await sampler.setStatistics(false) }
-                do { try await store.clearStatistics() }
-                catch {
-                    if let sampler = trafficSampler { await sampler.setStatistics(try await store.readSettings()["GuiItem"]["EnableStatistics"].flag) }
-                    throw error
-                }
-                if let sampler = trafficSampler { await sampler.setStatistics(try await store.readSettings()["GuiItem"]["EnableStatistics"].flag) }
-            }
-        case ("/api/profiles/deduplicate", "POST"), ("/api/profiles/invalid-test-results", "DELETE"):
-            return try reply(await mutate("cleanProfiles") {
-                let ids = try await store.maintenanceRemovalIDs(group: query["subscriptionId"], duplicates: method == "POST", serving: serving?.id)
-                _ = try await applyRemoval(ids)
-                return SettingsValue.object(["removed": .number(Double(ids.count))])
-            })
-        case ("/api/profile-groups/generate/all", "POST"), ("/api/profile-groups/generate/regions", "POST"):
-            return try reply(await mutate("generateGroups") {
-                try await store.generateGroups(subscription: query["subscriptionId"] ?? "", regions: parts.last == "regions")
-            })
-        case ("/api/profiles/copy", "POST"):
-            try await mutate("copyProfiles") { try await store.copyProfiles(input["profileIds"].items.map(\.text)) }
-        case ("/api/profiles/move-to-group", "POST"):
-            try await mutate("moveProfiles") {
-                let ids = input["profileIds"].items.map(\.text), group = input["subscriptionId"].text
-                guard let running = serving else { return try await store.moveProfiles(ids, group: group) }
-                let before = try await store.configurationSnapshot()
-                let after = before.movingProfiles(Set(ids), to: group)
-                try await applyProfileChange(before: before, after: after, next: running.id) {
-                    try await store.moveProfiles(ids, group: group)
-                }
-            }
-        case ("/api/profile-groups/current", "PUT"):
-            try await mutate("selectGroup") { try await store.selectGroup(input["subscriptionId"].text) }
-        case ("/api/profiles/move", "POST"):
-            try await mutate("moveProfile") {
-                try await store.moveProfile(id: input["profileId"].text, direction: input["direction"].text, position: Int(input["position"].text) ?? -1)
-            }
-        case ("/api/profiles/sort", "POST"):
-            try await mutate("sortProfiles") {
-                try await store.sortProfiles(group: input["subscriptionId"] == .null ? nil : input["subscriptionId"].text,
-                                             column: input["column"].text, ascending: input["ascending"].flag)
-            }
-        case ("/api/profiles/export", "POST"):
-            return try reply(await mutate("exportProfiles") { try await store.exportProfiles(input, metricsPort: Self.freeLoopbackPort()) })
-        case ("/api/profiles/import", "POST"):
-            let count = try await mutate("importProfiles") {
-                try await store.importProfiles(content: input["content"].text, groupID: input["subscriptionId"] == .null ? nil : input["subscriptionId"].text,
-                                               isSubscription: input["isSubscription"].flag)
-            }
-            return try reply(["imported": count])
-        case ("/api/profiles", "GET"):
-            return try reply(await store.profileCatalog(group: query["subscriptionId"], includeStatistics: query["includeStatistics"] != "false", search: query["filter"]))
-        case ("/api/profiles/observations", "GET"): return try reply(await store.profileObservations())
-        case ("/api/logs", "GET"):
-            await collectCoreLogs()
-            return try reply(history.recent(limit: Int(query["limit"] ?? "") ?? 200, filter: query["filter"]))
-        case ("/api/logs/page", "GET"):
-            await collectCoreLogs()
-            return try reply(history.page(Int(query["page"] ?? "") ?? 1, size: Int(query["pageSize"] ?? "") ?? 100, filter: query["filter"]))
-        case ("/api/logs/tail", "GET"):
-            return try reply(await logTail(after: Int64(query["after"] ?? "") ?? 0, limit: Int(query["limit"] ?? "") ?? 10000))
-        case ("/api/logs", "DELETE"):
-            await collectCoreLogs()
-            history.clear()
-        default:
-            if parts.count == 4, parts.prefix(2) == ["api","profiles"], parts[3] == "latency", method == "POST" {
-                try await startLatencyTests(ids: [parts[2]], single: true)
-                return try reply(SettingsValue.object([:]))
-            }
-            if parts.count == 4, parts.prefix(2) == ["api","subscriptions"], parts[3] == "update", method == "POST" {
-                try await updateSubscriptions(id: parts[2], useProxy: query["useProxy"] == "true")
-                return try reply(SettingsValue.object([:]))
-            }
-            if parts.count == 3, parts.prefix(2) == ["api","subscriptions"], method == "DELETE" {
-                return try reply(await removeProfiles([], subscription: parts[2]))
-            }
-            if parts.count == 3, parts.prefix(2) == ["api","subscriptions"], method == "PUT" {
-                return try reply(await mutate("saveSubscription") { try await store.saveSubscription(input, id: parts[2]) })
-            }
-            if parts.count == 4, parts.prefix(2) == ["api","subscriptions"], parts[3] == "share", method == "GET" {
-                let subscription = try await store.subscription(id: parts[2])
-                return try reply(["id": subscription.id, "url": subscription.url])
-            }
-            if parts.count == 3, parts.prefix(2) == ["api","profiles"], method == "GET" {
-                return try reply(await store.profileDocument(id: parts[2]))
-            }
-            if parts.count == 4, parts.prefix(2) == ["api","profiles"], parts.last == "select", method == "POST" {
-                try await mutate("select") {
-                    if query["connect"] == "false", serving != nil { throw ClientFailure("core_selection_requires_stop") }
-                    let node = try await store.profileDocument(id: parts[2])
-                    let old = try await store.readSettings()
-                    var updated = old
-                    updated["IndexId"] = node["indexId"]
-                    try await changeSettings(from: old, to: updated, connect: query["connect"] != "false")
-                }
-            } else { throw ClientFailure("native_operation_unavailable", method + " " + components.path) }
-        }
-        return try reply(SettingsValue.object([:]))
     }
-}
-private struct NativeResponse<T: Encodable>: Encodable {
-    let success = true
-    let data: T
+
+    @discardableResult public func restoreBackup(_ data: Data) async throws -> SettingsValue {
+        try requireActive()
+        return try await withBackupArchive { scratch, file in
+            guard (1...NativeBackupArchive.limit).contains(data.count) else { throw ClientFailure("backup_archive_invalid") }
+            try data.write(to: file)
+            return try await restoreArchive(file, scratch: scratch)
+        }
+    }
+
+    public func checkWebDAV() async throws {
+        try await mutate("backup") { try await NativeWebDAV(settings: store.readSettings()).probe() }
+    }
+
+    public func uploadBackup() async throws {
+        try requireActive()
+        try await withBackupArchive { scratch, file in
+            let dav = try await NativeWebDAV(settings: store.readSettings())
+            try await store.createBackup(in: scratch, at: file)
+            try await dav.upload(file)
+        }
+    }
+
+    @discardableResult public func restoreWebDAVBackup() async throws -> SettingsValue {
+        try requireActive()
+        return try await withBackupArchive { scratch, file in
+            try await NativeWebDAV(settings: store.readSettings()).download(to: file)
+            return try await restoreArchive(file, scratch: scratch)
+        }
+    }
 }

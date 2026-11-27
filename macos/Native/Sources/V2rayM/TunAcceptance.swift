@@ -47,17 +47,15 @@ enum TunAcceptance {
                         guard await host.isRunning else { throw ClientFailure("backend_exited") }
                         switch command {
                         case "status": try await reply(host.runtimeStatus())
-                        case "helper":
-                            let status: MacTunStatus = try await host.value("/api/macos/tun?fresh=true&verifyHelper=true")
-                            try reply(status)
+                        case "helper": try await reply(host.tunStatus(.verifyHelper))
                         case "logs": try await reply(host.logTail(after: 0, limit: 10000))
                         case "start-tun":
                             guard allowTun else { throw ClientFailure("acceptance_network_disabled") }
                             try await host.setTunEnabled(true)
-                            try await host.startTunCore()
+                            try await host.startCore()
                             try reply(true)
                         case "stop":
-                            try await host.stopProxyCore()
+                            try await host.stopCore()
                             try await host.setTunEnabled(false)
                             try reply(true)
                         default: throw ClientFailure("unknown_acceptance_command")

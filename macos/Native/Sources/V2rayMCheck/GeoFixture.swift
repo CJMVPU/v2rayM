@@ -16,29 +16,28 @@ extension NativeCheck {
             return (region, RegionalSources(dnsBase: url, routingTemplate: url + "template.json", geoPattern: url + "{0}.dat"))
         })
         let host = NativeRuntimeHost(bundle: bundle, dataDirectory: data, mayContactHelper: false, automaticMaintenance: false, presetSources: sources)
-        let api = try await host.startClient()
+        try await host.start()
         do {
-            try await api.send("/api/settings/inbound", method: "PUT", body: Inbound(localPort: proxyPort))
-            try await api.send("/api/profiles/import", body: ImportInput(content: "socks://127.0.0.1:" + String(peerPort) + "#Local"))
-            let profiles = try await api.profileMetadata()
+            try await host.saveSettings(.inbound, NativeCheck.fixtureInbound(port: proxyPort))
+            try await host.importProfiles("socks://127.0.0.1:" + String(peerPort) + "#Local", group: "", isSubscription: false)
+            let profiles = try await host.profileMetadata()
             guard let id = profiles.first?.id else { throw ClientFailure("fixture_missing") }
-            try await api.perform("/api/profiles/" + id + "/select")
-            let before: RuntimeStatus = try await api.value("/api/status")
+            try await host.selectProfile(id, connect: true)
+            let before: RuntimeStatus = try await host.runtimeStatus()
             func waitForUpdate() async throws -> ModuleUpdateProgress {
                 for _ in 0..<400 {
-                    let updates: [ModuleUpdateProgress] = try await api.value("/api/core-updates/progress")
-                    if let terminal = updates.first(where: { $0.coreType == "GeoFiles" && $0.isComplete }) { return terminal }
+                    if let terminal = try await host.geoUpdateProgress(), terminal.isComplete { return terminal }
                     try await Task.sleep(for: .milliseconds(100))
                 }
                 throw ClientFailure("geo_fixture_timeout")
             }
             func update() async throws -> ModuleUpdateProgress {
-                try await api.perform("/api/core/geo/update?scope=geo&useProxy=false")
+                try await host.submitGeoUpdate(useProxy: false)
                 return try await waitForUpdate()
             }
             let success = try await update()
             try require(success.success, "Loopback Geo download and Xray DAT validation: " + (success.detail ?? success.phase))
-            let after: RuntimeStatus = try await api.value("/api/status")
+            let after: RuntimeStatus = try await host.runtimeStatus()
             try require(after.coreRunning && after.coreSessionID != before.coreSessionID && after.runningProfileId == before.runningProfileId,
                         "Updated Geo data starts a replacement core on the same node")
             let marker = data.appendingPathComponent("native-geo/current")
@@ -51,15 +50,25 @@ extension NativeCheck {
                 }
                 throw ClientFailure("fixture_marker_timeout", name)
             }
-            try await api.perform("/api/core/geo/update?scope=geo&useProxy=false")
+            try await host.submitGeoUpdate(useProxy: false)
             try await waitForMarker("fixture-busy-geo-start")
-            let routeImport = Task { try await api.perform("/api/settings/routing-profiles/import") }
+            do {
+                try await host.submitGeoUpdate(useProxy: nil)
+                throw ClientFailure("fixture_accepted_duplicate_geo_update")
+            } catch let failure as ClientFailure where failure.code == "core_update_busy" {}
+            let inFlight = try await host.geoUpdateProgress()
+            try require(inFlight?.phase == "downloading" && inFlight?.isComplete == false,
+                        "Duplicate submission preserves the active Geo download")
+            let downloading = try await host.activeOperations()
+            try require(downloading == ["geo-update"], "Active operations report the held Geo download")
+            let routeImport = Task { try await host.importRoutes() }
             try await waitForMarker("fixture-route-start")
+            let overlapping = try await host.activeOperations()
+            try require(overlapping == ["settings", "geo-update"], "Active operations report the routing edit before the concurrent Geo download")
             try Data().write(to: data.appendingPathComponent("fixture-busy-geo-release"))
             var waiting = false
             for _ in 0..<200 {
-                let progress: [ModuleUpdateProgress] = try await api.value("/api/core-updates/progress")
-                if let update = progress.first, update.phase == "waiting-to-apply" || update.isComplete {
+                if let update = try await host.geoUpdateProgress(), update.phase == "waiting-to-apply" || update.isComplete {
                     waiting = update.phase == "waiting-to-apply" && !update.isComplete
                     break
                 }
@@ -69,72 +78,79 @@ extension NativeCheck {
             try await routeImport.value
             try require(waiting, "Validated Geo candidate waits for the running route import")
             let repeated = try await waitForUpdate()
-            let unchanged: RuntimeStatus = try await api.value("/api/status")
+            // Progress becomes terminal just before the background task releases ownership.
+            let deadline = ContinuousClock.now + .seconds(2)
+            var remaining = try await host.activeOperations()
+            while !remaining.isEmpty && ContinuousClock.now < deadline {
+                try await Task.sleep(for: .milliseconds(20))
+                remaining = try await host.activeOperations()
+            }
+            try require(remaining.isEmpty, "Active operations clear after both the routing edit and Geo download finish")
+            let unchanged: RuntimeStatus = try await host.runtimeStatus()
             let sameGeneration = try Data(contentsOf: marker)
             try require(repeated.success && unchanged.coreRunning && unchanged.coreSessionID == after.coreSessionID && sameGeneration == installed,
                         "Repeated identical Geo pair preserves its generation and serving session")
             let failed = try await update()
-            let recovered: RuntimeStatus = try await api.value("/api/status")
+            let recovered: RuntimeStatus = try await host.runtimeStatus()
             let kept = try Data(contentsOf: marker)
             try require(!failed.success && recovered.coreSessionID == after.coreSessionID && installed == kept,
                         "Damaged Geo download preserves the active dataset and serving process")
             let incompatible = try await update()
-            let restored: RuntimeStatus = try await api.value("/api/status")
+            let restored: RuntimeStatus = try await host.runtimeStatus()
             let rolledBack = try Data(contentsOf: marker)
             try require(!incompatible.success && restored.coreRunning && restored.runningProfileId == before.runningProfileId
                 && restored.coreSessionID != recovered.coreSessionID && rolledBack == installed,
                 "Valid datasets missing live routing tags restore the original files and relaunch the serving node")
-            try await api.perform("/api/core/geo/update?scope=geo&useProxy=false")
+            try await host.submitGeoUpdate(useProxy: false)
             let started = data.appendingPathComponent("fixture-geo-started")
             for _ in 0..<200 where !FileManager.default.fileExists(atPath: started.path) {
                 try await Task.sleep(for: .milliseconds(50))
             }
             try require(FileManager.default.fileExists(atPath: started.path), "Fixture received the pending Geo request")
             let newSource = "http://127.0.0.1:" + String(serverPort) + "/changed/{0}.dat"
-            try await api.send("/api/settings/application", method: "PUT", body: ["geoSourceUrl":newSource])
+            try await host.saveSettings(.application, .object(["geoSourceUrl": .string(newSource)]))
             try Data().write(to: data.appendingPathComponent("fixture-geo-release"))
             let superseded = try await waitForUpdate()
-            let keptSession: RuntimeStatus = try await api.value("/api/status")
+            let keptSession: RuntimeStatus = try await host.runtimeStatus()
             let keptGeneration = try Data(contentsOf: marker)
             try require(!superseded.success && superseded.detail == "geo_update_source_changed"
                         && keptSession.coreSessionID == restored.coreSessionID && keptGeneration == installed,
                         "Changing the Geo source discards the pending pair and preserves the serving session")
-            try await checkBackupFixture(api, server: serverPort, proxy: proxyPort)
-            try await checkRegionalFixture(api, data: data, nodeID: id, server: serverPort, proxy: proxyPort)
+            try await checkBackupFixture(host, server: serverPort, proxy: proxyPort)
+            try await checkRegionalFixture(host, data: data, nodeID: id, server: serverPort, proxy: proxyPort)
             try await host.stop()
         } catch { try await host.stop(); throw error }
     }
 }
 
 extension NativeCheck {
-    static func checkRegionalFixture(_ api: any NativeAPI, data: URL, nodeID: String, server: Int, proxy: Int) async throws {
-        let routes = "/api/settings/routing-profiles"
+    static func checkRegionalFixture(_ api: NativeRuntimeHost, data: URL, nodeID: String, server: Int, proxy: Int) async throws {
         let marker = data.appendingPathComponent("native-geo/current")
         let file = data.appendingPathComponent("guiConfigs/guiNConfig.json")
-        let old: RuntimeStatus = try await api.value("/api/status")
-        try await api.perform("/api/settings/regional-presets/russia")
-        let applied: RuntimeStatus = try await api.value("/api/status")
-        let current: SettingsValue = try await api.value(routes)
+        let old: RuntimeStatus = try await api.runtimeStatus()
+        try await api.applyRegion("russia")
+        let applied: RuntimeStatus = try await api.runtimeStatus()
+        let current: SettingsValue = try await api.routeDocuments()
         try require(applied.runningProfileId == nodeID && applied.coreSessionID != old.coreSessionID &&
                     current.items.contains { $0["isActive"].flag && $0["remarks"].text == "russia-loopback" },
                     "Regional preset activates its downloaded routing profile and restarts the same node")
         try checkLoopbackHTTP(server: server, proxy: proxy, label: "Regional route forwards real HTTP after Geo and DNS activation")
 
-        try await api.perform(routes + "/import")
-        let imported: SettingsValue = try await api.value(routes)
+        try await api.importRoutes()
+        let imported: SettingsValue = try await api.routeDocuments()
         try require(imported.items.count == current.items.count + 1 &&
                     imported.items.first(where: { $0["isActive"].flag }) == current.items.first(where: { $0["isActive"].flag }),
                     "Explicit template import appends routes and preserves the active choice")
         let generation = try Data(contentsOf: marker)
         let settings = try SettingsValue.parse(String(contentsOf: file, encoding: .utf8))
-        let dns: SettingsValue = try await api.value("/api/settings/dns/profiles")
+        let dns: SettingsValue = try await api.configurationProfiles(.dns)
         do {
-            try await api.perform("/api/settings/regional-presets/iran")
+            try await api.applyRegion("iran")
             throw ClientFailure("fixture_invalid_preset_accepted")
         } catch let failure as ClientFailure where ["core_config_invalid","core_start_failed"].contains(failure.code) {}
-        let remaining: SettingsValue = try await api.value(routes)
-        let restoredDNS: SettingsValue = try await api.value("/api/settings/dns/profiles")
-        let state: RuntimeStatus = try await api.value("/api/status")
+        let remaining: SettingsValue = try await api.routeDocuments()
+        let restoredDNS: SettingsValue = try await api.configurationProfiles(.dns)
+        let state: RuntimeStatus = try await api.runtimeStatus()
         let restoredSettings = try SettingsValue.parse(String(contentsOf: file, encoding: .utf8))
         let restoredGeneration = try Data(contentsOf: marker)
         try require(remaining == imported && settings == restoredSettings && dns == restoredDNS &&

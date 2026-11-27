@@ -37,7 +37,7 @@ struct SettingsPage: View {
                             ForEach(model.routes) { route in
                                 Button {
                                     guard !route.isActive else { return }
-                                    model.run { try await $0.perform("/api/settings/routing-profiles/\(route.id)/activate") }
+                                    model.run { try await $0.activateRoute(route.id) }
                                 } label: {
                                     RealityLabel(title: settingsRouteLabel(route.remarks), asset: route.isActive ? .current : .circle, color: route.isActive ? DashboardTheme.accent : DashboardTheme.muted)
                                         .lineLimit(1).fixedSize()

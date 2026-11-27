@@ -4,9 +4,9 @@ import V2rayMDomain
 public protocol ProxyModeRuntime: Sendable {
     func tunState() async throws -> TunModeState
     func proxyConnection() async throws -> ProxyConnection
-    func stopProxyCore() async throws
+    func stopCore() async throws
     func setTunEnabled(_ enabled: Bool) async throws
-    func startTunCore() async throws
+    func startCore() async throws
 }
 public protocol ProxyModePreferences: Sendable {
     func enableProxy(endpoints: ProxyEndpoints) async throws
@@ -31,7 +31,7 @@ public enum ProxyModeService {
             var enabled = systemProxyEnabled
             do {
                 try await preferences.restoreProxy(); enabled = false
-                try await backend.stopProxyCore()
+                try await backend.stopCore()
                 try await backend.setTunEnabled(false)
                 return false
             } catch {
@@ -49,10 +49,10 @@ public enum ProxyModeService {
                 return false // Disconnect was handled before observing the old mode.
             case .system:
                 if original.enabled {
-                    try await backend.stopProxyCore()
+                    try await backend.stopCore()
                     try await backend.setTunEnabled(false)
                 }
-                try await backend.startTunCore()
+                try await backend.startCore()
                 let state = try await backend.proxyConnection()
                 guard state.running else { throw ModeSwitchRejection.coreStartFailed }
                 guard let endpoints = state.endpoints, endpoints.preferredPort != nil else {
@@ -62,7 +62,7 @@ public enum ProxyModeService {
             case .tun:
                 try await preferences.restoreProxy(); proxyEnabled = false
                 try await backend.setTunEnabled(true)
-                if original.runtimeState != "running" { try await backend.startTunCore() }
+                if original.runtimeState != "running" { try await backend.startCore() }
                 guard try await backend.tunState().isRunning else { throw ModeSwitchRejection.coreStartFailed }
             }
             return proxyEnabled
@@ -70,9 +70,9 @@ public enum ProxyModeService {
             let failure = error
             do {
                 try await preferences.restoreProxy(); proxyEnabled = false
-                try await backend.stopProxyCore()
+                try await backend.stopCore()
                 try await backend.setTunEnabled(previous == .tun)
-                if previous != .off { try await backend.startTunCore() }
+                if previous != .off { try await backend.startCore() }
                 if previous == .system {
                     let state = try await backend.proxyConnection()
                     guard state.running, let endpoints = state.endpoints, endpoints.preferredPort != nil else { throw ModeSwitchRejection.coreStartFailed }

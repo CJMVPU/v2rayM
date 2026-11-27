@@ -3,10 +3,10 @@ import V2rayMDomain
 @testable import V2rayMApplication
 
 @MainActor private final class ModuleRuntime: NativeModuleUpdateRuntime {
-    var submitted: ModuleUpdateScope?
+    var submissions: [Bool?] = []
     var cancelAfterSubmit = false
-    func submit(_ scope: ModuleUpdateScope) async throws {
-        submitted = scope
+    func submitGeoUpdate(useProxy: Bool?) async throws {
+        submissions.append(useProxy)
         if cancelAfterSubmit { withUnsafeCurrentTask { $0?.cancel() } }
     }
 }
@@ -16,16 +16,16 @@ import V2rayMDomain
         let runtime = ModuleRuntime()
         let task = Task {
             withUnsafeCurrentTask { $0?.cancel() }
-            try await NativeModuleUpdateService().submit(.geo, runtime: runtime)
+            try await NativeModuleUpdateService().submit(to: runtime)
         }
         do { try await task.value; XCTFail("Expected cancellation") }
         catch { XCTAssertTrue(error is CancellationError) }
-        XCTAssertNil(runtime.submitted)
+        XCTAssertTrue(runtime.submissions.isEmpty)
     }
     func testAcceptedUpdateIsNotReportedAsUndoneWhenCallerCancels() async throws {
         let runtime = ModuleRuntime(); runtime.cancelAfterSubmit = true
-        let task = Task { try await NativeModuleUpdateService().submit(.geo, runtime: runtime) }
+        let task = Task { try await NativeModuleUpdateService().submit(to: runtime) }
         try await task.value
-        XCTAssertEqual(runtime.submitted, .geo)
+        XCTAssertEqual(runtime.submissions, [nil])
     }
 }

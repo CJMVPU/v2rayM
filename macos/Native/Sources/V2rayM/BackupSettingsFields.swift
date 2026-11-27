@@ -45,8 +45,8 @@ struct BackupSettingsFields: View {
                 GridRow { Text("密码"); SecureField(settings["hasPassword"].flag ? "已保存" : "", text: binding("password")) }
             }
             HStack {
-                Button("测试连接") { perform("WebDAV 读写验证通过") { try await model.settingsWrite("/api/backup/webdav/check", method: "POST") } }
-                Button("上传备份") { perform("备份已上传") { try await model.settingsWrite("/api/backup/webdav", method: "POST") } }
+                Button("测试连接") { perform("WebDAV 读写验证通过") { try await model.settingsWrite { try await $0.checkWebDAV() } } }
+                Button("上传备份") { perform("备份已上传") { try await model.settingsWrite { try await $0.uploadBackup() } } }
                 Button("从 WebDAV 恢复…") { localRestoreFile = nil; restoring = true }
             }.disabled(dirty || !hasCredentials)
         }
@@ -56,8 +56,8 @@ struct BackupSettingsFields: View {
                 let file = localRestoreFile
                 perform("备份已恢复") {
                     if let file { try await model.restoreBackup(from: file) }
-                    else { try await model.settingsWrite("/api/backup/webdav/restore", method: "POST") }
-                    settings = try await model.settingsRead("/api/settings/webdav")
+                    else { try await model.settingsWrite { try await $0.restoreWebDAVBackup() } }
+                    settings = try await model.settingsRead { try await $0.settingsSection(.webDAV) }
                 }
             }
         } message: { Text("应用会先保存当前数据到 guiBackups，并在恢复后重新连接原先运行的代理。") }

@@ -19,17 +19,26 @@ final class SubscriptionEditingTests: XCTestCase {
         catch let failure as ClientFailure { XCTAssertEqual(failure.code, "subscription_not_found") }
     }
 
-    func testBasicEditingRetainsAdvancedSubscriptionOptions() throws {
-        let json = #"{"id":"fixture","remarks":"Original","url":"https://example.invalid/sub","enabled":true,"moreUrl":"https://example.invalid/more","filter":"keep-filter","autoUpdateInterval":60,"updateTime":0,"userAgent":"custom-agent","requestHeaders":"X-Fixture: value","convertTarget":"singbox","memo":"keep-memo","sort":7,"prevProfile":"before","nextProfile":"after","preSocksPort":10800,"customCoreType":"sing_box"}"#
-        let original = try JSONDecoder().decode(Subscription.self, from: Data(json.utf8))
-        let edited = SubscriptionInput(name: "Edited", url: "https://example.invalid/new", enabled: false, existing: original)
-        let result = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(edited)) as? [String: Any])
-        let before = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])
-        for key in ["moreUrl", "filter", "autoUpdateInterval", "userAgent", "requestHeaders", "convertTarget", "memo", "sort", "prevProfile", "nextProfile", "preSocksPort", "customCoreType"] {
-            XCTAssertEqual(String(describing: result[key]!), String(describing: before[key]!), key)
-        }
-        XCTAssertEqual(result["remarks"] as? String, "Edited")
-        XCTAssertEqual(result["url"] as? String, "https://example.invalid/new")
-        XCTAssertEqual(result["enabled"] as? Bool, false)
+    func testBasicEditingRetainsAdvancedSubscriptionOptions() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let host = NativeRuntimeHost(dataDirectory: root, mayContactHelper: false, automaticMaintenance: false)
+        try await host.start()
+        do {
+            let advanced = try SettingsValue.parse(#"{"remarks":"Original","url":"https://example.invalid/sub","moreUrl":"https://example.invalid/more","filter":"keep-filter","autoUpdateInterval":60,"userAgent":"custom-agent","requestHeaders":"{\"X-Fixture\":\"value\"}","convertTarget":"singbox","memo":"keep-memo","sort":7,"prevProfile":"before","nextProfile":"after","preSocksPort":10800}"#)
+            let created = try await host.saveSubscription(id: nil, advanced)
+            let db = try RuntimeDatabase(url: root.appendingPathComponent("guiConfigs/guiNDB.db"), writable: true)
+            _ = try db.query("UPDATE SubItem SET CustomCoreType=24 WHERE Id=?", [.text(created.id)])
+            var expected = try await host.subscription(id: created.id)
+            expected.remarks = "Edited"
+            expected.url = "https://example.invalid/new"
+            expected.enabled = false
+            let updated = try await host.saveSubscription(id: created.id, .object([
+                "remarks": .string(expected.remarks), "url": .string(expected.url), "enabled": .bool(false)]))
+            XCTAssertEqual(updated, expected)
+            let stored = try await host.subscription(id: created.id)
+            XCTAssertEqual(stored, expected)
+        } catch { try await host.stop(); throw error }
+        try await host.stop()
     }
 }

@@ -9,7 +9,8 @@ public typealias ProxyConnection = V2rayMDomain.ProxyConnection
 public typealias ProxyModePreferences = V2rayMApplication.ProxyModePreferences
 public protocol ProxyModeBackend: TunBackend {
     func proxyConnection() async throws -> ProxyConnection
-    func stopProxyCore() async throws
+    func startCore() async throws
+    func stopCore() async throws
 }
 
 extension SystemProxyController: ProxyModePreferences {
@@ -50,12 +51,12 @@ public enum ProxyModeSwitch {
     private struct ModeBackendAdapter: ProxyModeRuntime {
         let backend: any ProxyModeBackend
         func tunState() async throws -> TunModeState {
-            let state = try await backend.tunStatus()
+            let state = try await backend.tunStatus(.normal)
             return state.domainState
         }
         func proxyConnection() async throws -> ProxyConnection { try await backend.proxyConnection() }
-        func stopProxyCore() async throws { try await backend.stopProxyCore() }
+        func stopCore() async throws { try await backend.stopCore() }
         func setTunEnabled(_ enabled: Bool) async throws { try await backend.setTunEnabled(enabled) }
-        func startTunCore() async throws { try await backend.startTunCore() }
+        func startCore() async throws { try await backend.startCore() }
     }
 }

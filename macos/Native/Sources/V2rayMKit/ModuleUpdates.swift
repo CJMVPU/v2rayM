@@ -4,19 +4,18 @@ import V2rayMDomain
 import V2rayMApplication
 
 public typealias RuntimeUpdateActivity = V2rayMDomain.RuntimeUpdateActivity
-public typealias ModuleUpdateScope = V2rayMDomain.ModuleUpdateScope
 public typealias NativeModuleUpdateRuntime = V2rayMApplication.NativeModuleUpdateRuntime
 public typealias NativeModuleUpdateService = V2rayMApplication.NativeModuleUpdateService
 
-public struct ModuleUpdateProgress: Codable, Identifiable, Equatable {
+public struct ModuleUpdateProgress: Identifiable, Equatable, Sendable {
     public var id: String { coreType }
-    public var coreType: String
+    public var coreType = "GeoFiles"
     public var phase: String
-    public var isComplete: Bool
-    public var success: Bool
+    public var isComplete = false
+    public var success = false
     public var version: String?
     public var detail: String?
-    public var batch: Bool
+    public var batch = false
     public var downloadedBytes: Int64?
     public var totalBytes: Int64?
     public var completedFiles: Int?

@@ -7,7 +7,7 @@ struct ModuleUpdatePanel: View {
 }
 
 @MainActor final class ModuleObservation: ObservableObject {
-    @Published var progress: [ModuleUpdateProgress] = []
+    @Published var progress: ModuleUpdateProgress?
 }
 
 private struct ModuleUpdateContent: View {
@@ -32,13 +32,10 @@ private struct ModuleUpdateContent: View {
                     Text(model.status?.installedXrayVersion ?? "—")
                     Text("随 App 更新").foregroundStyle(DashboardTheme.muted)
                 }.font(AppFont.caption).padding(10).realityCard(radius: 6, depth: 3, level: 16)
-                ForEach(model.moduleTargets, id: \.self) { id in
-                    ModuleUpdateRow(id: id, progress: observation.progress.first(where: { $0.coreType == id }),
-                        queued: model.moduleUpdateActive && model.moduleScope?.targets.contains(id) == true,
-                        disabled: !model.ready || model.busy || model.moduleUpdateActive) {
-                            model.updateModules(.geo)
-                        }
-                }
+                ModuleUpdateRow(progress: observation.progress,
+                    queued: model.moduleUpdateActive,
+                    disabled: !model.ready || model.busy || model.moduleUpdateActive,
+                    update: model.updateGeoFiles)
             }
         }
     }
@@ -47,7 +44,6 @@ private struct ModuleUpdateContent: View {
 /// Every update phase occupies the same row and the same columns. Only the
 /// reserved progress slot changes its drawing, never the surrounding layout.
 struct ModuleUpdateRow: View {
-    let id: String
     let progress: ModuleUpdateProgress?
     let queued: Bool
     let disabled: Bool
@@ -58,7 +54,7 @@ struct ModuleUpdateRow: View {
     var body: some View {
         VStack(spacing: 4) {
             HStack(spacing: 8) {
-                RealityLabel(title: id == "GeoFiles" ? "分流规则数据" : "Xray 内核", asset: id == "GeoFiles" ? .globe : .package)
+                RealityLabel(title: "分流规则数据", asset: .globe)
                     .font(AppFont.body).frame(width: 132, alignment: .leading)
                 Text(progress?.phaseLabel ?? (queued ? "等待更新" : "尚未检查"))
                     .foregroundStyle(progress?.isComplete == true && progress?.success == false ? DashboardTheme.warning : DashboardTheme.muted)

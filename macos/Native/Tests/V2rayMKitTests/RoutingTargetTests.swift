@@ -43,12 +43,12 @@ final class RoutingTargetTests: XCTestCase {
             _ = try db.query("INSERT INTO ProfileItem(IndexId,ConfigType,Remarks,Address,Port) VALUES(?,4,?,'127.0.0.1',8080)", [.text(id),.text(name)])
         }
         let r = try await store.saveRoute(.object(["remarks": .string("rule"), "ruleSet": .string(#"[{"OutboundTag":"Edge","Port":"80"}]"#)]))
-        let id = r["routingId"].text
+        let id = r
         let prior = try await store.routingRules(id: id)
         XCTAssertEqual(prior[0]["outboundProfileId"], .string("1"))
         for (name,code) in [("None","routing_target_missing"),("Peer","routing_target_ambiguous")] {
             do {
-                _ = try await store.editRules(id, edit: .save(.array([.object(["outboundTag": .string(name), "port":.string("80")])]), append: true))
+                try await store.editRules(id, edit: .save(.array([.object(["outboundTag": .string(name), "port":.string("80")])]), append: true))
                 XCTFail("Invalid imported route committed")
             } catch let error as ClientFailure { XCTAssertEqual(error.code, code) }
             let after = try await store.routingRules(id:id)
@@ -57,8 +57,8 @@ final class RoutingTargetTests: XCTestCase {
         var explicit = prior[0]
         explicit["outboundTag"] = .string("direct")
         explicit["outboundProfileId"] = .string("4")
-        _ = try await store.editRules(id, edit:.save(.array([explicit]), append:false))
-        _ = try await store.selectRoute(id, delete:false)
+        try await store.editRules(id, edit:.save(.array([explicit]), append:false))
+        try await store.selectRoute(id, delete:false)
         let config = try await store.generateXrayConfiguration(nodeID:"1",metricsPort:nil)
         XCTAssertEqual(config["routing"]["rules"].items.first?["outboundTag"], .string("4-proxy-direct"))
     }

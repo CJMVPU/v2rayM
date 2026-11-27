@@ -1,6 +1,11 @@
 import Foundation
 import TunShared
 
+public struct LogPage {
+    public let items: [LogEntry]
+    public let page, pageSize, total, totalPages: Int
+}
+
 final class NativeRuntimeLog: @unchecked Sendable {
     private let lock = NSLock()
     private var buffer = RollingLogBuffer()
@@ -39,19 +44,14 @@ final class NativeRuntimeLog: @unchecked Sendable {
         Array(filteredSnapshot(filter).suffix(max(1, min(10000, limit))))
     }
 
-    struct Page: Codable {
-        let items: [LogEntry]
-        let page, pageSize, total, totalPages: Int
-    }
-
-    func page(_ requested: Int, size: Int, filter: String?) -> Page {
+    func page(_ requested: Int, size: Int, filter: String?) -> LogPage {
         let rows = filteredSnapshot(filter)
         let pageSize = max(1, min(size, 200))
         let pages = max(1, (rows.count + pageSize - 1) / pageSize)
         let page = max(1, min(requested, pages))
         let end = rows.count - (page - 1) * pageSize
         let start = max(0, end - pageSize)
-        return Page(items: Array(rows[start..<end]), page: page, pageSize: pageSize, total: rows.count, totalPages: pages)
+        return LogPage(items: Array(rows[start..<end]), page: page, pageSize: pageSize, total: rows.count, totalPages: pages)
     }
     func clear() {
         lock.lock(); defer { lock.unlock() }

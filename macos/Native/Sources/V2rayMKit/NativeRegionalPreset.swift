@@ -153,14 +153,14 @@ extension NativeConfigurationStore {
     }
 
     func importRoutes(_ plan: RegionalRoutingPlan) throws {
-        if let remove = plan.remove { _ = try selectRoute(remove, delete: true) }
+        if let remove = plan.remove { try selectRoute(remove, delete: true) }
         var first: String?
         for route in plan.additions {
             try Task.checkCancellation()
-            let id = try saveRoute(route)["routingId"].text
+            let id = try saveRoute(route)
             if first == nil { first = id }
         }
-        if let id = plan.useFirst ? first : plan.activate { _ = try selectRoute(id, delete: false) }
+        if let id = plan.useFirst ? first : plan.activate { try selectRoute(id, delete: false) }
         if plan.clearLegacy {
             var settings = try readSettings()
             settings["RoutingBasicItem"]["RoutingIndexId"] = .string("")

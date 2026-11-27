@@ -99,17 +99,17 @@ struct SettingsEditor: View {
                                 select: { item in action(success: "已切换方案") { try await loadRoute(item) } },
                                 create: newRoute, delete: { deleteConfirmation = true }, activate: {
                                     action {
-                                        try await model.settingsWrite("/api/settings/routing-profiles/\(routingDraft.routeID)/activate", method: "POST")
+                                        try await model.settingsWrite { try await $0.activateRoute(routingDraft.routeID) }
                                         try await reloadRoutes()
                                     }
                                 }, importRoutes: {
                                     action(success: "路由方案已导入") {
-                                        try await model.settingsWrite("/api/settings/routing-profiles/import", method: "POST")
+                                        try await model.settingsWrite { try await $0.importRoutes() }
                                         try await reloadRoutes()
                                     }
                                 }, applyPreset: { region in
                                     action(success: "地区预设已应用") {
-                                        try await model.settingsWrite("/api/settings/regional-presets/" + region, method: "POST")
+                                        try await model.settingsWrite { try await $0.applyRegion(region) }
                                         loaded = false
                                         selectActiveAfterPreset = true
                                         try await reloadRoutes()
@@ -119,10 +119,10 @@ struct SettingsEditor: View {
                         case .dns:
                             DNSSettingsFields(simpleDNS: $dnsDraft.simpleDNS, dns: $dnsDraft.dns, dirty: $dirty, remotePresets: dnsDraft.remotePresets,
                                 saveSimple: { action {
-                                    try await model.settingsWrite("/api/settings/dns/simple", body: dnsDraft.simpleDNS)
+                                    try await model.settingsWrite { try await $0.saveSettings(.simpleDNS, dnsDraft.simpleDNS) }
                                     dnsDraft.savedSimpleDNS = dnsDraft.simpleDNS
                                 } }, saveCustom: { action {
-                                    try await model.settingsWrite("/api/settings/dns/profiles/Xray", body: dnsDraft.dns)
+                                    try await model.settingsWrite { try await $0.saveConfigurationProfile(.dns, dnsDraft.dns) }
                                     dnsDraft.savedCustomDNS = dnsDraft.dns
                                 } })
                         }
@@ -146,8 +146,8 @@ struct SettingsEditor: View {
                 if pane == .backup {
                     Button("保存 WebDAV 设置") {
                         action {
-                            try await model.settingsWrite("/api/settings/webdav", body: webDAV)
-                            webDAV = try await model.settingsRead("/api/settings/webdav")
+                            try await model.settingsWrite { try await $0.saveSettings(.webDAV, webDAV) }
+                            webDAV = try await model.settingsRead { try await $0.settingsSection(.webDAV) }
                         }
                     }.disabled(!loaded || working || !dirty || !model.ready)
                 }
@@ -164,7 +164,7 @@ struct SettingsEditor: View {
             .alert("删除这个路由方案？", isPresented: $deleteConfirmation) {
                 Button("取消", role: .cancel) {}
                 Button("删除", role: .destructive) { action {
-                    try await model.settingsWrite("/api/settings/routing-profiles/\(routingDraft.routeID)", method: "DELETE")
+                    try await model.settingsWrite { try await $0.deleteRoute(routingDraft.routeID) }
                     // The write was acknowledged. Only expose another document after its rules load.
                     loaded = false
                     try await reloadRoutes()
@@ -184,18 +184,18 @@ struct SettingsEditor: View {
         working = true; failed = false; result = ""
         defer { working = false }
         do {
-            if pane == .backup { webDAV = try await model.settingsRead("/api/settings/webdav") }
+            if pane == .backup { webDAV = try await model.settingsRead { try await $0.settingsSection(.webDAV) } }
             if pane == .parameters {
-                parameterDraft.settings = try await model.settingsRead("/api/settings")
+                parameterDraft.settings = try await model.settingsRead { try await $0.settings() }
                 parameterDraft.settings["application"] = parameterDraft.settings["app"]
-                parameterDraft.tunSettings = try await model.settingsRead("/api/macos/tun/settings")
+                parameterDraft.tunSettings = try await model.settingsRead { try await $0.settingsSection(.nativeTun) }
             }
             if pane == .routing { try await reloadRoutes() }
             if pane == .dns {
-                let options = try await model.settingsRead("/api/settings/dns/editor-options")
+                let options = try await model.settingsRead { try await $0.editorResource(.dnsOptions) }
                 dnsDraft.remotePresets = options["remoteDnsAddresses"].items.map(\.text)
-                dnsDraft.simpleDNS = try await model.settingsRead("/api/settings/dns/simple")
-                let profiles = try await model.settingsRead("/api/settings/dns/profiles")
+                dnsDraft.simpleDNS = try await model.settingsRead { try await $0.settingsSection(.simpleDNS) }
+                let profiles = try await model.settingsRead { try await $0.configurationProfiles(.dns) }
                 guard let xray = profiles.items.first(where: { $0["coreType"].text.lowercased() == "xray" }) else { throw ClientFailure("dns_profile_not_found") }
                 dnsDraft.dns = xray; dnsDraft.savedSimpleDNS = dnsDraft.simpleDNS; dnsDraft.savedCustomDNS = dnsDraft.dns
             }
@@ -203,16 +203,16 @@ struct SettingsEditor: View {
         } catch { result = error.localizedDescription; failed = true }
     }
     private func reloadRoutes() async throws {
-        let routes = try await model.settingsRead("/api/settings/routing-profiles").items
+        let routes = try await model.settingsRead { try await $0.routeDocuments() }.items
         routingDraft = try await routingDraft.refreshing(routes: routes, preferActive: selectActiveAfterPreset) { id in
-            try await model.settingsRead("/api/settings/routing-profiles/\(id)/rules").items
+            try await model.settingsRead { try await $0.routingRules(id: id) }.items
         }
         selectActiveAfterPreset = false
         dirty = routes.isEmpty
     }
     private func loadRoute(_ selected: SettingsValue) async throws {
         routingDraft = try await routingDraft.selecting(selected) { id in
-            try await model.settingsRead("/api/settings/routing-profiles/\(id)/rules").items
+            try await model.settingsRead { try await $0.routingRules(id: id) }.items
         }
         dirty = false
     }
@@ -223,18 +223,18 @@ struct SettingsEditor: View {
     private func saveParameters() {
         action {
             // Keep the full snapshot so hidden upstream options survive edits.
-            try await model.settingsWrite("/api/settings/apply", body: parameterDraft.submission)
-            parameterDraft.settings = try await model.settingsRead("/api/settings")
+            try await model.settingsWrite { try await $0.saveSettings(.apply, parameterDraft.submission) }
+            parameterDraft.settings = try await model.settingsRead { try await $0.settings() }
             parameterDraft.settings["application"] = parameterDraft.settings["app"]
-            parameterDraft.tunSettings = try await model.settingsRead("/api/macos/tun/settings")
+            parameterDraft.tunSettings = try await model.settingsRead { try await $0.settingsSection(.nativeTun) }
         }
     }
     private func saveRoute() {
         action {
             guard !routingDraft.route["remarks"].text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw ClientFailure("routing_name_required") }
-            let draft = try routingDraft.submission()
-            let response = try await model.settingsWrite(routingDraft.savePath, method: routingDraft.saveMethod, body: draft)
-            try routingDraft.acceptSaved(response)
+            let draft = routingDraft.submission()
+            let response = try await model.settingsWrite { try await $0.saveRoute(id: routingDraft.savedID, draft) }
+            routingDraft.acceptSaved(response)
             dirty = false
             do { try await reloadRoutes() }
             catch {

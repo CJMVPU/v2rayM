@@ -9,7 +9,7 @@ final class RegionalPresetTests: XCTestCase {
         try await store.initializeRuntimeStore()
         let added = try await store.saveRoute(.object(["remarks": .string("V10-personal"),
             "locked": .bool(true), "ruleSet": .string("[]")]))
-        _ = try await store.selectRoute(added["routingId"].text, delete: false)
+        try await store.selectRoute(added, delete: false)
         let before = try await store.regionSnapshot()
         let source = try RegionalSources.standard("default")
         let stager = try await store.presetStager(proxyEndpoints: nil)

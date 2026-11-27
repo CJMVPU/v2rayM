@@ -203,7 +203,7 @@ struct ContentView: View {
                 RealityProfileTable(profiles: model.profiles, selection: $selectedProfile,
                     controlsDisabled: controlsDisabled,
                     select: { model.select($0) }, edit: { editingProfile = $0 },
-                    latency: { item in model.run { try await $0.perform("/api/profiles/\(item.id)/latency") } },
+                    latency: { item in model.run { try await $0.testLatency(item.id) } },
                     delete: { deletingProfile = $0 })
             }
             HStack {

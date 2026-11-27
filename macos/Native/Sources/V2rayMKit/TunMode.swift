@@ -3,7 +3,7 @@ import Foundation
 import V2rayMDomain
 import V2rayMApplication
 
-public struct MacTunStatus: Codable, Sendable, Equatable {
+public struct MacTunStatus: Encodable, Sendable, Equatable {
     public var platformSupported: Bool
     public var helperAvailable: Bool
     public var helperCode: String
@@ -38,10 +38,15 @@ public struct MacTunStatus: Codable, Sendable, Equatable {
     }
 }
 
+public enum TunStatusReadMode: Sendable {
+    case normal
+    case fresh
+    case verifyHelper
+}
+
 public protocol TunBackend: Sendable {
-    func tunStatus() async throws -> MacTunStatus
+    func tunStatus(_ mode: TunStatusReadMode) async throws -> MacTunStatus
     func setTunEnabled(_ enabled: Bool) async throws
-    func startTunCore() async throws
 }
 
 
@@ -49,7 +54,7 @@ public protocol TunBackend: Sendable {
 public enum TunModeChange {
     public static func checkBeforeConnecting(backend: any TunBackend,
                                              checkOtherTunnel: @Sendable () async throws -> Void = { try await TunnelConflict.check() }) async throws {
-        let state = try await backend.tunStatus()
+        let state = try await backend.tunStatus(.normal)
         do { try await TunPreflightService.check(state.domainState, requestingTun: state.enabled, checkOtherTunnel: checkOtherTunnel) }
         catch ModeSwitchRejection.helperUnavailable { throw ClientFailure("mac_tun_helper_unavailable") }
     }

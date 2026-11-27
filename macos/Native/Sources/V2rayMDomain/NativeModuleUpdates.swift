@@ -4,14 +4,8 @@ public enum RuntimeUpdateActivity {
     }
 }
 
-public enum ModuleUpdateScope: String, CaseIterable, Identifiable {
-    case geo
-    public var id: String { rawValue }
-    public var targets: [String] { ["GeoFiles"] }
-}
-
 public enum NativeModuleUpdateCompletion {
-    public static func finished(starting: Bool, operations: [String], targets: [String], terminalTargets: Set<String>) -> Bool {
-        !starting && !RuntimeUpdateActivity.isActive(operations) && targets.allSatisfy(terminalTargets.contains)
+    public static func finished(starting: Bool, operations: [String], geoUpdateComplete: Bool) -> Bool {
+        !starting && !RuntimeUpdateActivity.isActive(operations) && geoUpdateComplete
     }
 }

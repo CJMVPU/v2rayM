@@ -2,49 +2,49 @@ import XCTest
 @testable import V2rayMKit
 
 final class ModuleUpdateTests: XCTestCase {
-    func testRepairUpdateNoticeUsesExistingProgressStatus() throws {
-        let same = try JSONDecoder().decode(ModuleUpdateProgress.self, from: Data(#"{"coreType":"Xray","phase":"completed","isComplete":true,"success":true,"batch":false,"detail":"已安装同版本修复版，无需更新"}"#.utf8))
+    func testRepairUpdateNoticeUsesExistingProgressStatus() {
+        let same = ModuleUpdateProgress(coreType: "Xray", phase: "completed", isComplete: true, success: true,
+                                        detail: "已安装同版本修复版，无需更新")
         XCTAssertEqual(same.phaseLabel, "已安装同版本修复版，无需更新")
-        let newer = try JSONDecoder().decode(ModuleUpdateProgress.self, from: Data(#"{"coreType":"Xray","phase":"failed","isComplete":true,"success":false,"batch":false,"detail":"发现上游新版本 26.10.22，尚未通过原生 TUN 兼容验证，已保留当前修复版。"}"#.utf8))
+        let newer = ModuleUpdateProgress(coreType: "Xray", phase: "failed", isComplete: true,
+                                         detail: "发现上游新版本 26.10.22，尚未通过原生 TUN 兼容验证，已保留当前修复版。")
         XCTAssertEqual(newer.phaseLabel, "等待验证后再替换内核")
     }
-    func testWaitingPhasePreservesCandidateForSingleAndBatchUpdates() throws {
+    func testWaitingPhasePreservesCandidateForSingleAndBatchUpdates() {
         for batch in [false, true] {
-            let json = "{\"coreType\":\"Xray\",\"phase\":\"awaiting-validation\",\"isComplete\":true,\"success\":false,\"batch\":\(batch),\"version\":\"v26.10.22\",\"detail\":\"Compatibility review pending\"}"
-            let progress = try JSONDecoder().decode(ModuleUpdateProgress.self, from: Data(json.utf8))
+            let progress = ModuleUpdateProgress(coreType: "Xray", phase: "awaiting-validation", isComplete: true,
+                                                version: "v26.10.22", detail: "Compatibility review pending", batch: batch)
             XCTAssertTrue(progress.awaitingCompatibilityValidation)
             XCTAssertEqual(progress.phaseLabel, "等待验证后再替换内核")
             XCTAssertEqual(progress.version, "v26.10.22")
         }
     }
-    func testByteProgressIsClampedAndUnknownLengthStaysIndeterminate() throws {
-        func progress(_ fields: String) throws -> ModuleUpdateProgress {
-            try JSONDecoder().decode(ModuleUpdateProgress.self, from: Data("{\"coreType\":\"Xray\",\"phase\":\"downloading\",\"isComplete\":false,\"success\":false,\"batch\":false,\(fields)}".utf8))
+    func testByteProgressIsClampedAndUnknownLengthStaysIndeterminate() {
+        func fraction(_ bytes: Int64, _ total: Int64?) -> Double? {
+            ModuleUpdateProgress(phase: "downloading", downloadedBytes: bytes, totalBytes: total).downloadFraction
         }
-        XCTAssertEqual(try progress("\"downloadedBytes\":50,\"totalBytes\":100").downloadFraction, 0.5)
-        XCTAssertEqual(try progress("\"downloadedBytes\":150,\"totalBytes\":100").downloadFraction, 1)
-        XCTAssertNil(try progress("\"downloadedBytes\":50,\"totalBytes\":null").downloadFraction)
+        XCTAssertEqual(fraction(50, 100), 0.5)
+        XCTAssertEqual(fraction(150, 100), 1)
+        XCTAssertNil(fraction(50, nil))
     }
-    func testGeoProgressCountsBothFilesAndKeepsCompletedWorkForUnknownLength() throws {
-        func fraction(_ files: Int, _ bytes: Int, _ total: String) throws -> Double? {
-            let payload = #"{"coreType":"GeoFiles","phase":"downloading","isComplete":false,"success":false,"batch":false,"totalFiles":2,"completedFiles":\#(files),"downloadedBytes":\#(bytes),"totalBytes":\#(total)}"#
-            return try JSONDecoder().decode(ModuleUpdateProgress.self, from: Data(payload.utf8)).downloadFraction
+    func testGeoProgressCountsBothFilesAndKeepsCompletedWorkForUnknownLength() {
+        func fraction(_ files: Int, _ bytes: Int64, _ total: Int64?) -> Double? {
+            ModuleUpdateProgress(phase: "downloading", downloadedBytes: bytes, totalBytes: total,
+                                 completedFiles: files, totalFiles: 2).downloadFraction
         }
-        XCTAssertNil(try fraction(0, 0, "null"))
-        XCTAssertEqual(try fraction(0, 90, "100"), 0.45)
-        XCTAssertEqual(try fraction(1, 0, "null"), 0.5)
-        XCTAssertEqual(try fraction(1, 10, "100"), 0.55)
-        XCTAssertEqual(try fraction(2, 0, "null"), 1)
+        XCTAssertNil(fraction(0, 0, nil))
+        XCTAssertEqual(fraction(0, 90, 100), 0.45)
+        XCTAssertEqual(fraction(1, 0, nil), 0.5)
+        XCTAssertEqual(fraction(1, 10, 100), 0.55)
+        XCTAssertEqual(fraction(2, 0, nil), 1)
     }
-    func testGeoDownloadLabelsTrackBytesWhenServerOmitsSize() throws {
-        func label(_ bytes: Int, phase: String = "downloading") throws -> String {
-            let value: [String: Any] = ["coreType": "GeoFiles", "phase": phase, "isComplete": false, "success": false,
-                                        "batch": false, "completedFiles": 1, "totalFiles": 2, "downloadedBytes": bytes]
-            return try JSONDecoder().decode(ModuleUpdateProgress.self, from: JSONSerialization.data(withJSONObject: value)).phaseLabel
+    func testGeoDownloadLabelsTrackBytesWhenServerOmitsSize() {
+        func label(_ bytes: Int64, phase: String = "downloading") -> String {
+            ModuleUpdateProgress(phase: phase, downloadedBytes: bytes, completedFiles: 1, totalFiles: 2).phaseLabel
         }
-        XCTAssertTrue(try label(1_000_000).hasPrefix("下载 2/2"))
-        XCTAssertNotEqual(try label(1_000_000), try label(2_000_000))
-        XCTAssertEqual(try label(0, phase: "waiting-to-apply"), "等待应用规则")
+        XCTAssertTrue(label(1_000_000).hasPrefix("下载 2/2"))
+        XCTAssertNotEqual(label(1_000_000), label(2_000_000))
+        XCTAssertEqual(label(0, phase: "waiting-to-apply"), "等待应用规则")
     }
     func testOnlyGeoDataCanBeUpdatedSeparately() throws {
         let original = SettingsValue.object(["CheckUpdateItem": .object([
@@ -61,7 +61,35 @@ final class ModuleUpdateTests: XCTestCase {
             "selectedCoreTypes": .array([.string("Xray")])
         ]), to: original))
     }
-    func testIndividualButtonsOnlyWaitForTheirOwnModule() {
-        XCTAssertEqual(ModuleUpdateScope.allCases.flatMap(\.targets), ["GeoFiles"])
+    func testTypedGeoAPIRequiresRunningHostAndRetainsTerminalProgress() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let host = NativeRuntimeHost(dataDirectory: directory, mayContactHelper: false, automaticMaintenance: false)
+        func assertStopped(_ api: any NativeAPI) async throws {
+            do { _ = try await api.geoUpdateProgress(); XCTFail("Stopped host returned progress") }
+            catch let error as ClientFailure { XCTAssertEqual(error.code, "backend_exited") }
+            do { try await api.submitGeoUpdate(useProxy: false); XCTFail("Stopped host accepted work") }
+            catch let error as ClientFailure { XCTAssertEqual(error.code, "backend_exited") }
+        }
+        try await assertStopped(host)
+        let api = try await host.startClient()
+        let initial = try await api.geoUpdateProgress()
+        XCTAssertNil(initial)
+        let store = NativeConfigurationStore(dataDirectory: directory)
+        var settings = try await store.readSettings()
+        settings["ConstItem"]["GeoSourceUrl"] = .string("file:///offline-fixture/{0}.dat")
+        try await store.writeSettings(settings)
+        try await api.submitGeoUpdate(useProxy: nil)
+        let deadline = ContinuousClock.now + .seconds(5)
+        var progress = try await api.geoUpdateProgress()
+        while progress?.isComplete != true && ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+            progress = try await api.geoUpdateProgress()
+        }
+        XCTAssertEqual(progress, ModuleUpdateProgress(phase: "failed", isComplete: true, detail: "geo_source_invalid"))
+        let nextRead = try await api.geoUpdateProgress()
+        XCTAssertEqual(nextRead, progress)
+        try await host.stop()
+        try await assertStopped(api)
     }
 }

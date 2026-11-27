@@ -28,9 +28,9 @@ final class NativeBackupTests: XCTestCase {
             let settings: SettingsValue = .object(["url": .string("http://127.0.0.1:\(port)/\(scenario)"),
                                                   "dirName": .string("team/backup"), "userName": .string("test"),
                                                   "password": .string("test")])
-            try await api.send("/api/settings/webdav", method: "PUT", body: settings)
+            try await api.saveSettings(.webDAV, settings)
             do {
-                try await api.perform("/api/backup/webdav/check")
+                try await api.checkWebDAV()
                 XCTAssertTrue(["ok", "shared"].contains(scenario), "unreadable or corrupted data passed verification")
             } catch let failure as ClientFailure {
                 XCTAssertTrue(["denied", "corrupt"].contains(scenario))
@@ -52,23 +52,23 @@ final class NativeBackupTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let host = NativeRuntimeHost(dataDirectory: root, mayContactHelper: false, automaticMaintenance: false)
         let api = try await host.startClient()
-        let fresh = try await api.encodedResponse("/api/backup/download", method: "GET", body: nil)
-        let restored = try await api.encodedResponse("/api/backup/restore", method: "POST", body: oldBackup())
-        let safety = try JSONDecoder().decode(SettingsValue.self, from: restored)["data"]["safetyBackup"].text
+        let fresh = try await api.exportBackup()
+        let restored = try await api.restoreBackup(oldBackup())
+        let safety = restored["safetyBackup"].text
         XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent("guiBackups/" + safety).path))
         let nodes = try await api.profileMetadata()
         XCTAssertEqual(Set(nodes.map(\.id)), Set(["legacy", "trojan", "socks"]))
-        let live = try await api.encodedResponse("/api/backup/download", method: "GET", body: nil)
+        let live = try await api.exportBackup()
         do {
-            _ = try await api.encodedResponse("/api/backup/restore", method: "POST", body: live.prefix(20))
+            _ = try await api.restoreBackup(live.prefix(20))
             XCTFail("Truncated archive accepted")
         } catch let e as ClientFailure { XCTAssertEqual(e.code, "backup_archive_invalid") }
         let retained = try await api.profileMetadata()
         XCTAssertEqual(retained.map(\.id), nodes.map(\.id))
-        _ = try await api.encodedResponse("/api/backup/restore", method: "POST", body: fresh)
+        _ = try await api.restoreBackup(fresh)
         let empty = try await api.profileMetadata()
         XCTAssertTrue(empty.isEmpty)
-        _ = try await api.encodedResponse("/api/backup/restore", method: "POST", body: live)
+        _ = try await api.restoreBackup(live)
         try await host.stop()
         let another = NativeRuntimeHost(dataDirectory: root, mayContactHelper: false, automaticMaintenance: false)
         let reopened = try await another.startClient()
@@ -111,14 +111,14 @@ final class NativeBackupTests: XCTestCase {
 
         let host = NativeRuntimeHost(dataDirectory: root.appendingPathComponent("live"), mayContactHelper: false, automaticMaintenance: false)
         let api = try await host.startClient()
-        _ = try await api.encodedResponse("/api/backup/restore", method: "POST", body: archive("complete"))
+        _ = try await api.restoreBackup(archive("complete"))
         let good = try await api.profileMetadata()
         XCTAssertEqual(Set(good.map(\.id)), ["checkpoint","recent"])
 
         journal[journal.count - 1] ^= 1
         try journal.write(to: files.appendingPathComponent("guiNDB.db-wal"))
         do {
-            _ = try await api.encodedResponse("/api/backup/restore", method: "POST", body: archive("damaged"))
+            _ = try await api.restoreBackup(archive("damaged"))
             XCTFail("A damaged commit must not be treated as a valid older checkpoint")
         } catch let e as ClientFailure { XCTAssertEqual(e.code, "backup_database_incompatible") }
         let retained = try await api.profileMetadata()
@@ -182,7 +182,7 @@ final class NativeBackupTests: XCTestCase {
         let restoredRoot = root.appendingPathComponent("clean")
         let host = NativeRuntimeHost(dataDirectory: restoredRoot, mayContactHelper: false, automaticMaintenance: false)
         let api = try await host.startClient()
-        _ = try await api.encodedResponse("/api/backup/restore", method: "POST", body: Data(contentsOf: zip))
+        _ = try await api.restoreBackup(Data(contentsOf: zip))
         let restored = NativeConfigurationStore(dataDirectory: restoredRoot)
         let files = try fm.contentsOfDirectory(atPath: restoredRoot.appendingPathComponent("guiConfigs").path)
         XCTAssertEqual(files.filter { $0.hasPrefix("v2raym-import-") }.count, 2)

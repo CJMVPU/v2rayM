@@ -152,7 +152,7 @@ final class CustomOutboundChainTests: XCTestCase {
         let host = NativeRuntimeHost(bundle: URL(fileURLWithPath: bundle), dataDirectory: root, mayContactHelper: false, automaticMaintenance: false)
         _ = try await host.startClient()
         do {
-            try await host.startTunCore()
+            try await host.startCore()
             try input.fileHandleForWriting.write(contentsOf: Data("run\n".utf8))
             let evidence = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
             peers.waitUntilExit()

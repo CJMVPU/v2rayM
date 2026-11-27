@@ -1,7 +1,7 @@
 import Foundation
 import Network
 
-enum NativeSpeedAction: String {
+public enum NativeSpeedAction: String, Sendable {
     case tcping, realping, fastrealping, udptest, speedtest, mixedtest
 }
 

@@ -1,5 +1,11 @@
 import Foundation
 
+public enum RoutingRuleEdit: Sendable {
+    case save(SettingsValue, append: Bool)
+    case move(id: String, direction: String, position: Int)
+    case delete(id: String)
+}
+
 extension NativeConfigurationStore {
     private func routeRow(_ id: String, in db: RuntimeDatabase) throws -> RuntimeDatabase.Row {
         guard let row = try db.query("SELECT * FROM RoutingItem WHERE Id=?", [.text(id)]).first else {
@@ -60,7 +66,7 @@ extension NativeConfigurationStore {
         return url
     }
 
-    func saveRoute(_ input: SettingsValue, id: String? = nil) throws -> SettingsValue {
+    func saveRoute(_ input: SettingsValue, id: String? = nil) throws -> String {
         let name = input["remarks"].text
         guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw ClientFailure("routing_name_required") }
         guard ["", "AsIs", "IPIfNonMatch", "IPOnDemand"].contains(input["domainStrategy"].text) else {
@@ -90,10 +96,10 @@ extension NativeConfigurationStore {
                 .text(try SettingsValue.array(rules).json()), .integer(Int64(rules.count)), .text(key)]
             _ = try db.query("UPDATE RoutingItem SET Remarks=?,Url=?,Enabled=?,Locked=?,CustomIcon=?,DomainStrategy=?,RuleSet=?,RuleNum=? WHERE Id=?", fields)
         }
-        return .object(["routingId": .string(key)])
+        return key
     }
 
-    func selectRoute(_ id: String, delete: Bool) throws -> SettingsValue {
+    func selectRoute(_ id: String, delete: Bool) throws {
         let db = try RuntimeDatabase(url: databaseURL, writable: true)
         try db.transaction {
             let row = try routeRow(id, in: db)
@@ -106,16 +112,9 @@ extension NativeConfigurationStore {
                 _ = try db.query("UPDATE RoutingItem SET IsActive=(Id=?)", [.text(id)])
             }
         }
-        return .object(["routingId": .string(id)])
     }
 
-    enum RuleEdit {
-        case save(SettingsValue, append: Bool)
-        case move(id: String, direction: String, position: Int)
-        case delete(id: String)
-    }
-
-    func editRules(_ routeID: String, edit: RuleEdit) throws -> SettingsValue {
+    func editRules(_ routeID: String, edit: RoutingRuleEdit) throws {
         let db = try RuntimeDatabase(url: databaseURL, writable: true)
         try db.transaction {
             let row = try routeRow(routeID, in: db)
@@ -145,6 +144,5 @@ extension NativeConfigurationStore {
             _ = try db.query("UPDATE RoutingItem SET RuleSet=?,RuleNum=? WHERE Id=?",
                              [.text(try SettingsValue.array(items).json()), .integer(Int64(items.count)), .text(routeID)])
         }
-        return .object(["routingId": .string(routeID)])
     }
 }

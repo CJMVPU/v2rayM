@@ -43,7 +43,89 @@ final class RuntimeQueryTests: XCTestCase {
         XCTAssertLessThan(start.duration(to: .now), .seconds(2))
     }
 
-    func testNativeProfileObservationsMatchCompatibilityReads() async throws {
+    func testCoreCommandsRejectAClosedHost() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let host = NativeRuntimeHost(dataDirectory: root, mayContactHelper: false, automaticMaintenance: false)
+        let client = try await host.startClient()
+        try await host.stop()
+        for command in [client.startCore, client.stopCore, client.restartCore] {
+            do { try await command(); XCTFail("Closed host accepted a core command") }
+            catch let error as ClientFailure { XCTAssertEqual(error.code, "backend_exited") }
+        }
+    }
+
+    func testActiveOperationsDistinguishesAnIdleHostFromAStoppedHost() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let host = NativeRuntimeHost(dataDirectory: directory, mayContactHelper: false, automaticMaintenance: false)
+        func assertUnavailable(_ client: any NativeAPI) async throws {
+            do {
+                _ = try await client.activeOperations()
+                XCTFail("An unavailable host must not report idle")
+            } catch let failure as ClientFailure {
+                XCTAssertEqual(failure.code, "backend_exited")
+            }
+        }
+        try await assertUnavailable(host)
+        let client = try await host.startClient()
+        let active = try await client.activeOperations()
+        XCTAssertTrue(active.isEmpty)
+        try await host.stop()
+        try await assertUnavailable(client)
+    }
+
+    func testNativeCommandsPreserveLiteralIDsAndSelectedGroupScope() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let host = NativeRuntimeHost(dataDirectory: root, mayContactHelper: false, automaticMaintenance: false)
+        try await host.start()
+        do {
+            let id = "node/华东?tag=A&B%2F#1"
+            let group = "group/?x=%25+#"
+            let db = try RuntimeDatabase(url: root.appendingPathComponent("guiConfigs/guiNDB.db"), writable: true)
+            _ = try db.query("INSERT INTO SubItem(Id,Remarks,Url) VALUES (?,?,?)",
+                             [.text(group), .text("Local"), .text("https://example.invalid/sub?a=1&b=2")])
+            _ = try db.query("INSERT INTO ProfileItem(IndexId,Remarks,Subid,ConfigType,Address,Port) VALUES (?,?,?,4,'127.0.0.1',1)",
+                             [.text(id), .text("Grouped"), .text(group)])
+            _ = try db.query("INSERT INTO ProfileItem(IndexId,Remarks,ConfigType,Address,Port) VALUES ('other','Other',4,'127.0.0.1',2)")
+            try await host.selectGroup(group)
+            try await host.selectProfile(id, connect: false)
+            let selected = try await host.runtimeStatus()
+            XCTAssertEqual(selected.currentProfileId, id)
+            XCTAssertFalse(selected.coreRunning)
+            let scoped = try await host.profiles(group: nil, search: nil, includeStatistics: false)
+            let all = try await host.profiles(group: "", search: nil)
+            XCTAssertEqual(scoped.map(\.id), [id])
+            XCTAssertEqual(Set(all.map(\.id)), [id, "other"])
+            let share = try await host.subscriptionShare(id: group)
+            XCTAssertEqual(share.id, group)
+            XCTAssertEqual(share.url, "https://example.invalid/sub?a=1&b=2")
+            let removal = try await host.deleteProfiles([id])
+            XCTAssertEqual(removal, ProfileRemovalResult(deleted: 1, coreRestarted: false, stoppedServing: false))
+        } catch { try await host.stop(); throw error }
+        try await host.stop()
+    }
+
+    func testClosedHostRejectsSettingsWritesLogReadsAndBackupExport() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let host = NativeRuntimeHost(dataDirectory: root, mayContactHelper: false, automaticMaintenance: false)
+        let client = try await host.startClient()
+        try await host.stop()
+        let calls: [() async throws -> Void] = [
+            { _ = try await client.settings() },
+            { try await client.saveSettings(.nativeTun, .object([:])) },
+            { _ = try await client.exportBackup() },
+            { _ = try await host.logPage(1, size: 10, filter: nil) }
+        ]
+        for call in calls {
+            do { try await call(); XCTFail("Closed host accepted an operation") }
+            catch let failure as ClientFailure { XCTAssertEqual(failure.code, "backend_exited") }
+        }
+    }
+
+    func testNativeProfileObservationsUseCurrentStatisticsPreference() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let host = NativeRuntimeHost(dataDirectory: directory, mayContactHelper: false, automaticMaintenance: false)
@@ -57,8 +139,7 @@ final class RuntimeQueryTests: XCTestCase {
             settings["GuiItem"]["EnableStatistics"] = .bool(enabled)
             try await store.writeSettings(settings)
             let typed = try await api.profileObservations()
-            let compatibility: [ProfileObservation] = try await api.value("/api/profiles/observations")
-            XCTAssertEqual(typed, compatibility)
+            XCTAssertEqual(typed.map(\.indexId), ["fixture"])
             XCTAssertEqual(typed.first?.delay, 26)
             XCTAssertEqual(typed.first?.totalDown, enabled ? 50 : 0)
         }

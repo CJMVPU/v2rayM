@@ -1,37 +1,30 @@
 import XCTest
 import SwiftUI
 import AppKit
-import V2rayMKit
+@testable import V2rayMKit
 @testable import V2rayM
 
 @MainActor final class UpdateLayoutTests: XCTestCase {
     func testUpdateStatesKeepPanelAndFollowingCardInPlace() throws {
         AppFont.register()
-        let states: [(String, String?, Bool, String?)] = [
+        let states: [(String, ModuleUpdateProgress?, Bool, String?)] = [
             ("idle", nil, false, nil),
             ("queued", nil, true, nil),
-            ("checking", "\"phase\":\"checking\"", true, nil),
-            ("downloading", "\"phase\":\"downloading\",\"downloadedBytes\":50,\"totalBytes\":100,\"version\":\"v26.11.9\"", true, nil),
-            ("unknown-length", "\"phase\":\"downloading\",\"downloadedBytes\":4587520,\"completedFiles\":1,\"totalFiles\":2", true, nil),
-            ("completed", "\"phase\":\"completed\",\"isComplete\":true,\"success\":true,\"version\":\"v26.11.9\",\"detail\":\"已安装同版本修复版，无需更新\"", false, nil),
-            ("failed", "\"phase\":\"failed\",\"isComplete\":true,\"detail\":\"下载失败：请检查连接。详细说明包含多行内容。\\n旧版本仍可继续使用。\"", false, nil),
-            ("validation", "\"phase\":\"awaiting-validation\",\"isComplete\":true,\"version\":\"v26.11.10-preview-long-version\"", false, nil),
+            ("checking", .init(phase: "checking"), true, nil),
+            ("downloading", .init(phase: "downloading", version: "20261127", downloadedBytes: 50, totalBytes: 100), true, nil),
+            ("unknown-length", .init(phase: "downloading", downloadedBytes: 4587520, completedFiles: 1, totalFiles: 2), true, nil),
+            ("completed", .init(phase: "completed", isComplete: true, success: true, version: "20261127", detail: "分流规则数据已更新"), false, nil),
+            ("failed", .init(phase: "failed", isComplete: true, detail: "下载失败：请检查连接。详细说明包含多行内容。\n旧版本仍可继续使用。"), false, nil),
+            ("waiting-to-apply", .init(phase: "waiting-to-apply", version: "20261127-long-version"), true, nil),
             ("service-error", nil, false, String(repeating: "后台恢复失败，请检查连接。", count: 15))
         ]
         var reference: CGFloat?
-        for (name, fields, active, error) in states {
+        for (name, progress, active, error) in states {
             let model = AppModel(dataDirectory: URL(fileURLWithPath: "/tmp/v2raym-layout-fixture"))
             model.ready = true
             model.moduleUpdateActive = active
-            model.moduleScope = active ? .geo : nil
             model.moduleUpdateError = error
-            if let fields {
-                var object: [String: Any] = ["coreType": "GeoFiles", "phase": "checking", "isComplete": false, "success": false, "batch": false]
-                let overrides = try XCTUnwrap(JSONSerialization.jsonObject(with: Data("{\(fields)}".utf8)) as? [String: Any])
-                object.merge(overrides) { _, new in new }
-                model.moduleObservation.progress = [try JSONDecoder().decode(ModuleUpdateProgress.self,
-                    from: JSONSerialization.data(withJSONObject: object))]
-            }
+            model.moduleObservation.progress = progress
             let host = NSHostingView(rootView: VStack(spacing: 12) {
                 ModuleUpdatePanel().environmentObject(model)
                 SettingsCard(title: "下一张卡片") { Text("位置保持不变") }

@@ -1,11 +1,5 @@
 import Foundation
 
-public struct APIEnvelope<Value: Decodable>: Decodable {
-    public var success: Bool
-    public var code: String?
-    public var messageKey: String?
-    public var data: Value?
-}
 public struct RuntimeStatus: Codable, Equatable {
     public var coreRunning: Bool
     public var currentProfileId: String?
@@ -87,44 +81,12 @@ public struct Subscription: Codable, Identifiable, Equatable {
     public var preSocksPort: Int?
     public var customCoreType: String?
 }
-/// Editing the basic fields retains the upstream subscription's advanced options.
-public struct SubscriptionInput: Encodable {
-    public var remarks: String
-    public var url: String
-    public var enabled: Bool
-    public var moreUrl: String?
-    public var filter: String?
-    public var autoUpdateInterval: Int
-    public var userAgent: String?
-    public var requestHeaders: String?
-    public var convertTarget: String?
-    public var memo: String?
-    public var sort: Int?
-    public var prevProfile: String?
-    public var nextProfile: String?
-    public var preSocksPort: Int?
-    public var customCoreType: String?
-    public init(name: String, url: String, enabled: Bool = true, existing: Subscription? = nil) {
-        remarks = name; self.url = url; self.enabled = enabled
-        moreUrl = existing?.moreUrl; filter = existing?.filter
-        autoUpdateInterval = existing?.autoUpdateInterval ?? 0
-        userAgent = existing?.userAgent; requestHeaders = existing?.requestHeaders
-        convertTarget = existing?.convertTarget; memo = existing?.memo; sort = existing?.sort
-        prevProfile = existing?.prevProfile; nextProfile = existing?.nextProfile
-        preSocksPort = existing?.preSocksPort; customCoreType = existing?.customCoreType
-    }
+public struct ProfileRemovalResult: Equatable, Sendable {
+    public let deleted: Int
+    public let coreRestarted: Bool
+    public let stoppedServing: Bool
 }
-public struct ImportInput: Encodable {
-    public var content: String
-    public var subscriptionId: String
-    public init(content: String, subscriptionId: String = "") {
-        self.content = content; self.subscriptionId = subscriptionId
-    }
-}
-public struct ProfileIDs: Encodable {
-    public var profileIds: [String]
-    public init(_ ids: [String]) { profileIds = ids }
-}
+
 public struct LogEntry: Codable, Identifiable, Equatable {
     public var timestamp: String
     public var source: String

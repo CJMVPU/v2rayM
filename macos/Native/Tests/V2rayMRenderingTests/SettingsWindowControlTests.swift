@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 import XCTest
 @testable import V2rayM
-import V2rayMKit
+@testable import V2rayMKit
 
 @MainActor final class SettingsWindowControlTests: XCTestCase {
     private func window<V: View>(_ content: V, height: CGFloat) async throws -> NSWindow {
@@ -57,14 +57,12 @@ import V2rayMKit
 
     func testBusinessButtonsShowTextAndRespondToEligibleClicks() async throws {
         var loginClicks = 0, updates = 0
-        let progress = try JSONDecoder().decode(ModuleUpdateProgress.self, from: Data("""
-            {"coreType":"GeoFiles","phase":"completed","detail":"测试详情","isComplete":true,"success":true,"batch":false}
-            """.utf8))
+        let progress = ModuleUpdateProgress(phase: "completed", isComplete: true, success: true, detail: "测试详情")
         for completed in [false, true] {
             let fixture = VStack(spacing: 12) {
                 LoginItemStatusRow(registered: .constant(true), requiresApproval: false, bundled: true,
                                    updating: false, openSettings: { loginClicks += 1 })
-                ModuleUpdateRow(id: "GeoFiles", progress: completed ? progress : nil, queued: false,
+                ModuleUpdateRow(progress: completed ? progress : nil, queued: false,
                                 disabled: false, update: { updates += 1 })
             }.padding(16)
             let window = try await window(fixture, height: 120)

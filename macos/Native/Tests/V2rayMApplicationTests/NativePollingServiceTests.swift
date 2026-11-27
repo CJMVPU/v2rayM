@@ -76,10 +76,10 @@ import V2rayMDomain
             XCTAssertEqual(runtime.calls.contains("begin"), observed == session)
         }
     }
-    func testModuleCompletionNeedsEveryTargetAndNoOwnedUpdateInFlight() {
-        XCTAssertFalse(NativeModuleUpdateCompletion.finished(starting: true, operations: [], targets: ["Xray"], terminalTargets: ["Xray"]))
-        XCTAssertFalse(NativeModuleUpdateCompletion.finished(starting: false, operations: ["geo-update"], targets: ["GeoFiles"], terminalTargets: ["GeoFiles"]))
-        XCTAssertFalse(NativeModuleUpdateCompletion.finished(starting: false, operations: [], targets: ["Xray", "GeoFiles"], terminalTargets: ["Xray"]))
-        XCTAssertTrue(NativeModuleUpdateCompletion.finished(starting: false, operations: ["unrelated"], targets: ["Xray"], terminalTargets: ["Xray", "GeoFiles"]))
+    func testModuleCompletionNeedsTerminalGeoProgressAndNoOwnedUpdateInFlight() {
+        XCTAssertFalse(NativeModuleUpdateCompletion.finished(starting: true, operations: [], geoUpdateComplete: true))
+        XCTAssertFalse(NativeModuleUpdateCompletion.finished(starting: false, operations: ["geo-update"], geoUpdateComplete: true))
+        XCTAssertFalse(NativeModuleUpdateCompletion.finished(starting: false, operations: [], geoUpdateComplete: false))
+        XCTAssertTrue(NativeModuleUpdateCompletion.finished(starting: false, operations: ["unrelated"], geoUpdateComplete: true))
     }
 }

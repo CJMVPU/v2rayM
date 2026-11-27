@@ -13,9 +13,9 @@ final class NativeMaintenanceTests: XCTestCase {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let host = NativeRuntimeHost(dataDirectory: root, mayContactHelper: false, automaticMaintenance: false)
-        let api = try await host.startClient()
+        try await host.start()
         do {
-            try await api.send("/api/core-updates/settings", method: "PUT", body: SettingsValue.object([
+            try await host.saveGeoPreferences(SettingsValue.object([
                 "selectedCoreTypes": .array([]), "useProxy": .bool(false)]))
             let store = NativeConfigurationStore(dataDirectory: root)
             var settings = try await store.readSettings()

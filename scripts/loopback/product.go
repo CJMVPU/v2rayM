@@ -2,6 +2,7 @@ package main
 
 import (
 	"archive/zip"
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/binary"
@@ -67,8 +68,50 @@ func noConfigLeft(root string) {
 	check(e)
 	require(len(files) == 0, "runtime configuration survived shutdown")
 }
+
+// Keep one CONNECT socket open across both starts. An HTTP client that silently
+// reconnects could otherwise hide an interrupted stream.
+func checkCoreContinuity(h *host, inbound, target int) {
+	conn, err := net.DialTimeout("tcp4", endpoint(inbound), 5*time.Second)
+	check(err)
+	defer conn.Close()
+	check(conn.SetDeadline(time.Now().Add(30 * time.Second)))
+	address := fmt.Sprintf("native-check.invalid:%d", target)
+	_, err = fmt.Fprintf(conn, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", address, address)
+	check(err)
+	reader := bufio.NewReader(conn)
+	response, err := http.ReadResponse(reader, &http.Request{Method: http.MethodConnect})
+	check(err)
+	require(response.StatusCode == 200, "CONNECT failed: %s", response.Status)
+	probe := func() {
+		_, err := fmt.Fprintf(conn, "GET /traffic HTTP/1.1\r\nHost: %s\r\n\r\n", address)
+		check(err)
+		reply, err := http.ReadResponse(reader, nil)
+		check(err)
+		defer reply.Body.Close()
+		body, err := io.ReadAll(reply.Body)
+		check(err)
+		require(reply.StatusCode == 200 && string(body) == "v2rayM-local-traffic-ok", "live stream probe failed")
+	}
+	command := func(name string) {
+		h.send(name)
+		select {
+		case reply := <-h.lines:
+			require(reply == name+" ok", "%s returned %q", name, reply)
+		case <-time.After(10 * time.Second):
+			check(fmt.Errorf("%s timed out", name))
+		}
+	}
+	probe()
+	for range 2 {
+		command("start")
+		probe()
+	}
+	command("restart")
+}
+
 func normalHost(root, app, checker string, inbound, peer, target int) {
-	data := filepath.Join(root, "data")
+	data := filepath.Join(root, "host-data")
 	folder := filepath.Join(data, "guiConfigs")
 	check(os.MkdirAll(folder, 0700))
 	s := baseSettings(app, inbound)
@@ -88,9 +131,11 @@ func normalHost(root, app, checker string, inbound, peer, target int) {
 		case <-time.After(30 * time.Second):
 			check(fmt.Errorf("native startup timeout"))
 		}
+		checkCoreContinuity(h, inbound, target)
 		body, e := getHTTP(fmt.Sprintf("http://native-check.invalid:%d/traffic", target), "http://"+endpoint(inbound))
 		check(e)
-		require(body == "v2rayM-local-traffic-ok", "normal host traffic mismatch")
+		require(body == "v2rayM-local-traffic-ok", "restarted host traffic mismatch")
+		fmt.Println("PASS repeated starts preserve an open CONNECT stream and restart forwards on a new session")
 	}()
 	require(exec.Command("/bin/ps", "-p", strconv.Itoa(h.cmd.Process.Pid)).Run() != nil, "child survived shutdown")
 	noConfigLeft(data)
@@ -338,11 +383,14 @@ func productSmoke(root, app, checker string, hostOnly bool) {
 	httpPeer.Start()
 	defer httpPeer.Close()
 	inbound := portBlock()
+	normalHost(root, app, checker, inbound, peer, target)
+	mu.Lock()
+	hostVisits := append([]string(nil), visits...)
+	visits = nil
+	mu.Unlock()
+	require(len(hostVisits) == 2 && hostVisits[0] == "native-check.invalid" && hostVisits[1] == "native-check.invalid",
+		"expected one upstream connection before restart and one after: %v", hostVisits)
 	if hostOnly {
-		normalHost(root, app, checker, inbound, peer, target)
-		mu.Lock()
-		defer mu.Unlock()
-		require(len(visits) == 1 && visits[0] == "native-check.invalid", "unexpected host traversals %v", visits)
 		return
 	}
 	// Bound UDP/TCP test listeners use only the loopback interface.

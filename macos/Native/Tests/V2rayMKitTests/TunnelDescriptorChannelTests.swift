@@ -5,10 +5,13 @@ import XCTest
 @testable import V2rayMKit
 
 /// Anonymous XPC exercises Foundation's real file-descriptor transport without a registered system service.
-private final class DescriptorFixture: NSObject, NSXPCListenerDelegate, TunHelperProtocol {
+final class DescriptorFixture: NSObject, NSXPCListenerDelegate, TunHelperProtocol {
     let reader: FileHandle
     let supportsTunnelDescriptor: Bool?
     private let lock = NSLock()
+    private var acceptedConnections = 0
+    private var statusRequests = 0
+    var probeCounts: [Int] { lock.withLock { [acceptedConnections, statusRequests] } }
     private var openReplies: [Data]
     private var receiptTokens: [String] = []
     private var cleanupReplies = [HelperResponse]()
@@ -34,6 +37,7 @@ private final class DescriptorFixture: NSObject, NSXPCListenerDelegate, TunHelpe
     }
 
     func listener(_ listener: NSXPCListener, shouldAcceptNewConnection connection: NSXPCConnection) -> Bool {
+        lock.withLock { acceptedConnections += 1 }
         connection.exportedInterface = NSXPCInterface(with: TunHelperProtocol.self)
         connection.exportedObject = self
         connection.resume()
@@ -48,6 +52,7 @@ private final class DescriptorFixture: NSObject, NSXPCListenerDelegate, TunHelpe
         switch request?.action {
         case "status":
             let held = lock.withLock { () -> XCTestExpectation? in
+                statusRequests += 1
                 guard let expectation = holdStatus else { return nil }
                 holdStatus = nil
                 delayedStatus = reply
@@ -84,6 +89,63 @@ final class TunnelDescriptorChannelTests: XCTestCase {
         let settings: SettingsValue = .object(["EnableIPv6Address": .bool(ipv6), "IPv6Address": .string("fd00:2::1/126")])
         let tun = try XrayInbound.tunnel(settings: settings, interface: "utun900", bindInterface: "", hasGlobalIPv6: true, sniffing: .object([:]))
         return .object(["inbounds": .array([tun])])
+    }
+
+    func testTypedStatusModesControlHelperWakeupAndProbeCaching() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = DescriptorFixture(reader: FileHandle.nullDevice)
+        let listener = NSXPCListener.anonymous()
+        listener.delegate = fixture
+        listener.resume()
+        defer { listener.invalidate() }
+        let helper = NativeHelperSession { callback in
+            NativeHelperChannel(connection: NSXPCConnection(listenerEndpoint: listener.endpoint), onDisconnect: callback)
+        }
+        let host = NativeRuntimeHost(dataDirectory: root, helper: helper)
+        let api = try await host.startClient()
+        for mode: TunStatusReadMode in [.normal, .normal, .fresh] {
+            let status = try await api.tunStatus(mode)
+            XCTAssertFalse(status.enabled)
+        }
+        XCTAssertEqual(fixture.probeCounts, [0, 0])
+        for count in 1...2 {
+            let status = try await api.tunStatus(.verifyHelper)
+            XCTAssertTrue(status.helperAvailable)
+            XCTAssertFalse(status.enabled)
+            XCTAssertEqual(fixture.probeCounts, [count, count])
+        }
+        // With no serving node, changing the intent probes capability but never opens a tunnel.
+        try await api.setTunEnabled(true)
+        try await api.setTunEnabled(true)
+        XCTAssertEqual(fixture.probeCounts, [3, 3])
+        XCTAssertTrue(fixture.plans.isEmpty)
+        let cached = try await api.tunStatus(.normal)
+        XCTAssertTrue(cached.enabled && cached.helperAvailable)
+        XCTAssertEqual(fixture.probeCounts, [3, 3])
+        let refreshed = try await api.tunStatus(.fresh)
+        XCTAssertTrue(refreshed.enabled && refreshed.helperAvailable)
+        XCTAssertEqual(fixture.probeCounts, [4, 4])
+        try await api.setTunEnabled(false)
+        try await api.setTunEnabled(false)
+        let disabled = try await api.tunStatus(.normal)
+        XCTAssertFalse(disabled.enabled)
+        try await host.stop()
+        for mode: TunStatusReadMode in [.normal, .fresh, .verifyHelper] {
+            do { _ = try await api.tunStatus(mode); XCTFail("Closed host accepted status read") }
+            catch let error as ClientFailure { XCTAssertEqual(error.code, "backend_exited") }
+        }
+        do { try await api.setTunEnabled(true); XCTFail("Closed host accepted a TUN write") }
+        catch let error as ClientFailure { XCTAssertEqual(error.code, "backend_exited") }
+        XCTAssertEqual(fixture.probeCounts, [4, 4])
+
+        let isolated = NativeRuntimeHost(dataDirectory: root, mayContactHelper: false, helper: helper)
+        let isolatedClient = try await isolated.startClient()
+        let status = try await isolatedClient.tunStatus(.verifyHelper)
+        XCTAssertEqual(status.helperCode, "helper_isolated")
+        XCTAssertFalse(status.enabled)
+        XCTAssertEqual(fixture.probeCounts, [4, 4])
+        try await isolated.stop()
     }
 
     func testReadOnlyKernelRouteSnapshotCanBeDecoded() throws {
@@ -158,7 +220,7 @@ final class TunnelDescriptorChannelTests: XCTestCase {
         try await session.stop()
     }
 
-    func testContradictoryReceiptsRetainOriginalTokenForRetry() async throws {
+    func testStopCoreCanRetryOriginalSessionAfterUnconfirmedStopAndRestart() async throws {
         let fixture = DescriptorFixture(reader: Pipe().fileHandleForReading)
         var forced = HelperResponse(code: "session_cleanup_confirmed", state: "stopped")
         forced.forced = true
@@ -169,15 +231,27 @@ final class TunnelDescriptorChannelTests: XCTestCase {
         let session = NativeHelperSession { callback in
             NativeHelperChannel(connection: NSXPCConnection(listenerEndpoint: listener.endpoint), onDisconnect: callback)
         }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let host = NativeRuntimeHost(dataDirectory: root, helper: session)
+        let api = try await host.startClient()
         let token = UUID()
         let (_, fd) = try await session.prepare(config: tunnelConfig(), token: token, onDisconnect: {})
         try fd.close()
-        for _ in 0..<2 {
-            do { try await session.stop(); XCTFail("Contradictory cleanup evidence") }
-            catch let error as ClientFailure { XCTAssertEqual(error.code, "tun_stop_unconfirmed") }
-        }
-        try await session.stop()
+        do { try await api.stopCore(); XCTFail("Forced cleanup must surface to the caller") }
+        catch let error as ClientFailure { XCTAssertEqual(error.code, "tun_stop_unconfirmed") }
+        let failed = try await api.runtimeStatus()
+        XCTAssertEqual(failed.runtimeFailure, "tun_stop_unconfirmed")
+        do { try await api.restartCore(); XCTFail("Restart launched before cleanup was confirmed") }
+        catch let error as ClientFailure { XCTAssertEqual(error.code, "tun_stop_unconfirmed") }
+        try await api.stopCore()
+        let stopped = try await api.runtimeStatus()
+        XCTAssertNil(stopped.runtimeFailure)
+        XCTAssertFalse(stopped.coreRunning)
+        XCTAssertEqual(stopped.runtimeState, "stopped")
+        try await api.stopCore()
         XCTAssertEqual(fixture.receipts, [String](repeating: token.uuidString, count: 3))
+        try await host.stop()
     }
 
     func testTransientObservationRecoversOnlyWithinItsSessionAndIgnoresLateReplies() {

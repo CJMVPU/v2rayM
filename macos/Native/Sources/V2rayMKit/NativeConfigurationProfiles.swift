@@ -1,6 +1,6 @@
 import Foundation
 
-enum CoreConfigurationProfile {
+public enum CoreConfigurationProfile: Sendable {
     case dns, template
     var table: ConfigurationTable { self == .dns ? .dns : .templates }
     var columns: [String] {
@@ -39,7 +39,7 @@ extension NativeConfigurationStore {
         }
     }
 
-    func saveCoreConfigurationProfile(_ kind: CoreConfigurationProfile, input: SettingsValue) throws -> SettingsValue {
+    func saveCoreConfigurationProfile(_ kind: CoreConfigurationProfile, input: SettingsValue) throws {
         try kind.validate(input)
         let db = try RuntimeDatabase(url: databaseURL, writable: true)
         try db.transaction {
@@ -62,6 +62,5 @@ extension NativeConfigurationStore {
             }
             _ = try db.query("UPDATE " + kind.table.rawValue + " SET " + fields.joined(separator: ",") + " WHERE Id=?", values + [id])
         }
-        return .object(["coreType": .string("Xray")])
     }
 }

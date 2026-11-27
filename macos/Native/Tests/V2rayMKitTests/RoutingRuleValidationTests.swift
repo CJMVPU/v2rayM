@@ -11,7 +11,7 @@ final class RoutingRuleValidationTests: XCTestCase {
         let valid = #"[{"Domain":["full:only.example"],"Port":"443","OutboundTag":"direct"}]"#
         let input = try SettingsValue.object(["remarks": .string("test"), "ruleSet": SettingsValue.parse(valid)])
         let route = try await store.saveRoute(input)
-        let id = route["routingId"].text
+        let id = route
         let original = try await store.routingRules(id: id)
 
         let invalid = #"[{"Domain":"full:only.example","Port":"443","OutboundTag":"direct"}]"#
@@ -24,7 +24,7 @@ final class RoutingRuleValidationTests: XCTestCase {
         for append in [true, false] {
             do {
                 let imported = try NativeConfigurationStore.parseRoutingRules(invalid)
-                _ = try await store.editRules(id, edit: .save(imported, append: append))
+                try await store.editRules(id, edit: .save(imported, append: append))
                 XCTFail("Accepted an invalid import")
             } catch let error as ClientFailure { XCTAssertEqual(error.code, "routing_rule_field_invalid") }
         }
@@ -38,7 +38,7 @@ final class RoutingRuleValidationTests: XCTestCase {
 
         let db = try RuntimeDatabase(url: root.appendingPathComponent("guiConfigs/guiNDB.db"), writable: true)
         _ = try db.query("UPDATE RoutingItem SET RuleSet=? WHERE Id=?", [.text(invalid), .text(id)])
-        _ = try await store.selectRoute(id, delete: false)
+        try await store.selectRoute(id, delete: false)
         let snapshot = try await store.configurationSnapshot()
         let config = snapshot.configuration
         XCTAssertThrowsError(try XrayRouting.generate(config: config.settings, profile: config.route, tunProcesses: nil) { tag, _ in tag })
