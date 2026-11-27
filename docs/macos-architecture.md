@@ -16,4 +16,4 @@
 - [DDD 边界](ddd-architecture.md)说明领域规则、应用用例和平台适配器各自的位置。
 - [TUN 助手](macos-tun-helper.md)说明服务注册、会话建立及恢复确认。
 - [主页与定位数据](connection-dashboard.md)说明流量采样、展示和离线资源。
-- [构建与验证](../README.md#构建与验证)列出签名构建、回环和本机验收入口。内核随 App 更新，GeoIP/GeoSite 数据可独立更新。
+- [构建与验证](build-and-test.md)列出签名构建、回环和本机验收入口。内核随 App 更新，GeoIP/GeoSite 数据可独立更新。
